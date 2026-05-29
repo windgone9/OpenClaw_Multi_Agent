@@ -3,6 +3,12 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -151,7 +157,7 @@ if check_port 8000; then
   log_ok "Python Scheduler (:8000) 已运行"
 else
   kill_port 8000
-  nohup python scheduler/main.py &>/tmp/openclaw-scheduler.log &
+  nohup ./venv/bin/python run.py &>/tmp/openclaw-scheduler.log &
   if wait_for_port 8000 10; then
     log_ok "Python Scheduler 启动成功"
     STARTED=$((STARTED + 1))
