@@ -1,0 +1,25 @@
+{
+  "name": "openclaw-multi-agent",
+  "version": "2026.4.27",
+  "description": "OpenClaw Multi-Agent Model Scheduler with Adaptive Routing",
+  "main": "bridge/orchestrator.mjs",
+  "type": "module",
+  "scripts": {
+    "bridge": "node bridge/orchestrator.mjs",
+    "bridge:dev": "node --watch bridge/orchestrator.mjs",
+    "scheduler": "python run.py",
+    "dev": "concurrently \"npm run bridge\" \"npm run scheduler\""
+  },
+  "keywords": ["openclaw", "multi-agent", "model-scheduler", "adaptive-routing"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "openclaw": "^2026.4.27",
+    "express": "^4.18.0",
+    "cors": "^2.8.5",
+    "node-fetch": "^3.3.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}

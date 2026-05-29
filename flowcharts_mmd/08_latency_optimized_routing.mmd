@@ -1,0 +1,17 @@
+flowchart TD
+    START[_route_latency_optimized] --> A[合并所有端点]
+    A --> B{有延迟数据?}
+    
+    B -->|是| C[按 avg_latency_ms 排序]
+    C --> D[选择最低延迟端点]
+    D --> E[fallback = 延迟排序前3个]
+    E --> F[返回 adaptive_latency_optimized]
+    
+    B -->|否| G[默认本地优先]
+    G --> H{本地可用?}
+    H -->|是| I[选择本地端点]
+    I --> F
+    H -->|否| J[选择云端端点]
+    J --> F
+
+    style F fill:#fff3e0

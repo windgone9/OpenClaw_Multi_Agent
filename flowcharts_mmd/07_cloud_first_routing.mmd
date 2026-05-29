@@ -1,0 +1,23 @@
+flowchart TD
+    START[_route_cloud_first_adaptive] --> A{云端端点可用?}
+    
+    A -->|是| B{request.type == TOOL_CALL?}
+    B -->|是| C{有工具支持端点?}
+    C -->|是| D[PriorityStrategy 选择工具端点]
+    D --> E[fallback = 云端其余 + 本地前1个]
+    E --> F[返回 adaptive_cloud_tool_call]
+    
+    C -->|否| G[PriorityStrategy 选择云端端点]
+    B -->|否| G
+    G --> H[fallback = 云端前2个 + 本地前1个]
+    H --> I[返回 adaptive_cloud_first]
+    
+    A -->|否| J{本地端点可用?}
+    J -->|是| K[LoadBalance 选择本地端点]
+    K --> L[返回 adaptive_cloud_first_local_fallback]
+    J -->|否| M[返回 adaptive_no_endpoint]
+
+    style F fill:#e3f2fd
+    style I fill:#e3f2fd
+    style L fill:#e8f5e9
+    style M fill:#ffebee

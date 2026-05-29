@@ -1,0 +1,42 @@
+flowchart TD
+    START[PriorityStrategy.select<br/>request, candidates] --> A[初始化 score=100.0<br/>对每个候选端点]
+    
+    A --> B["score -= (priority-1) × 15.0<br/>优先级扣分"]
+    B --> C["score -= load_factor × 20.0<br/>负载扣分"]
+    C --> D["score += success_rate × 10.0<br/>成功率加分"]
+    D --> E{延迟在约束内?}
+    E -->|是| F["score += (1-latency_ratio) × 15.0<br/>延迟加分"]
+    E -->|否| G["score -= 50.0<br/>延迟惩罚"]
+    
+    F --> H{约束匹配加分}
+    G --> H
+    
+    H --> H1{require_local + 本地?}
+    H1 -->|是| I1["+30.0"]
+    H1 -->|否| H2{require_local + 云端?}
+    H2 -->|是| I2["-100.0"]
+    H2 -->|否| H3
+    
+    H3{CRITICAL + 本地低延迟?}
+    H3 -->|是| I3["+20.0"]
+    H3 -->|否| H4{model_hint 匹配?}
+    H4 -->|名称匹配| I4["+25.0"]
+    H4 -->|模型ID匹配| I5["+20.0"]
+    H4 -->|否| H5{preferred_providers 匹配?}
+    H5 -->|是| I6["+20.0"]
+    H5 -->|否| H6{excluded_providers 匹配?}
+    H6 -->|是| I7["-100.0"]
+    H6 -->|否| J[最终评分]
+    
+    I1 --> J
+    I2 --> J
+    I3 --> J
+    I4 --> J
+    I5 --> J
+    I6 --> J
+    I7 --> J
+    
+    J --> K[按 score 降序排序]
+    K --> L[返回最高分端点]
+
+    style L fill:#e8f5e9

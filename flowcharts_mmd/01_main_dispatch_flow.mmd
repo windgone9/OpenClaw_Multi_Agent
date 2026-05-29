@@ -1,0 +1,39 @@
+flowchart TD
+    A[客户端请求<br/>POST /dispatch] --> B[MainDispatcherAgent.dispatch]
+    B --> C[执行 Pre-Hook 管道]
+    C --> D{use_openclaw?}
+    
+    D -->|是| E[_dispatch_openclaw<br/>OpenClaw 路径]
+    D -->|否| F[StrategyRouter.route<br/>传统路径]
+    
+    E --> E1[StrategyRouter.route<br/>获取 RoutingDecision]
+    E1 --> E2[OpenClawAgent.execute]
+    E2 --> E3{Bridge 调用成功?}
+    E3 -->|是| E4[返回 SUCCESS]
+    E3 -->|否| E5[降级到传统路径]
+    E5 --> F
+    
+    F --> F1[获取 agent<br/>local/cloud]
+    F1 --> F2[agent.execute<br/>主请求执行]
+    F2 --> F3{主请求成功?}
+    F3 -->|是| F4[记录成功结果<br/>fallback_results=null]
+    F3 -->|超时| F5[记录失败<br/>尝试 Fallback]
+    F3 -->|异常| F6[记录失败<br/>尝试 Fallback]
+    
+    F5 --> G[_try_fallbacks]
+    F6 --> G
+    G --> G1{有降级结果?}
+    G1 -->|是| G2[返回 PARTIAL]
+    G1 -->|否| G3[返回 TIMEOUT/FAILED]
+    
+    F4 --> H[执行 Post-Hook 管道]
+    E4 --> H
+    G2 --> H
+    G3 --> H
+    H --> I[返回 DispatchResponse]
+
+    style A fill:#e1f5fe
+    style I fill:#e8f5e9
+    style E fill:#fff3e0
+    style F fill:#f3e5f5
+    style G fill:#fce4ec

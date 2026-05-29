@@ -1,0 +1,24 @@
+flowchart TD
+    START[updateEndpointState<br/>modelId, latencyMs, success] --> A[totalRequests++]
+    A --> B{success?}
+    B -->|否| C[failedRequests++]
+    B -->|是| D[跳过]
+    C --> E{avgLatencyMs == 0?<br/>首次记录}
+    D --> E
+    
+    E -->|是| F["avgLatencyMs = latencyMs<br/>直接赋值"]
+    E -->|否| G["avgLatencyMs = 0.7 × old + 0.3 × new<br/>EMA α=0.3"]
+    
+    F --> H{success?}
+    G --> H
+    
+    H -->|是| I["successRate = 0.95 × old + 0.05 × 1.0<br/>EMA α=0.05"]
+    H -->|否| J["successRate = 0.95 × old + 0.05 × 0.0<br/>EMA α=0.05"]
+    
+    I --> DONE[更新完成]
+    J --> DONE
+
+    style F fill:#e3f2fd
+    style G fill:#fff3e0
+    style I fill:#e8f5e9
+    style J fill:#ffebee

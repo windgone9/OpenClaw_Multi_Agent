@@ -1,0 +1,44 @@
+flowchart TD
+    START[输入: DispatchRequest] --> C1{constraints.require_local?}
+    
+    C1 -->|是| S1[PRIVACY_FIRST]
+    C1 -->|否| C2{constraints.require_gpu?}
+    
+    C2 -->|是| S2[CAPABILITY_OPTIMIZED]
+    C2 -->|否| C3{constraints.preferred_providers<br/>且匹配云端端点?}
+    
+    C3 -->|是| S3[CLOUD_FIRST]
+    C3 -->|否| C4{request.type ∈<br/>tool_call/image/audio?}
+    
+    C4 -->|是| S4[CAPABILITY_OPTIMIZED]
+    C4 -->|否| C5{request.type == EMBEDDING?}
+    
+    C5 -->|是| S5[CAPABILITY_OPTIMIZED]
+    C5 -->|否| C6{priority ∈<br/>CRITICAL/HIGH?}
+    
+    C6 -->|是| S6[LATENCY_OPTIMIZED]
+    C6 -->|否| C7{priority ∈<br/>LOW/BACKGROUND?}
+    
+    C7 -->|是| S7[COST_OPTIMIZED]
+    C7 -->|否| C8{max_cost_per_request ≤ 0?}
+    
+    C8 -->|是| S8[COST_OPTIMIZED]
+    C8 -->|否| C9{max_latency_ms ≤ 1000?}
+    
+    C9 -->|是| S9[LATENCY_OPTIMIZED]
+    C9 -->|否| C10{context_length > 16000?}
+    
+    C10 -->|是| S10[CAPABILITY_OPTIMIZED]
+    C10 -->|否| S11[LOCAL_FIRST]
+
+    style S1 fill:#f44336,color:#fff
+    style S2 fill:#9c27b0,color:#fff
+    style S3 fill:#2196f3,color:#fff
+    style S4 fill:#9c27b0,color:#fff
+    style S5 fill:#9c27b0,color:#fff
+    style S6 fill:#ff9800,color:#fff
+    style S7 fill:#4caf50,color:#fff
+    style S8 fill:#4caf50,color:#fff
+    style S9 fill:#ff9800,color:#fff
+    style S10 fill:#9c27b0,color:#fff
+    style S11 fill:#607d8b,color:#fff

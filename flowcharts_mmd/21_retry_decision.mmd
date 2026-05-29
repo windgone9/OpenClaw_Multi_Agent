@@ -1,0 +1,12 @@
+flowchart TD
+    START[RetryDecisionHook.execute] --> A{finish_reason == error<br/>或 output 为空?}
+    A -->|否| B[清除重试计数<br/>返回 result]
+    A -->|是| C[获取 retry_count]
+    C --> D{retry_count < max_retries?<br/>默认2}
+    D -->|是| E[标记重试<br/>retry_count++]
+    D -->|否| F[超过最大重试<br/>清除计数]
+    E --> G[返回 result<br/>标记需重试]
+    F --> G
+
+    style B fill:#e8f5e9
+    style G fill:#fff3e0

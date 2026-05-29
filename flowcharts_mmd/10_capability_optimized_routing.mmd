@@ -1,0 +1,33 @@
+flowchart TD
+    START[_route_capability_optimized] --> A{request.type == TOOL_CALL?}
+    
+    A -->|是| B{云端有工具支持端点?}
+    B -->|是| C[PriorityStrategy 选择工具端点]
+    C --> D[fallback = 其余工具端点 + 本地]
+    D --> E[返回 adaptive_capability_tool_call]
+    B -->|否| F[降级到通用路由]
+    
+    A -->|否| G{context_length > 16000?}
+    G -->|是| H{云端有大上下文端点?}
+    H -->|是| I[选择大上下文端点]
+    I --> J[fallback = 其余大上下文端点]
+    J --> K[返回 adaptive_capability_long_context]
+    H -->|否| F
+    
+    G -->|否| L{特殊类型?<br/>EMBEDDING/IMAGE/AUDIO}
+    L -->|是| M[_route_specialized<br/>按标签匹配端点]
+    M --> N[返回 adaptive_specialized_xxx]
+    L -->|否| O{本地能力足够?}
+    O -->|是| P[Power-of-Two 选择本地端点]
+    P --> Q[fallback = 本地其余 + 云端前2个]
+    Q --> R[返回 adaptive_capability_local_sufficient]
+    O -->|否| S[PriorityStrategy 选择云端端点]
+    S --> T[返回 adaptive_capability_cloud]
+    
+    F --> O
+
+    style E fill:#e3f2fd
+    style K fill:#e3f2fd
+    style N fill:#f3e5f5
+    style R fill:#e8f5e9
+    style T fill:#e3f2fd

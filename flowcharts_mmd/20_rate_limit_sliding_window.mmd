@@ -1,0 +1,13 @@
+flowchart TD
+    START[RateLimitHook.execute] --> A[清理超过60秒的时间戳]
+    A --> B{全局请求数 > max_rpm?}
+    B -->|是| C[抛出 RuntimeError<br/>Global rate limit exceeded]
+    B -->|否| D{单appid请求数 > max_per_appid?}
+    D -->|是| E[抛出 RuntimeError<br/>App rate limit exceeded]
+    D -->|否| F[记录当前时间戳]
+    F --> G[记录 appid 时间戳]
+    G --> DONE[通过限流检查]
+
+    style C fill:#ffebee
+    style E fill:#ffebee
+    style DONE fill:#e8f5e9

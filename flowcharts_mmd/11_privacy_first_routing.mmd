@@ -1,0 +1,12 @@
+flowchart TD
+    START[_route_local<br/>adaptive_privacy_first] --> A{本地端点可用?}
+    
+    A -->|是| B[LoadBalance 选择本地端点]
+    B --> C[fallback = 本地其余端点]
+    C --> D[返回 RoutingDecision<br/>agent_type=local<br/>reason=Privacy constraint]
+    
+    A -->|否| E[降级到云端<br/>⚠️ 带警告]
+    E --> F[返回 RoutingDecision<br/>agent_type=cloud<br/>reason=No local available, degrading]
+
+    style D fill:#e8f5e9
+    style F fill:#ffebee

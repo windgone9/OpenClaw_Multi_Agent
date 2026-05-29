@@ -1,0 +1,11 @@
+flowchart TD
+    START[Power-of-Two 选择] --> A[从候选列表中<br/>随机选取2个端点]
+    A --> B{候选数 ≥ 2?}
+    B -->|是| C[比较 current_load]
+    B -->|仅1个| D[直接返回该端点]
+    B -->|无| E[返回 None]
+    C --> F[返回负载较低者]
+
+    style F fill:#e8f5e9
+    style D fill:#e8f5e9
+    style E fill:#ffebee

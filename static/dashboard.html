@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw 调度监控中心</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e1a;--card:#111827;--border:#1e293b;--border2:#334155;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--blue:#38bdf8;--blue2:#2563eb;--green:#4ade80;--green2:#059669;--yellow:#facc15;--red:#f87171;--purple:#a78bfa;--purple2:#7c3aed;--orange:#fb923c;--cyan:#22d3ee}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+.topbar{background:linear-gradient(135deg,#0f172a,#1e1b4b);padding:14px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar h1{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.topbar h1 .logo{font-size:22px}
+.topbar h1 span{background:linear-gradient(135deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .meta{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--text3)}
+.topbar .meta .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
+.topbar .meta .dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}
+.topbar .meta .dot.err{background:var(--red);box-shadow:0 0 6px var(--red)}
+.topbar .meta .dot.warn{background:var(--yellow);box-shadow:0 0 6px var(--yellow)}
+.main{display:grid;grid-template-columns:320px 1fr 380px;grid-template-rows:auto 1fr;gap:0;height:calc(100vh - 53px)}
+.panel{border-right:1px solid var(--border);overflow-y:auto;padding:16px}
+.panel:last-child{border-right:none}
+.panel-title{font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.panel-title .pt-icon{font-size:14px}
+.section{margin-bottom:20px}
+.section-title{font-size:12px;font-weight:600;color:var(--text3);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+.gauge-row{display:flex;gap:10px;margin-bottom:10px}
+.gauge{flex:1;background:var(--bg);border-radius:8px;padding:10px;text-align:center}
+.gauge .g-val{font-size:22px;font-weight:700}
+.gauge .g-val.c-blue{color:var(--blue)}
+.gauge .g-val.c-green{color:var(--green)}
+.gauge .g-val.c-yellow{color:var(--yellow)}
+.gauge .g-val.c-red{color:var(--red)}
+.gauge .g-lbl{font-size:10px;color:var(--text3);margin-top:2px}
+.model-card{background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:8px;border-left:3px solid var(--border2);position:relative}
+.model-card.local{border-left-color:var(--green)}
+.model-card.cloud{border-left-color:var(--blue)}
+.model-card .mc-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.model-card .mc-name{font-size:13px;font-weight:600}
+.model-card .mc-tag{font-size:10px;padding:2px 6px;border-radius:8px;font-weight:600}
+.model-card .mc-tag.local{background:#052e16;color:var(--green)}
+.model-card .mc-tag.cloud{background:#172554;color:var(--blue)}
+.model-card .mc-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;font-size:11px}
+.model-card .mc-metrics .mm-v{font-weight:600;color:var(--text)}
+.model-card .mc-metrics .mm-l{color:var(--text3);font-size:9px}
+.model-card .mc-bar{height:4px;background:var(--card);border-radius:2px;margin-top:6px;overflow:hidden}
+.model-card .mc-bar-fill{height:100%;border-radius:2px;transition:width .5s}
+.weight-bar{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px}
+.weight-bar .wb-label{width:40px;color:var(--text3)}
+.weight-bar .wb-track{flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden;position:relative}
+.weight-bar .wb-fill{height:100%;border-radius:4px;transition:width .5s}
+.weight-bar .wb-val{width:40px;text-align:right;font-weight:600;font-size:11px}
+.bridge-status{background:var(--bg);border-radius:8px;padding:10px;font-size:12px}
+.bridge-status .bs-row{display:flex;justify-content:space-between;margin-bottom:4px}
+.bridge-status .bs-key{color:var(--text3)}
+.bridge-status .bs-val{font-weight:600}
+.center-panel{display:flex;flex-direction:column;overflow:hidden}
+.center-top{padding:16px;border-bottom:1px solid var(--border)}
+.center-body{flex:1;overflow-y:auto;padding:16px}
+.req-form{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.req-form select,.req-form input{background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:7px 10px;font-size:12px;width:100%}
+.req-form select:focus,.req-form input:focus{outline:none;border-color:var(--blue)}
+.req-form textarea{grid-column:1/-1;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:13px;resize:vertical;min-height:50px;font-family:inherit}
+.req-form textarea:focus{outline:none;border-color:var(--blue)}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.btn{padding:7px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:4px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--blue2);color:#fff}
+.btn-primary:hover:not(:disabled){background:#1d4ed8}
+.btn-green{background:var(--green2);color:#fff}
+.btn-green:hover:not(:disabled){background:#047857}
+.btn-purple{background:var(--purple2);color:#fff}
+.btn-purple:hover:not(:disabled){background:#6d28d9}
+.btn-orange{background:#c2410c;color:#fff}
+.btn-orange:hover:not(:disabled){background:#9a3412}
+.btn-cyan{background:#0e7490;color:#fff}
+.btn-cyan:hover:not(:disabled){background:#155e75}
+.btn-ghost{background:var(--border2);color:var(--text)}
+.btn-ghost:hover:not(:disabled){background:#475569}
+.btn-sm{padding:5px 10px;font-size:11px}
+.dispatch-card{background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;overflow:hidden;animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.dc-header{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);cursor:pointer}
+.dc-header:hover{background:rgba(56,189,248,.03)}
+.dc-left{display:flex;align-items:center;gap:10px}
+.dc-id{font-size:11px;color:var(--text3);font-family:monospace}
+.dc-strategy{font-size:11px;padding:3px 8px;border-radius:6px;font-weight:600}
+.dc-strategy.local{background:#052e16;color:var(--green)}
+.dc-strategy.cloud{background:#172554;color:var(--blue)}
+.dc-strategy.privacy{background:#422006;color:var(--yellow)}
+.dc-strategy.capability{background:#2e1065;color:var(--purple)}
+.dc-strategy.agent{background:#312e81;color:var(--purple)}
+.dc-strategy.cost{background:#052e16;color:var(--green)}
+.dc-strategy.latency{background:#172554;color:var(--cyan)}
+.dc-model{font-size:12px;font-weight:600}
+.dc-right{display:flex;align-items:center;gap:10px}
+.dc-latency{font-size:12px;font-weight:600;color:var(--blue)}
+.dc-cost{font-size:11px;color:var(--text3)}
+.dc-status{font-size:11px;padding:3px 8px;border-radius:6px;font-weight:600}
+.dc-status.success{background:#052e16;color:var(--green)}
+.dc-status.failed{background:#450a0a;color:var(--red)}
+.dc-status.running{background:#172554;color:var(--blue)}
+.dc-body{padding:14px}
+.dc-body.collapsed{display:none}
+.dc-input{margin-bottom:12px}
+.dc-input .di-label{font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.dc-input .di-text{background:var(--bg);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text);border:1px solid var(--border)}
+.dc-output{margin-bottom:12px}
+.dc-output .do-label{font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.dc-output .do-text{background:var(--bg);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--text);border:1px solid var(--border);max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.trace-timeline{position:relative;padding-left:24px}
+.trace-timeline::before{content:'';position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--border)}
+.trace-step{position:relative;margin-bottom:6px;padding:6px 10px;border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;background:var(--bg)}
+.trace-step::before{content:'';position:absolute;left:-20px;top:50%;transform:translateY(-50%);width:10px;height:10px;border-radius:50%;border:2px solid var(--border2);background:var(--card)}
+.trace-step.hook::before{border-color:var(--purple);background:var(--purple)}
+.trace-step.router::before{border-color:var(--blue);background:var(--blue)}
+.trace-step.agent::before{border-color:var(--green);background:var(--green)}
+.trace-step.fallback::before{border-color:var(--orange);background:var(--orange)}
+.trace-step.result-ok::before{border-color:var(--green);background:var(--green)}
+.trace-step.result-err::before{border-color:var(--red);background:var(--red)}
+.trace-step .ts-agent{color:var(--text3);min-width:80px;font-weight:600}
+.trace-step .ts-msg{flex:1;color:var(--text2)}
+.trace-step .ts-time{color:var(--text3);font-size:10px;white-space:nowrap}
+.right-panel{background:#0d1117;overflow-y:auto;padding:16px}
+.log-container{background:var(--bg);border-radius:8px;padding:10px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:11px;line-height:1.6;max-height:calc(100vh - 200px);overflow-y:auto}
+.log-line{padding:1px 0;display:flex;gap:8px}
+.log-line .ll-time{color:var(--text3);min-width:70px}
+.log-line .ll-level{min-width:40px;font-weight:600}
+.log-line .ll-level.info{color:var(--blue)}
+.log-line .ll-level.ok{color:var(--green)}
+.log-line .ll-level.warn{color:var(--yellow)}
+.log-line .ll-level.err{color:var(--red)}
+.log-line .ll-msg{color:var(--text2);flex:1;word-break:break-all}
+.batch-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.batch-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:11px;cursor:pointer;transition:all .15s}
+.batch-item:hover{border-color:var(--blue)}
+.batch-item.selected{border-color:var(--blue);background:rgba(56,189,248,.05)}
+.batch-item .bi-name{font-weight:600;margin-bottom:4px}
+.batch-item .bi-desc{color:var(--text3);font-size:10px}
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pulse{animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
+.empty-state .es-icon{font-size:32px;margin-bottom:8px}
+.tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;margin-right:4px;font-weight:600}
+.tag-local{background:#052e16;color:var(--green)}
+.tag-cloud{background:#172554;color:var(--blue)}
+.tag-tool{background:#2e1065;color:var(--purple)}
+.tag-privacy{background:#422006;color:var(--yellow)}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#475569}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1><span class="logo">🐾</span> <span>OpenClaw 调度监控中心</span></h1>
+  <div class="meta">
+    <span><span class="dot" id="dot-scheduler"></span> Scheduler</span>
+    <span><span class="dot" id="dot-bridge"></span> Bridge</span>
+    <span id="version-tag" style="color:var(--purple)">v2026.4.27</span>
+    <span id="clock" style="color:var(--text3)"></span>
+  </div>
+</div>
+
+<div class="main">
+  <!-- LEFT: Resource Monitor -->
+  <div class="panel" style="background:#0d1117">
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">📊</span> 系统资源</div>
+      <div class="gauge-row">
+        <div class="gauge"><div class="g-val c-green" id="g-cpu">0%</div><div class="g-lbl">CPU</div></div>
+        <div class="gauge"><div class="g-val c-blue" id="g-mem">0%</div><div class="g-lbl">内存</div></div>
+      </div>
+      <div class="gauge-row">
+        <div class="gauge"><div class="g-val c-yellow" id="g-total">0</div><div class="g-lbl">总请求</div></div>
+        <div class="gauge"><div class="g-val c-green" id="g-success">0</div><div class="g-lbl">成功</div></div>
+        <div class="gauge"><div class="g-val c-red" id="g-failed">0</div><div class="g-lbl">失败</div></div>
+      </div>
+      <div class="gauge-row">
+        <div class="gauge"><div class="g-val c-blue" id="g-avglat">0ms</div><div class="g-lbl">平均延迟</div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">🤖</span> 模型状态</div>
+      <div id="models-list"></div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">⚖️</span> 自适应权重</div>
+      <div class="weight-bar">
+        <span class="wb-label">🟢 本地</span>
+        <div class="wb-track"><div class="wb-fill" id="w-local" style="width:60%;background:var(--green)"></div></div>
+        <span class="wb-val" id="w-local-v">0.60</span>
+      </div>
+      <div class="weight-bar">
+        <span class="wb-label">☁️ 云端</span>
+        <div class="wb-track"><div class="wb-fill" id="w-cloud" style="width:40%;background:var(--blue)"></div></div>
+        <span class="wb-val" id="w-cloud-v">0.40</span>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:6px">
+        本地连续成功: <span id="w-ls">0</span> | 云端连续成功: <span id="w-cs">0</span><br>
+        本地连续失败: <span id="w-lf">0</span> | 云端连续失败: <span id="w-cf">0</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">🌉</span> Bridge 状态</div>
+      <div class="bridge-status" id="bridge-info">
+        <div class="bs-row"><span class="bs-key">状态</span><span class="bs-val" id="bs-status">-</span></div>
+        <div class="bs-row"><span class="bs-key">Gateway路由</span><span class="bs-val" id="bs-gateway-routing">-</span></div>
+        <div class="bs-row"><span class="bs-key">本地模型</span><span class="bs-val" id="bs-local">-</span></div>
+        <div class="bs-row"><span class="bs-key">云端模型</span><span class="bs-val" id="bs-cloud">-</span></div>
+        <div class="bs-row"><span class="bs-key">策略</span><span class="bs-val" id="bs-strategy">-</span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">🚪</span> Gateway 状态</div>
+      <div class="bridge-status" id="gateway-info">
+        <div class="bs-row"><span class="bs-key">自定义Gateway</span><span class="bs-val" id="gw-status">-</span></div>
+        <div class="bs-row"><span class="bs-key">注册模型</span><span class="bs-val" id="gw-models">-</span></div>
+        <div class="bs-row"><span class="bs-key">注册Agent</span><span class="bs-val" id="gw-agents">-</span></div>
+        <div style="margin-top:6px;display:flex;gap:6px">
+          <button id="btn-gw-start" onclick="startService('gateway')" style="display:none;flex:1;padding:5px 8px;border:none;border-radius:4px;background:var(--green);color:#fff;cursor:pointer;font-size:11px;font-weight:600">▶ 启动</button>
+          <button id="btn-gw-stop" onclick="stopService('gateway')" style="display:none;flex:1;padding:5px 8px;border:none;border-radius:4px;background:var(--red);color:#fff;cursor:pointer;font-size:11px;font-weight:600">■ 停止</button>
+        </div>
+      </div>
+      <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+        <div class="bridge-status" id="official-gw-info">
+          <div class="bs-row"><span class="bs-key">官方Gateway</span><span class="bs-val" id="official-gw-status">-</span></div>
+          <div class="bs-row"><span class="bs-key">端口</span><span class="bs-val" id="official-gw-port">3005</span></div>
+          <div class="bs-row"><span class="bs-key">Console</span><span class="bs-val" id="official-gw-console">-</span></div>
+          <div style="margin-top:6px;display:flex;gap:6px">
+            <button id="btn-ogw-start" onclick="startService('officialGateway')" style="display:none;flex:1;padding:5px 8px;border:none;border-radius:4px;background:var(--green);color:#fff;cursor:pointer;font-size:11px;font-weight:600">▶ 启动</button>
+            <button id="btn-ogw-stop" onclick="stopService('officialGateway')" style="display:none;flex:1;padding:5px 8px;border:none;border-radius:4px;background:var(--red);color:#fff;cursor:pointer;font-size:11px;font-weight:600">■ 停止</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">🤖</span> Agent Souls</div>
+      <div id="agent-souls-list" style="font-size:11px"></div>
+    </div>
+  </div>
+
+  <!-- CENTER: Dispatch & Results -->
+  <div class="center-panel">
+    <div class="center-top">
+      <div class="panel-title"><span class="pt-icon">🚀</span> 发送调度请求</div>
+      <div class="req-form" id="req-form">
+        <select id="f-appid">
+          <option value="demo-app">demo-app</option>
+          <option value="test-001">test-001</option>
+          <option value="prod-app">prod-app</option>
+        </select>
+        <select id="f-type">
+          <option value="chat">💬 Chat</option>
+          <option value="completion">✏️ Completion</option>
+          <option value="tool_call">🔧 Tool Call</option>
+          <option value="embedding">📐 Embedding</option>
+        </select>
+        <select id="f-priority">
+          <option value="1">🔴 CRITICAL</option>
+          <option value="2">🟠 HIGH</option>
+          <option value="3" selected>🟢 NORMAL</option>
+          <option value="4">🔵 LOW</option>
+          <option value="5">⚪ BACKGROUND</option>
+        </select>
+        <select id="f-constraint">
+          <option value="">⚡ 自动调度</option>
+          <option value="local">🏠 强制本地</option>
+          <option value="kimi">🌙 指定 Kimi</option>
+          <option value="deepseek">🔍 指定 DeepSeek</option>
+          <option value="lowcost">💰 最低成本</option>
+          <option value="lowlatency">⚡ 最低延迟</option>
+        </select>
+        <select id="f-route" onchange="onRouteChange()">
+          <option value="smart" selected>🧠 Smart (智能路由)</option>
+          <option value="direct">🐍 Python直连 (快速)</option>
+          <option value="bridge">🌉 Bridge→Gateway (轻量)</option>
+          <option value="agent">🤖 Bridge→Agent (Agent链路)</option>
+        </select>
+        <select id="f-agent" style="display:none">
+          <option value="">⚡ 自动选择Agent</option>
+          <option value="local-dispatcher">🏠 local-dispatcher</option>
+          <option value="cloud-dispatcher">☁️ cloud-dispatcher</option>
+          <option value="code-executor">🔧 code-executor</option>
+          <option value="main">🤖 main (默认)</option>
+        </select>
+        <textarea id="f-prompt" rows="2" placeholder="输入提示词...">用一句话介绍量子计算</textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="sendSingle()" id="btn-send">⚡ 发送请求</button>
+        <button class="btn btn-green" onclick="runBatchTest()" id="btn-batch">🧪 批量测试</button>
+        <button class="btn btn-purple" onclick="runDualPathTest()" id="btn-dual">🔀 双路径对比</button>
+        <button class="btn btn-cyan" onclick="runTriPathTest()" id="btn-tripath">🎯 三路径对比</button>
+        <button class="btn btn-orange" onclick="runToolCallTest()" id="btn-toolcall">🔧 Tool Call测试</button>
+        <button class="btn btn-ghost btn-sm" onclick="clearResults()">🗑 清空结果</button>
+      </div>
+    </div>
+    <div class="center-body" id="results-area">
+      <div class="empty-state" id="empty-hint">
+        <div class="es-icon">🐾</div>
+        <div>发送请求或运行批量测试，查看 OpenClaw 调度全过程</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Live Log -->
+  <div class="right-panel">
+    <div class="panel-title"><span class="pt-icon">📋</span> 实时调度日志</div>
+    <div class="log-container" id="log-box"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+const SCHEDULER_URL = 'http://localhost:8000';
+const BRIDGE_URL = 'http://localhost:3001';
+let dispatchCounter = 0;
+const allResults = [];
+
+function log(level, msg) {
+  const box = document.getElementById('log-box');
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="ll-time">${ts}</span><span class="ll-level ${level}">${level.toUpperCase()}</span><span class="ll-msg">${msg}</span>`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setDot(id, ok) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'dot ' + (ok ? 'ok' : 'err');
+}
+
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('zh-CN');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, opts);
+  return res.json();
+}
+
+async function refreshResources() {
+  try {
+    const res = await fetch(SCHEDULER_URL + '/stats', { signal: AbortSignal.timeout(3000) });
+    const s = await res.json();
+    document.getElementById('g-cpu').textContent = s.system.cpu_percent + '%';
+    document.getElementById('g-cpu').className = 'g-val ' + (s.system.cpu_percent < 60 ? 'c-green' : s.system.cpu_percent < 85 ? 'c-yellow' : 'c-red');
+    document.getElementById('g-mem').textContent = s.system.memory_percent + '%';
+    document.getElementById('g-mem').className = 'g-val ' + (s.system.memory_percent < 60 ? 'c-blue' : s.system.memory_percent < 85 ? 'c-yellow' : 'c-red');
+    document.getElementById('g-total').textContent = s.requests.total;
+    document.getElementById('g-success').textContent = s.requests.success;
+    document.getElementById('g-failed').textContent = s.requests.failed;
+    document.getElementById('g-avglat').textContent = s.requests.avg_latency_ms + 'ms';
+    setDot('scheduler', true);
+  } catch(e) {
+    setDot('scheduler', false);
+  }
+}
+
+async function refreshModels() {
+  try {
+    const res = await fetch(SCHEDULER_URL + '/models', { signal: AbortSignal.timeout(3000) });
+    const models = await res.json();
+    const c = document.getElementById('models-list');
+    c.innerHTML = models.map(m => {
+      const loadPct = Math.round(m.load_factor * 100);
+      const loadColor = loadPct < 60 ? 'var(--green)' : loadPct < 85 ? 'var(--yellow)' : 'var(--red)';
+      return `<div class="model-card ${m.model_type}">
+        <div class="mc-row">
+          <span class="mc-name">${m.display_name || m.name}</span>
+          <span class="mc-tag ${m.model_type}">${m.model_type === 'local' ? '🏠 本地' : '☁️ 云端'}</span>
+        </div>
+        <div class="mc-metrics">
+          <div><div class="mm-v">${m.current_load}/${m.max_concurrent}</div><div class="mm-l">并发</div></div>
+          <div><div class="mm-v">${m.avg_latency_ms}ms</div><div class="mm-l">延迟</div></div>
+          <div><div class="mm-v">${(m.success_rate * 100).toFixed(0)}%</div><div class="mm-l">成功率</div></div>
+        </div>
+        <div class="mc-bar"><div class="mc-bar-fill" style="width:${loadPct}%;background:${loadColor}"></div></div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+async function refreshAdaptive() {
+  try {
+    const res = await fetch(SCHEDULER_URL + '/openclaw/adaptive/state', { signal: AbortSignal.timeout(3000) });
+    const s = await res.json();
+    const lp = Math.round(s.adaptive_weights.local * 100);
+    const cp = Math.round(s.adaptive_weights.cloud * 100);
+    document.getElementById('w-local').style.width = lp + '%';
+    document.getElementById('w-local-v').textContent = s.adaptive_weights.local.toFixed(2);
+    document.getElementById('w-cloud').style.width = cp + '%';
+    document.getElementById('w-cloud-v').textContent = s.adaptive_weights.cloud.toFixed(2);
+    document.getElementById('w-ls').textContent = s.local_success_streak;
+    document.getElementById('w-cs').textContent = s.cloud_success_streak;
+    document.getElementById('w-lf').textContent = s.local_fail_streak;
+    document.getElementById('w-cf').textContent = s.cloud_fail_streak;
+  } catch(e) {}
+}
+
+async function refreshBridge() {
+  try {
+    const res = await fetch(BRIDGE_URL + '/health', { signal: AbortSignal.timeout(5000) });
+    const h = await res.json();
+    document.getElementById('bs-status').innerHTML = `<span style="color:var(--green)">✓ ${h.status}</span>`;
+    document.getElementById('bs-gateway-routing').innerHTML = h.gateway_routing
+      ? '<span style="color:var(--purple)">✓ 已启用</span>'
+      : '<span style="color:var(--yellow)">✗ 直连模式</span>';
+    document.getElementById('bs-local').textContent = h.local_models;
+    document.getElementById('bs-cloud').textContent = h.cloud_models;
+    document.getElementById('bs-strategy').textContent = h.strategy || 'adaptive';
+    setDot('bridge', h.status === 'healthy');
+  } catch(e) {
+    document.getElementById('bs-status').innerHTML = `<span style="color:var(--red)">✗ 不可达</span>`;
+    document.getElementById('bs-gateway-routing').textContent = '?';
+    setDot('bridge', false);
+  }
+}
+
+async function refreshGateway() {
+  let reachable = false;
+  try {
+    const res = await fetch('http://localhost:3000/health', { signal: AbortSignal.timeout(3000) });
+    const h = await res.json();
+    document.getElementById('gw-status').innerHTML = `<span style="color:var(--green)">✓ ${h.status}</span>`;
+    document.getElementById('gw-models').textContent = h.models_registered || '?';
+    document.getElementById('gw-agents').textContent = h.agents_registered || '?';
+    reachable = true;
+  } catch(e) {
+    document.getElementById('gw-status').innerHTML = `<span style="color:var(--red)">✗ 不可达</span>`;
+    document.getElementById('gw-models').textContent = '-';
+    document.getElementById('gw-agents').textContent = '-';
+  }
+  updateServiceButtons('gateway', reachable);
+}
+
+async function refreshAgentSouls() {
+  try {
+    const res = await fetch(BRIDGE_URL + '/agents/souls');
+    const data = await res.json();
+    const container = document.getElementById('agent-souls-list');
+    if (!data.agents || data.agents.length === 0) {
+      container.innerHTML = '<div style="color:var(--text3)">No agents loaded</div>';
+      return;
+    }
+    container.innerHTML = data.agents.map(a => {
+      const isDefault = a.is_default ? ' <span style="color:var(--yellow)">★</span>' : '';
+      return `<div style="background:var(--bg);border-radius:6px;padding:6px 8px;margin-bottom:4px;border-left:3px solid var(--purple)">
+        <div style="font-weight:600;color:var(--purple)">${a.soul_name}${isDefault}</div>
+        <div style="color:var(--text3);font-size:9px">${a.soul_personality}</div>
+        <div style="color:var(--text2);font-size:9px;margin-top:2px">Model: ${a.primary_model}</div>
+        <div style="color:var(--text3);font-size:9px">Steps: ${a.execution_steps?.join('→') || '-'}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('agent-souls-list').innerHTML = '<div style="color:var(--red)">✗ 不可达</div>';
+  }
+}
+
+async function refreshOfficialGateway() {
+  let reachable = false;
+  try {
+    const res = await fetch(BRIDGE_URL + '/health', { signal: AbortSignal.timeout(5000) });
+    const data = await res.json();
+    const gwUrl = data.official_gateway_url || '';
+    reachable = !!data.official_gateway_reachable;
+    if (reachable) {
+      document.getElementById('official-gw-status').innerHTML = '<span style="color:var(--green)">✓ 运行中</span>';
+      document.getElementById('official-gw-console').innerHTML = '<a href="' + gwUrl + '" target="_blank" style="color:var(--blue)">打开Console →</a>';
+    } else if (gwUrl) {
+      document.getElementById('official-gw-status').innerHTML = '<span style="color:var(--red)">✗ 未启动</span>';
+      document.getElementById('official-gw-console').textContent = '-';
+    } else {
+      document.getElementById('official-gw-status').innerHTML = '<span style="color:var(--yellow)">⚠ 未配置</span>';
+      document.getElementById('official-gw-console').textContent = '-';
+    }
+  } catch(e) {
+    document.getElementById('official-gw-status').innerHTML = '<span style="color:var(--red)">✗ 不可达</span>';
+    document.getElementById('official-gw-console').textContent = '-';
+  }
+  updateServiceButtons('officialGateway', reachable);
+}
+
+function updateServiceButtons(service, reachable) {
+  const prefix = service === 'gateway' ? 'btn-gw' : 'btn-ogw';
+  const startBtn = document.getElementById(prefix + '-start');
+  const stopBtn = document.getElementById(prefix + '-stop');
+  if (reachable) {
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'block';
+  } else {
+    startBtn.style.display = 'block';
+    stopBtn.style.display = 'none';
+  }
+}
+
+async function startService(service) {
+  const label = service === 'gateway' ? '自定义Gateway' : '官方Gateway';
+  const prefix = service === 'gateway' ? 'btn-gw' : 'btn-ogw';
+  const startBtn = document.getElementById(prefix + '-start');
+  startBtn.disabled = true;
+  startBtn.textContent = '⏳ 启动中...';
+  try {
+    const res = await fetch(BRIDGE_URL + '/services/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service }),
+    });
+    const data = await res.json();
+    if (data.started) {
+      log('ok', `▶ ${label} 启动中 (pid=${data.pid})`);
+      setTimeout(() => {
+        if (service === 'gateway') refreshGateway();
+        else refreshOfficialGateway();
+      }, 3000);
+    } else {
+      log('warn', `${label}: ${data.message}`);
+    }
+  } catch(e) {
+    log('err', `${label} 启动失败: ${e.message}`);
+  } finally {
+    startBtn.disabled = false;
+    startBtn.textContent = '▶ 启动';
+  }
+}
+
+async function stopService(service) {
+  const label = service === 'gateway' ? '自定义Gateway' : '官方Gateway';
+  const prefix = service === 'gateway' ? 'btn-gw' : 'btn-ogw';
+  const stopBtn = document.getElementById(prefix + '-stop');
+  stopBtn.disabled = true;
+  stopBtn.textContent = '⏳ 停止中...';
+  try {
+    const res = await fetch(BRIDGE_URL + '/services/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service }),
+    });
+    const data = await res.json();
+    if (data.stopped) {
+      log('ok', `■ ${label} 已停止 (pid=${data.pid})`);
+    } else {
+      log('warn', `${label}: ${data.message}`);
+    }
+    setTimeout(() => {
+      if (service === 'gateway') refreshGateway();
+      else refreshOfficialGateway();
+    }, 2000);
+  } catch(e) {
+    log('err', `${label} 停止失败: ${e.message}`);
+  } finally {
+    stopBtn.disabled = false;
+    stopBtn.textContent = '■ 停止';
+  }
+}
+
+const SAMPLE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "get_weather",
+      description: "Get the current weather for a location",
+      parameters: {
+        type: "object",
+        properties: {
+          location: { type: "string", description: "City name, e.g. Beijing" },
+          unit: { type: "string", enum: ["celsius", "fahrenheit"], description: "Temperature unit" }
+        },
+        required: ["location"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_web",
+      description: "Search the web for information",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          num_results: { type: "integer", description: "Number of results to return" }
+        },
+        required: ["query"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "execute_code",
+      description: "Execute Python code and return the output",
+      parameters: {
+        type: "object",
+        properties: {
+          code: { type: "string", description: "Python code to execute" },
+          timeout: { type: "integer", description: "Execution timeout in seconds" }
+        },
+        required: ["code"]
+      }
+    }
+  }
+];
+
+function buildRequestBody(constraint) {
+  const body = {
+    appid: document.getElementById('f-appid').value,
+    type: document.getElementById('f-type').value,
+    prompt: document.getElementById('f-prompt').value.trim(),
+    priority: parseInt(document.getElementById('f-priority').value),
+  };
+  if (body.type === 'tool_call') {
+    body.tools = SAMPLE_TOOLS;
+  }
+  if (constraint === 'local') {
+    body.constraints = { require_local: true };
+  } else if (constraint === 'kimi') {
+    body.constraints = { preferred_providers: ['moonshot'] };
+  } else if (constraint === 'deepseek') {
+    body.constraints = { preferred_providers: ['deepseek'] };
+  } else if (constraint === 'lowcost') {
+    body.constraints = { max_cost_per_request: 0 };
+  } else if (constraint === 'lowlatency') {
+    body.constraints = { max_latency_ms: 500 };
+  }
+  return body;
+}
+
+function extractStrategy(trace) {
+  if (!trace) return { name: 'unknown', agent: 'unknown' };
+  for (const t of trace) {
+    if (t.message && t.message.includes('strategy=')) {
+      const m = t.message.match(/agent=(\w+).*strategy=(\S+)/);
+      if (m) return { agent: m[1], name: m[2] };
+    }
+  }
+  return { name: 'unknown', agent: 'unknown' };
+}
+
+function getStrategyClass(name) {
+  if (!name) return '';
+  if (name.includes('privacy')) return 'privacy';
+  if (name.includes('capability') || name.includes('tool')) return 'capability';
+  if (name.includes('cost')) return 'cost';
+  if (name.includes('latency')) return 'latency';
+  if (name.includes('local')) return 'local';
+  if (name.includes('cloud')) return 'cloud';
+  if (name.includes('agent')) return 'agent';
+  return '';
+}
+
+function renderTraceCard(data) {
+  const strategy = extractStrategy(data.agent_trace);
+  const stratClass = getStrategyClass(strategy.name);
+  const isOk = data.status === 'success';
+  const result = data.result || {};
+  const modelType = result.model_type || 'unknown';
+  const modelTag = modelType === 'local' ? 'tag-local' : 'tag-cloud';
+
+  let html = `<div class="dispatch-card" id="dc-${data.request_id}">`;
+  html += `<div class="dc-header" onclick="toggleCard('${data.request_id}')">`;
+  html += `<div class="dc-left">`;
+  html += `<span class="dc-id">#${data.request_id?.slice(0,8) || '?'}</span>`;
+  html += `<span class="dc-strategy ${stratClass}">${strategy.name.replace('adaptive_','')}</span>`;
+  html += `<span class="tag ${modelTag}">${modelType}</span>`;
+  if (result.routed_via_gateway && result.openclaw_official) {
+    html += `<span class="tag" style="background:#4c1d95;color:var(--purple)">🦞 OpenClaw官方</span>`;
+  } else if (result.routed_via_gateway) {
+    html += `<span class="tag" style="background:#312e81;color:var(--purple)">🌉 Gateway</span>`;
+  } else if (data.is_agent_chain) {
+    html += `<span class="tag" style="background:#4c1d95;color:var(--purple)">🤖 Agent链路</span>`;
+  } else if (data.is_bridge) {
+    html += `<span class="tag" style="background:#1e3a5f;color:var(--blue)">🌉 Bridge</span>`;
+  } else {
+    html += `<span class="tag" style="background:#052e16;color:var(--green)">🐍 直连</span>`;
+  }
+  if (data.has_tool_call || result.finish_reason === 'tool_calls') {
+    html += `<span class="tag tag-tool">🔧 tool_calls</span>`;
+  }
+  if (data.is_smart && data.smart_routing) {
+    const sr = data.smart_routing;
+    const scoreColor = sr.score >= sr.threshold ? 'var(--red)' : 'var(--green)';
+    const routeIcon = sr.decision === 'agent' ? '🤖' : '🌉';
+    html += `<span class="tag" style="background:#1a1a2e;color:${scoreColor};font-size:10px">🧠 ${sr.score}/${sr.threshold} → ${routeIcon} ${sr.decision}</span>`;
+  }
+  html += `<span class="dc-model">${result.model_name || '-'}</span>`;
+  if (result.actual_model) html += `<span style="color:var(--text3);font-size:10px;margin-left:4px">(${result.actual_model})</span>`;
+  html += `</div>`;
+  html += `<div class="dc-right">`;
+  if (data.total_latency_ms) html += `<span class="dc-latency">${data.total_latency_ms}ms</span>`;
+  if (result.cost !== null && result.cost !== undefined) html += `<span class="dc-cost">$${result.cost}</span>`;
+  html += `<span class="dc-status ${isOk ? 'success' : 'failed'}">${isOk ? '✓ 成功' : '✗ 失败'}</span>`;
+  html += `</div></div>`;
+
+  html += `<div class="dc-body" id="dc-body-${data.request_id}">`;
+
+  html += `<div class="dc-input"><div class="di-label">📥 输入</div><div class="di-text">`;
+  html += `<span class="tag ${modelTag}">${data.appid}</span> `;
+  html += `<span class="tag" style="background:var(--border2);color:var(--text2)">${data.type || 'chat'}</span> `;
+  html += `<span class="tag" style="background:var(--border2);color:var(--text2)">P${data.priority || 3}</span><br>`;
+  if (data.constraints) html += `<span style="color:var(--yellow);font-size:10px">约束: ${JSON.stringify(data.constraints)}</span><br>`;
+  html += `${escapeHtml(data.prompt || '')}`;
+  html += `</div></div>`;
+
+  if (isOk && result.output) {
+    html += `<div class="dc-output"><div class="do-label">📤 输出 <span style="color:var(--text3);font-weight:400">(${result.usage?.total_tokens || '?'} tokens, ${result.latency_ms || '?'}ms)</span>`;
+    if (result.finish_reason === 'tool_calls') {
+      html += ` <span class="tag tag-tool">🔧 tool_calls</span>`;
+    }
+    html += `</div><div class="do-text">${escapeHtml(result.output)}</div></div>`;
+  }
+
+  if (data.fallback_results && data.fallback_results.length > 0) {
+    html += `<div class="dc-output"><div class="do-label">🔄 Fallback 结果</div>`;
+    data.fallback_results.forEach((fb, i) => {
+      const fbType = fb.model_type === 'local' ? 'tag-local' : 'tag-cloud';
+      html += `<div style="margin-bottom:4px"><span class="tag ${fbType}">${fb.model_name}</span> <span style="color:var(--text3);font-size:10px">${fb.latency_ms}ms $${fb.cost || 0}</span></div>`;
+      html += `<div class="do-text" style="max-height:60px;font-size:11px;margin-bottom:4px">${escapeHtml(fb.output || '').slice(0,200)}</div>`;
+    });
+    html += `</div>`;
+  }
+
+  if (data.is_smart && data.smart_routing) {
+    const sr = data.smart_routing;
+    const scoreColor = sr.score >= sr.threshold ? 'var(--red)' : 'var(--green)';
+    html += `<div style="margin-top:8px"><div class="di-label">🧠 Smart Router 决策</div>`;
+    html += `<div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px">`;
+    html += `<div style="margin-bottom:4px"><b>评分:</b> <span style="color:${scoreColor};font-weight:700">${sr.score}</span> / 阈值 ${sr.threshold} → <b>${sr.decision === 'agent' ? '🤖 Agent' : '🌉 Gateway'}</b></div>`;
+    html += `<div style="margin-bottom:4px"><b>原因:</b> ${escapeHtml(sr.reason)}</div>`;
+    html += `<div style="margin-bottom:4px"><b>预计延迟:</b> ${sr.estimated_latency}</div>`;
+    html += `<div style="color:var(--text3)"><b>评分明细:</b> ${escapeHtml(sr.breakdown)}</div>`;
+    html += `</div></div>`;
+  }
+
+  if (data.agent_trace && data.agent_trace.length > 0) {
+    html += `<div style="margin-top:8px"><div class="di-label">🔗 调度链路</div><div class="trace-timeline">`;
+    data.agent_trace.forEach(t => {
+      let stepClass = '';
+      if (t.agent.includes('hook')) stepClass = 'hook';
+      else if (t.agent.includes('router')) stepClass = 'router';
+      else if (t.agent.includes('fallback')) stepClass = 'fallback';
+      else if (t.agent.includes('agent') || t.agent.includes('local') || t.agent.includes('cloud') || t.agent.includes('openclaw')) stepClass = 'agent';
+      else if (t.message && t.message.includes('调度完成')) stepClass = 'result-ok';
+      else if (t.message && t.message.includes('失败')) stepClass = 'result-err';
+
+      const shortMsg = t.message.length > 100 ? t.message.slice(0, 100) + '...' : t.message;
+      html += `<div class="trace-step ${stepClass}">`;
+      html += `<span class="ts-agent">${t.agent}</span>`;
+      html += `<span class="ts-msg">${escapeHtml(shortMsg)}</span>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  if (data.hooks_applied && data.hooks_applied.length > 0) {
+    html += `<div style="margin-top:8px;font-size:10px;color:var(--text3)">Hooks: ${data.hooks_applied.join(', ')}</div>`;
+  }
+
+  if (data.execution_context) {
+    const ec = data.execution_context;
+    html += `<div style="margin-top:10px;padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">`;
+    html += `<div style="font-size:11px;font-weight:700;color:var(--purple);margin-bottom:6px">🤖 Agent 执行上下文</div>`;
+    html += `<div style="font-size:10px;color:var(--text2);margin-bottom:4px">Agent: <span style="color:var(--purple)">${ec.soul_name}</span> (${ec.soul_personality})</div>`;
+    html += `<div style="font-size:10px;color:var(--text2);margin-bottom:6px">状态: <span style="color:${ec.status === 'completed' ? 'var(--green)' : 'var(--red)'}">${ec.status}</span> | 步骤: ${ec.steps_completed}/${ec.steps_total} | 总耗时: ${ec.total_duration_ms}ms</div>`;
+    if (ec.steps && ec.steps.length > 0) {
+      html += `<div style="display:grid;grid-template-columns:1fr 60px 60px;gap:2px;font-size:10px">`;
+      html += `<div style="color:var(--text3);font-weight:600">步骤</div><div style="color:var(--text3);font-weight:600">状态</div><div style="color:var(--text3);font-weight:600">耗时</div>`;
+      ec.steps.forEach(s => {
+        const sColor = s.status === 'completed' ? 'var(--green)' : s.status === 'failed' ? 'var(--red)' : 'var(--yellow)';
+        html += `<div style="color:var(--text2)">${s.step}</div><div style="color:${sColor}">${s.status}</div><div style="color:var(--text2)">${s.duration_ms}ms</div>`;
+      });
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function toggleCard(id) {
+  const body = document.getElementById('dc-body-' + id);
+  if (body) body.classList.toggle('collapsed');
+}
+
+async function sendRequest(body, label) {
+  dispatchCounter++;
+  const rid = 'req-' + dispatchCounter;
+  log('info', `[${rid}] → 发送请求: type=${body.type}, priority=${body.priority}, constraint=${JSON.stringify(body.constraints || {})}`);
+  log('info', `[${rid}]   prompt: "${body.prompt.slice(0, 60)}${body.prompt.length > 60 ? '...' : ''}"`);
+
+  const emptyHint = document.getElementById('empty-hint');
+  if (emptyHint) emptyHint.remove();
+
+  const area = document.getElementById('results-area');
+  const placeholder = document.createElement('div');
+  placeholder.className = 'dispatch-card';
+  placeholder.id = rid;
+  placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-strategy">${label}</span><span class="dc-model" style="color:var(--blue)"><span class="spinner"></span> 调度中...</span></div><div class="dc-right"><span class="dc-status running">⏳ 运行中</span></div></div>`;
+  area.insertBefore(placeholder, area.firstChild);
+
+  const startTime = Date.now();
+
+  try {
+    const res = await fetch(SCHEDULER_URL + '/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    const elapsed = Date.now() - startTime;
+    data.prompt = body.prompt;
+    data.constraints = body.constraints;
+    data.type = body.type;
+    data.priority = body.priority;
+
+    const strategy = extractStrategy(data.agent_trace);
+    const isOk = data.status === 'success';
+
+    log('ok', `[${rid}] ✓ 调度完成: strategy=${strategy.name}, model=${data.result?.model_name || '-'}, latency=${data.total_latency_ms || elapsed}ms`);
+
+    if (data.agent_trace) {
+      data.agent_trace.forEach(t => {
+        const lvl = t.message.includes('failed') || t.message.includes('Failed') ? 'warn' : 'info';
+        log(lvl, `[${rid}]   [${t.agent}] ${t.message.slice(0, 120)}`);
+      });
+    }
+
+    if (data.fallback_results && data.fallback_results.length > 0) {
+      log('info', `[${rid}]   Fallback: ${data.fallback_results.map(f => f.model_name + '(' + f.latency_ms + 'ms)').join(', ')}`);
+    }
+
+    allResults.push(data);
+    placeholder.outerHTML = renderTraceCard(data);
+  } catch(e) {
+    log('err', `[${rid}] ✗ 请求失败: ${e.message}`);
+    placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-model" style="color:var(--red)">请求失败: ${e.message}</span></div><div class="dc-right"><span class="dc-status failed">✗ 失败</span></div></div>`;
+  }
+
+  refreshResources();
+  refreshModels();
+  refreshAdaptive();
+}
+
+async function sendSingle() {
+  const prompt = document.getElementById('f-prompt').value.trim();
+  if (!prompt) return;
+  const route = document.getElementById('f-route').value;
+  const btn = document.getElementById('btn-send');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 调度中';
+
+  if (route === 'smart') {
+    const constraint = document.getElementById('f-constraint').value;
+    const body = buildRequestBody(constraint);
+    body.route_mode = 'smart';
+    await sendBridgeRequest(body, '🧠 Smart');
+  } else if (route === 'agent') {
+    const agentId = document.getElementById('f-agent').value;
+    const constraint = document.getElementById('f-constraint').value;
+    const body = buildRequestBody(constraint);
+    body.route_mode = 'agent';
+    if (agentId) body.agent_id = agentId;
+    await sendBridgeRequest(body, '🤖 Agent链路');
+  } else if (route === 'bridge') {
+    const constraint = document.getElementById('f-constraint').value;
+    const body = buildRequestBody(constraint);
+    await sendBridgeRequest(body, 'Bridge→Gateway');
+  } else {
+    const constraint = document.getElementById('f-constraint').value;
+    const body = buildRequestBody(constraint);
+    await sendRequest(body, constraint || 'auto');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '⚡ 发送请求';
+}
+
+function onRouteChange() {
+  const route = document.getElementById('f-route').value;
+  const agentSel = document.getElementById('f-agent');
+  agentSel.style.display = route === 'agent' ? '' : 'none';
+  if (route === 'smart') {
+    log('info', '🧠 Smart模式: 根据请求复杂度自动选择 Gateway(快) 或 Agent(强), 阈值=40分');
+  }
+}
+
+async function sendAgentRequest(agentId, prompt, label) {
+  dispatchCounter++;
+  const rid = 'req-' + dispatchCounter;
+  log('info', `[${rid}] → Agent请求: agent=${agentId}, prompt="${prompt.slice(0, 40)}..."`);
+
+  const emptyHint = document.getElementById('empty-hint');
+  if (emptyHint) emptyHint.remove();
+
+  const area = document.getElementById('results-area');
+  const placeholder = document.createElement('div');
+  placeholder.className = 'dispatch-card';
+  placeholder.id = rid;
+  placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-strategy agent">${label}</span><span class="dc-model" style="color:var(--purple)"><span class="spinner"></span> Agent处理中...</span></div><div class="dc-right"><span class="dc-status running">⏳ 运行中</span></div></div>`;
+  area.insertBefore(placeholder, area.firstChild);
+
+  const startTime = Date.now();
+
+  try {
+    const res = await fetch(API + '/openclaw/agent/' + agentId + '/message?prompt=' + encodeURIComponent(prompt) + '&timeout_ms=120000', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    const data = await res.json();
+    const elapsed = Date.now() - startTime;
+
+    const isOk = data.status === 'success';
+    const result = data.result || {};
+
+    log(isOk ? 'ok' : 'err', `[${rid}] ${isOk ? '✓' : '✗'} Agent ${agentId}: model=${data.used_model || '-'}, latency=${result.latency_ms || elapsed}ms, gateway=${result.routed_via_gateway || false}`);
+
+    const cardData = {
+      request_id: rid,
+      appid: 'agent-' + agentId,
+      status: isOk ? 'success' : 'failed',
+      result: {
+        model_name: result.model_name || data.used_model || agentId,
+        model_type: result.model_type || 'cloud',
+        output: result.output || data.error || '',
+        latency_ms: result.latency_ms || elapsed,
+        cost: result.cost,
+        usage: result.usage,
+        routed_via_gateway: result.routed_via_gateway || false,
+        actual_model: result.actual_model || null,
+      },
+      agent_trace: [
+        { agent: 'bridge', message: 'Routed via Bridge → Gateway' },
+        { agent: agentId, message: `Agent ${agentId} processed, model=${data.used_model || '-'}, fallback=${data.fallback || false}` },
+      ],
+      prompt: prompt,
+      type: 'agent',
+      priority: '-',
+      total_latency_ms: elapsed,
+    };
+
+    allResults.push(cardData);
+    placeholder.outerHTML = renderTraceCard(cardData);
+  } catch(e) {
+    log('err', `[${rid}] ✗ Agent请求失败: ${e.message}`);
+    placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-model" style="color:var(--red)">请求失败: ${e.message}</span></div><div class="dc-right"><span class="dc-status failed">✗ 失败</span></div></div>`;
+  }
+
+  refreshResources();
+}
+
+async function sendBridgeRequest(body, label) {
+  dispatchCounter++;
+  const rid = 'req-' + dispatchCounter;
+  const bridgeUrl = BRIDGE_URL + '/dispatch';
+  log('info', `[${rid}] → Bridge请求: type=${body.type}, priority=${body.priority}, tools=${body.tools ? body.tools.length : 0}`);
+  log('info', `[${rid}]   prompt: "${body.prompt.slice(0, 60)}${body.prompt.length > 60 ? '...' : ''}"`);
+
+  const emptyHint = document.getElementById('empty-hint');
+  if (emptyHint) emptyHint.remove();
+
+  const area = document.getElementById('results-area');
+  const placeholder = document.createElement('div');
+  placeholder.className = 'dispatch-card';
+  placeholder.id = rid;
+  const isToolCall = body.type === 'tool_call' && body.tools;
+  const strategyClass = isToolCall ? 'capability' : 'cloud';
+  const waitText = isToolCall ? 'Bridge+Tools调度中...' : 'Bridge调度中...';
+  placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-strategy ${strategyClass}">🌉 ${label}</span><span class="dc-model" style="color:var(--purple)"><span class="spinner"></span> ${waitText}</span></div><div class="dc-right"><span class="dc-status running">⏳ 运行中</span></div></div>`;
+  area.insertBefore(placeholder, area.firstChild);
+
+  const startTime = Date.now();
+
+  try {
+    const res = await fetch(bridgeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    const elapsed = Date.now() - startTime;
+
+    const isOk = data.status === 'success';
+    const result = data.result || {};
+    const finishReason = result.finish_reason || (isOk ? 'stop' : '?');
+    const hasToolCall = finishReason === 'tool_calls' || (result.output && result.output.includes('[Tool Call]'));
+
+    log(isOk ? 'ok' : 'err', `[${rid}] ${isOk ? '✓' : '✗'} Bridge: model=${result.model_name || '-'}, gateway=${result.routed_via_gateway || false}, finish=${finishReason}, latency=${result.latency_ms || elapsed}ms`);
+
+    if (data.agent_trace) {
+      data.agent_trace.forEach(t => {
+        const lvl = t.message.includes('failed') || t.message.includes('Failed') ? 'warn' : 'info';
+        log(lvl, `[${rid}]   [${t.agent}] ${t.message.slice(0, 120)}`);
+      });
+    }
+
+    const cardData = {
+      request_id: rid,
+      appid: body.appid || 'bridge-test',
+      status: isOk ? 'success' : 'failed',
+      result: {
+        model_name: result.model_name || '-',
+        model_type: result.model_type || 'cloud',
+        output: result.output || '',
+        latency_ms: result.latency_ms || elapsed,
+        cost: result.cost,
+        usage: result.usage,
+        routed_via_gateway: result.routed_via_gateway || false,
+        actual_model: result.actual_model || null,
+        finish_reason: finishReason,
+      },
+      agent_trace: data.agent_trace || [],
+      execution_context: data.execution_context || null,
+      prompt: body.prompt,
+      type: body.type,
+      priority: body.priority,
+      total_latency_ms: elapsed,
+      strategy_name: data.strategy_name || data.routing_decision?.strategy_name || '-',
+      is_bridge: true,
+      is_agent_chain: body.route_mode === 'agent' || data.smart_routing?.decision === 'agent',
+      is_smart: body.route_mode === 'smart',
+      smart_routing: data.smart_routing || null,
+      has_tool_call: hasToolCall,
+    };
+
+    allResults.push(cardData);
+    placeholder.outerHTML = renderTraceCard(cardData);
+  } catch(e) {
+    log('err', `[${rid}] ✗ Bridge请求失败: ${e.message}`);
+    placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-model" style="color:var(--red)">请求失败: ${e.message}</span></div><div class="dc-right"><span class="dc-status failed">✗ 失败</span></div></div>`;
+  }
+
+  refreshResources();
+  refreshModels();
+  refreshAdaptive();
+}
+
+async function runDualPathTest() {
+  const btn = document.getElementById('btn-dual');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 对比测试中';
+
+  const prompt = document.getElementById('f-prompt').value.trim() || '用一句话介绍量子计算';
+  const appid = document.getElementById('f-appid').value;
+
+  log('info', '══════ 双路径对比测试开始 ══════');
+  log('info', '▶ 路径1: Python直连 (FastAPI /dispatch)');
+  await sendRequest({ appid, type: 'chat', prompt, priority: 3 }, '🐍 Python直连');
+
+  await new Promise(r => setTimeout(r, 500));
+
+  log('info', '▶ 路径2: Bridge→Gateway (Bridge /dispatch, route_mode=gateway)');
+  await sendBridgeRequest({ appid, type: 'chat', prompt, priority: 3, route_mode: 'gateway' }, 'Bridge→Gateway');
+
+  log('ok', '══════ 双路径对比测试完成 ══════');
+  btn.disabled = false;
+  btn.innerHTML = '🔀 双路径对比';
+  refreshResources();
+}
+
+async function runTriPathTest() {
+  const btn = document.getElementById('btn-tripath');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 三路径对比中';
+
+  const prompt = document.getElementById('f-prompt').value.trim() || '用一句话介绍量子计算';
+  const appid = document.getElementById('f-appid').value;
+
+  log('info', '══════ 四路径对比测试开始 ══════');
+
+  log('info', '▶ 路径1/4: Python直连 (FastAPI /dispatch)');
+  await sendRequest({ appid, type: 'chat', prompt, priority: 3 }, '🐍 Python直连');
+
+  await new Promise(r => setTimeout(r, 500));
+
+  log('info', '▶ 路径2/4: Bridge→Gateway (轻量路由, route_mode=gateway)');
+  await sendBridgeRequest({ appid, type: 'chat', prompt, priority: 3, route_mode: 'gateway' }, '🌉 Bridge→Gateway');
+
+  await new Promise(r => setTimeout(r, 500));
+
+  log('info', '▶ 路径3/4: Bridge→Agent (Agent链路, route_mode=agent)');
+  await sendBridgeRequest({ appid, type: 'chat', prompt, priority: 3, route_mode: 'agent' }, '🤖 Bridge→Agent');
+
+  await new Promise(r => setTimeout(r, 500));
+
+  log('info', '▶ 路径4/4: Smart智能路由 (route_mode=smart, 自动选择)');
+  await sendBridgeRequest({ appid, type: 'chat', prompt, priority: 3, route_mode: 'smart' }, '🧠 Smart');
+
+  log('ok', '══════ 四路径对比测试完成 ══════');
+  btn.disabled = false;
+  btn.innerHTML = '🎯 四路径对比';
+  refreshResources();
+}
+
+async function runToolCallTest() {
+  const btn = document.getElementById('btn-toolcall');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Tool Call测试中';
+
+  const appid = document.getElementById('f-appid').value;
+
+  log('info', '══════ Tool Call 专项测试开始 ══════');
+  log('info', '测试5种场景: Python直连+tools / Bridge+tools / Bridge+Agent+tools / Bridge无tools降级 / Python无tools降级');
+
+  log('info', '▶ 场景1: Python直连 + tools (路由到 supports_tools=true 的模型)');
+  await sendRequest({
+    appid,
+    type: 'tool_call',
+    prompt: '今天北京天气怎么样？请调用天气查询工具。',
+    priority: 3,
+    tools: SAMPLE_TOOLS,
+    tool_choice: 'auto',
+  }, 'tool-call-direct');
+
+  await new Promise(r => setTimeout(r, 800));
+
+  log('info', '▶ 场景2: Bridge + tools (Bridge路由到工具支持模型)');
+  await sendBridgeRequest({
+    appid,
+    type: 'tool_call',
+    prompt: '请搜索最新的AI新闻',
+    priority: 3,
+    tools: SAMPLE_TOOLS,
+    tool_choice: 'auto',
+    route_mode: 'gateway',
+  }, 'Bridge+Tools');
+
+  await new Promise(r => setTimeout(r, 800));
+
+  log('info', '▶ 场景3: Bridge + Agent + tools (Agent链路处理tool_call)');
+  await sendBridgeRequest({
+    appid,
+    type: 'tool_call',
+    prompt: '请帮我执行一段Python代码计算斐波那契数列',
+    priority: 3,
+    tools: SAMPLE_TOOLS,
+    tool_choice: 'auto',
+    route_mode: 'agent',
+    agent_id: 'cloud-dispatcher',
+  }, '🤖 Agent+Tools');
+
+  await new Promise(r => setTimeout(r, 800));
+
+  log('info', '▶ 场景4: Bridge + tool_call 但不传 tools (降级到普通chat)');
+  await sendBridgeRequest({
+    appid,
+    type: 'tool_call',
+    prompt: '请帮我计算 2+2 等于多少',
+    priority: 3,
+  }, 'Bridge无Tools降级');
+
+  await new Promise(r => setTimeout(r, 800));
+
+  log('info', '▶ 场景5: Python直连 + tool_call 不传 tools (降级到普通chat)');
+  await sendRequest({
+    appid,
+    type: 'tool_call',
+    prompt: '请帮我计算 3+5 等于多少',
+    priority: 3,
+  }, 'tool-call-no-tools');
+
+  log('ok', '══════ Tool Call 专项测试完成 ══════');
+  btn.disabled = false;
+  btn.innerHTML = '🔧 Tool Call测试';
+  refreshResources();
+}
+
+async function runBatchTest() {
+  const btn = document.getElementById('btn-batch');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 批量测试中';
+
+  const prompt = document.getElementById('f-prompt').value.trim() || '介绍一下人工智能';
+  const appid = document.getElementById('f-appid').value;
+
+  const testCases = [
+    { label: 'auto-chat', body: { appid, type: 'chat', prompt, priority: 3 }, bridge: false },
+    { label: 'tool-call-direct', body: { appid, type: 'tool_call', prompt: '请调用搜索工具查询: ' + prompt, priority: 3, tools: SAMPLE_TOOLS, tool_choice: 'auto' }, bridge: false },
+    { label: 'tool-call-bridge', body: { appid, type: 'tool_call', prompt: '请调用天气工具查询北京天气', priority: 3, tools: SAMPLE_TOOLS, tool_choice: 'auto', route_mode: 'gateway' }, bridge: true },
+    { label: 'tool-call-agent', body: { appid, type: 'tool_call', prompt: '请搜索最新的AI新闻', priority: 3, tools: SAMPLE_TOOLS, tool_choice: 'auto', route_mode: 'agent' }, bridge: true },
+    { label: 'privacy-local', body: { appid, type: 'chat', prompt: '处理敏感数据: ' + prompt, priority: 3, constraints: { require_local: true } }, bridge: false },
+    { label: 'low-cost', body: { appid, type: 'chat', prompt: '后台任务: ' + prompt, priority: 5 }, bridge: false },
+    { label: 'high-priority', body: { appid, type: 'chat', prompt: '紧急: ' + prompt, priority: 1 }, bridge: false },
+    { label: 'smart-simple', body: { appid, type: 'chat', prompt: '1+1=?', priority: 3, route_mode: 'smart' }, bridge: true },
+    { label: 'smart-complex', body: { appid, type: 'tool_call', prompt: '请分析并比较三种方案的优劣', priority: 2, tools: SAMPLE_TOOLS, tool_choice: 'auto', route_mode: 'smart' }, bridge: true },
+    { label: 'smart-keyword', body: { appid, type: 'chat', prompt: '请设计一个多步骤的自主执行计划来优化系统性能', priority: 3, route_mode: 'smart' }, bridge: true },
+  ];
+
+  log('info', `══════ 批量测试开始 (${testCases.length}种策略) ══════`);
+
+  for (let i = 0; i < testCases.length; i++) {
+    const tc = testCases[i];
+    log('info', `▶ 测试 ${i+1}/${testCases.length}: ${tc.label}${tc.bridge ? ' [Bridge]' : ' [直连]'}`);
+    if (tc.bridge) {
+      await sendBridgeRequest(tc.body, tc.label);
+    } else {
+      await sendRequest(tc.body, tc.label);
+    }
+    if (i < testCases.length - 1) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  log('ok', `══════ 批量测试完成 (${testCases.length}种策略) ══════`);
+  btn.disabled = false;
+  btn.innerHTML = `🧪 批量测试 (${testCases.length}种策略)`;
+}
+
+function clearResults() {
+  const area = document.getElementById('results-area');
+  area.innerHTML = `<div class="empty-state" id="empty-hint"><div class="es-icon">🐾</div><div>发送请求或运行批量测试，查看 OpenClaw 调度全过程</div></div>`;
+  allResults.length = 0;
+  dispatchCounter = 0;
+  log('info', '结果已清空');
+}
+
+async function refreshAll() {
+  await Promise.all([
+    refreshResources(),
+    refreshModels(),
+    refreshAdaptive(),
+    refreshBridge(),
+    refreshGateway(),
+    refreshAgentSouls(),
+    refreshOfficialGateway(),
+  ]);
+}
+
+refreshAll();
+setInterval(refreshAll, 3000);
+
+const _batchBtn = document.getElementById('btn-batch');
+if (_batchBtn) _batchBtn.textContent = `🧪 批量测试 (10种策略)`;
+
+log('info', '🐾 OpenClaw 调度监控中心已启动');
+log('info', '点击「发送请求」或「批量测试」开始验证调度策略');
+</script>
+</body>
+</html>

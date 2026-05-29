@@ -1,0 +1,15 @@
+stateDiagram-v2
+    [*] --> Initializing: 端点注册<br/>avgLatency=0, successRate=1.0
+    
+    Initializing --> Healthy: 首次成功请求<br/>avgLatency > 0
+    
+    Healthy --> Healthy: 持续成功<br/>EMA 更新延迟和成功率
+    Healthy --> Degraded: 成功率下降<br/>或延迟升高
+    
+    Degraded --> Healthy: 恢复正常指标
+    Degraded --> Overloaded: currentLoad ≥ maxConcurrent
+    
+    Overloaded --> Degraded: 负载降低<br/>currentLoad < maxConcurrent
+    Overloaded --> Unavailable: 端点被禁用
+    
+    Unavailable --> Initializing: 重新启用端点

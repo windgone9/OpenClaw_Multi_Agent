@@ -1,0 +1,43 @@
+flowchart LR
+    subgraph Client[客户端]
+        C1[Dashboard]
+        C2[API Client]
+    end
+
+    subgraph FastAPI[FastAPI 调度服务 :8000]
+        D1[Pre-Hook 管道]
+        D2[策略路由器]
+        D3[Post-Hook 管道]
+    end
+
+    subgraph Path1[路径1: Python 直连]
+        P1[LocalAgent]
+        P2[CloudAgent]
+    end
+
+    subgraph Path2[路径2: Bridge→Gateway]
+        P3[OpenClawAgent]
+        P4[Bridge :3001]
+        P5[OpenClaw Gateway :3000]
+    end
+
+    subgraph Models[模型服务]
+        M1[Ollama :11434]
+        M2[Moonshot API]
+        M3[DeepSeek API]
+    end
+
+    Client --> FastAPI
+    D1 --> D2 --> D3
+    D2 --> Path1
+    D2 --> Path2
+    P1 --> M1
+    P2 --> M2
+    P2 --> M3
+    P3 --> P4 --> P5
+    P5 --> M1
+    P5 --> M2
+    P5 --> M3
+
+    style Path1 fill:#e8f5e9
+    style Path2 fill:#fff3e0

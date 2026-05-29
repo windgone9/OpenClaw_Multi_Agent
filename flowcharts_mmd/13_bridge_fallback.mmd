@@ -1,0 +1,24 @@
+flowchart TD
+    START[dispatchViaOpenClaw] --> A[adaptiveRoute to routing]
+    A --> B{selected_endpoint?}
+    B -->|No| C[Return failed NO_ENDPOINT]
+    B -->|Yes| D[callModelApi Primary endpoint]
+    
+    D --> E{Success?}
+    E -->|Yes| F[Return success fallback_results=null]
+    E -->|No| G{Has fallback_endpoints?}
+    
+    G -->|No| H[Return failed ALL_ENDPOINTS_FAILED]
+    G -->|Yes| I[Iterate fallback endpoints max 2]
+    
+    I --> J[callModelApi Fallback endpoint]
+    J --> K{Success?}
+    K -->|Yes| L[Return success Marked as fallback]
+    K -->|No| M{More fallback endpoints?}
+    M -->|Yes| I
+    M -->|No| H
+
+    style F fill:#e8f5e9
+    style L fill:#fff3e0
+    style C fill:#ffebee
+    style H fill:#ffebee

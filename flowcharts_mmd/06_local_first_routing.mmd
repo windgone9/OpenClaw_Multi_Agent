@@ -1,0 +1,17 @@
+flowchart TD
+    START[_route_local_first_adaptive] --> A{本地端点可用?}
+    
+    A -->|是| B[Power-of-Two 选择本地端点]
+    B --> C[fallback = 本地其余 + 云端前2个]
+    C --> D[返回 RoutingDecision<br/>agent_type=local<br/>strategy=adaptive_local_first]
+    
+    A -->|否| E{云端端点可用?}
+    E -->|是| F[Least-Connections 选择云端端点]
+    F --> G[fallback = 云端其余]
+    G --> H[返回 RoutingDecision<br/>agent_type=cloud<br/>strategy=adaptive_local_first_cloud_fallback]
+    
+    E -->|否| I[返回 RoutingDecision<br/>selected_endpoint=None<br/>strategy=adaptive_no_endpoint]
+
+    style D fill:#e8f5e9
+    style H fill:#fff3e0
+    style I fill:#ffebee

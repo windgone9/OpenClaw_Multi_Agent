@@ -1,0 +1,26 @@
+graph TD
+    subgraph ROUND_ROBIN
+        R1[轮询分配] --> R2[按顺序依次选择]
+    end
+    
+    subgraph WEIGHTED_RANDOM
+        W1[加权随机] --> W2[按 weight 概率分配]
+    end
+    
+    subgraph LEAST_CONNECTIONS
+        L1[最少连接] --> L2[选 current_load 最低]
+    end
+    
+    subgraph LEAST_LATENCY
+        LE1[最低延迟] --> LE2[选 avg_latency_ms 最低]
+    end
+    
+    subgraph POWER_OF_TWO
+        P1[二选一] --> P2[随机选2个取负载低的]
+    end
+
+    style R2 fill:#e8f5e9
+    style W2 fill:#e3f2fd
+    style L2 fill:#fff3e0
+    style LE2 fill:#f3e5f5
+    style P2 fill:#fce4ec

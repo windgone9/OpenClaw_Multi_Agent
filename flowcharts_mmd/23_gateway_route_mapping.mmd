@@ -1,0 +1,37 @@
+flowchart LR
+    subgraph 端点ID
+        E1["ollama/qwen2.5:3b"]
+        E2["moonshot/kimi-k2.6"]
+        E3["deepseek/deepseek-chat"]
+        E4["未知端点"]
+    end
+    
+    subgraph Agent ID
+        A1["openclaw/local-dispatcher"]
+        A2["openclaw/cloud-dispatcher"]
+        A3["openclaw/code-executor"]
+        A4["openclaw (默认)"]
+    end
+    
+    subgraph Gateway 路由
+        G1["→ Agent 查找 openclaw.json"]
+        G2["→ primary model"]
+        G3["→ 执行模型调用"]
+        G4["→ 失败时尝试 fallbacks"]
+    end
+    
+    E1 --> A1
+    E2 --> A2
+    E3 --> A3
+    E4 --> A4
+    
+    A1 --> G1
+    A2 --> G1
+    A3 --> G1
+    A4 --> G1
+    G1 --> G2 --> G3 --> G4
+
+    style E1 fill:#e8f5e9
+    style E2 fill:#e3f2fd
+    style E3 fill:#f3e5f5
+    style E4 fill:#eeeeee

@@ -1,0 +1,24 @@
+flowchart TD
+    START[handleOpenClawAgentMessage<br/>agent_id, prompt] --> A[查找 openclaw.json<br/>中的 agent 配置]
+    A --> B{agent 存在?}
+    B -->|否| C[返回 error<br/>Agent not found]
+    B -->|是| D[获取 agent.primary model]
+    D --> E{model 在 CATALOG 中?}
+    E -->|否| F[返回 error<br/>Model not found]
+    E -->|是| G[callModelApi<br/>主模型]
+    G --> H{成功且 finish_reason ≠ error?}
+    H -->|是| I[返回 success<br/>fallback=false]
+    H -->|否| J{agent 有 fallbacks?}
+    J -->|否| K[返回成功/失败结果]
+    J -->|是| L[遍历 fallbacks]
+    L --> M[callModelApi<br/>降级模型]
+    M --> N{成功?}
+    N -->|是| O[返回 success<br/>fallback=true]
+    N -->|否| P{还有更多 fallback?}
+    P -->|是| L
+    P -->|否| K
+
+    style I fill:#e8f5e9
+    style O fill:#fff3e0
+    style C fill:#ffebee
+    style F fill:#ffebee

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+<defs>
+  <style>
+    .title { font: bold 22px 'Segoe UI', sans-serif; fill: #1a1a2e; }
+    .box-label { font: bold 13px 'Segoe UI', sans-serif; fill: #fff; }
+    .sub-label { font: bold 14px 'Segoe UI', sans-serif; }
+    .node-label { font: 12px 'Segoe UI', sans-serif; fill: #333; }
+    .decision-label { font: bold 12px 'Segoe UI', sans-serif; fill: #fff; }
+    .arrow { stroke: #78909C; stroke-width: 1.5; fill: none; marker-end: url(#ah); }
+  </style>
+  <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#78909C"/></marker>
+</defs>
+<rect width="1200" height="900" fill="#f8f9fa" rx="10"/>
+<text x="600" y="35" text-anchor="middle" class="title">Smart Router 决策数据流图</text>
+<rect x="500" y="56" width="200" height="28" rx="6" fill="#4CAF50"/>
+<text x="600" y="74" text-anchor="middle" class="box-label">客户端请求</text>
+<polygon points="600,104 670,120 600,136 530,120" fill="#FF5722" stroke="#FF5722" stroke-width="1.5"/>
+<text x="600" y="125" text-anchor="middle" class="decision-label">route_mode?</text>
+<rect x="500" y="156" width="200" height="28" rx="6" fill="#FF9800"/>
+<text x="600" y="174" text-anchor="middle" class="box-label">Smart Router 评分</text>
+<rect x="500" y="206" width="200" height="28" rx="6" fill="#FF9800"/>
+<text x="600" y="224" text-anchor="middle" class="box-label">6维度评分</text>
+<rect x="500" y="256" width="200" height="28" rx="6" fill="#FF9800"/>
+<text x="600" y="274" text-anchor="middle" class="box-label">总分计算</text>
+<polygon points="600,304 670,320 600,336 530,320" fill="#FF5722" stroke="#FF5722" stroke-width="1.5"/>
+<text x="600" y="325" text-anchor="middle" class="decision-label">score >= 40?</text>
+<rect x="500" y="356" width="200" height="28" rx="6" fill="#2196F3"/>
+<text x="600" y="374" text-anchor="middle" class="box-label">Gateway 低延迟</text>
+<rect x="500" y="356" width="200" height="28" rx="6" fill="#E91E63"/>
+<text x="600" y="374" text-anchor="middle" class="box-label">Agent 高能力</text>
+<rect x="405" y="416" width="390" height="28" rx="6" fill="#2196F3"/>
+<text x="600" y="434" text-anchor="middle" class="box-label">adaptiveRoute → selectModel → callApi</text>
+<rect x="375" y="416" width="450" height="28" rx="6" fill="#E91E63"/>
+<text x="600" y="434" text-anchor="middle" class="box-label">resolveAgent → loadSoul → analyze → execute</text>
+<rect x="500" y="486" width="200" height="28" rx="6" fill="#4CAF50"/>
+<text x="600" y="504" text-anchor="middle" class="box-label">返回结果</text>
+<line x1="600" y1="86" x2="600" y2="104" class="arrow"/>
+<line x1="600" y1="136" x2="600" y2="154" class="arrow"/>
+<line x1="600" y1="186" x2="600" y2="204" class="arrow"/>
+<line x1="600" y1="236" x2="600" y2="254" class="arrow"/>
+<line x1="600" y1="286" x2="600" y2="304" class="arrow"/>
+<line x1="600" y1="336" x2="600" y2="354" class="arrow"/>
+<line x1="600" y1="386" x2="600" y2="354" class="arrow"/>
+<line x1="600" y1="386" x2="600" y2="414" class="arrow"/>
+<line x1="600" y1="446" x2="600" y2="414" class="arrow"/>
+<line x1="600" y1="446" x2="600" y2="484" class="arrow"/>
+</svg>

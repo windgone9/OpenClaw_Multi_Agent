@@ -1,0 +1,19 @@
+graph LR
+    subgraph Latency_Update_a_0_3
+        L1[Old x 0.7] --> L2[+ New x 0.3]
+        L2 --> L3[Fast response to latency changes]
+    end
+    
+    subgraph Success_Rate_Update_a_0_05
+        S1[Old x 0.95] --> S2[+ New x 0.05]
+        S2 --> S3[Long-term smooth observation]
+    end
+    
+    subgraph Weight_Update_a_0_1
+        W1[Old +/- 0.1~0.2] --> W2[Moderate adjustment]
+        W2 --> W3[Avoid oscillation]
+    end
+
+    style L3 fill:#fff3e0
+    style S3 fill:#e3f2fd
+    style W3 fill:#e8f5e9

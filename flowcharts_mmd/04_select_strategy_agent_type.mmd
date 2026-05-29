@@ -1,0 +1,51 @@
+flowchart TD
+    START[分类结果 strategy] --> D1{PRIVACY_FIRST?}
+    D1 -->|是| A1[本地可用?]
+    A1 -->|是| R1[agent_type=local<br/>strategy=PRIVACY_FIRST]
+    A1 -->|否| R2[agent_type=cloud<br/>⚠️ 降级警告]
+
+    D1 -->|否| D2{CAPABILITY_OPTIMIZED?}
+    D2 -->|是| D2a{复杂类型 tool_call?}
+    D2a -->|是| D2b{云端有工具支持端点?}
+    D2b -->|是| R3[agent_type=cloud<br/>strategy=CAPABILITY_OPTIMIZED]
+    D2b -->|否| D2c{本地能力足够?}
+    D2c -->|是| R4[agent_type=local<br/>strategy=LOCAL_FIRST]
+    D2c -->|否| R5[agent_type=cloud<br/>strategy=CLOUD_FIRST]
+    D2a -->|否| D2d{本地能力足够?}
+    D2d -->|是| R4
+    D2d -->|否| R5
+
+    D2 -->|否| D3{LATENCY_OPTIMIZED?}
+    D3 -->|是| D3a{本地最低延迟 ≤ 3000ms?}
+    D3a -->|是| R6[agent_type=local<br/>strategy=LATENCY_OPTIMIZED]
+    D3a -->|否| D3b{云端最低延迟 ≤ 3000ms?}
+    D3b -->|是| R7[agent_type=cloud<br/>strategy=LATENCY_OPTIMIZED]
+    D3b -->|否| R6
+
+    D3 -->|否| D4{CLOUD_FIRST?}
+    D4 -->|是| D4a{云端可用?}
+    D4a -->|是| R8[agent_type=cloud<br/>strategy=CLOUD_FIRST]
+    D4a -->|否| R9[agent_type=local<br/>降级到本地]
+
+    D4 -->|否| D5{LOCAL_FIRST?}
+    D5 -->|是| D5a{本地可用?}
+    D5a -->|是| R10[agent_type=local<br/>strategy=LOCAL_FIRST]
+    D5a -->|否| R8
+
+    D5 -->|否| D6{COST_OPTIMIZED?}
+    D6 -->|是| D6a{本地可用?}
+    D6a -->|是| R10
+    D6a -->|否| D6b{有低成本云端?}
+    D6b -->|是| R8
+    D6b -->|否| R9
+
+    style R1 fill:#f44336,color:#fff
+    style R2 fill:#f44336,color:#fff
+    style R3 fill:#9c27b0,color:#fff
+    style R4 fill:#607d8b,color:#fff
+    style R5 fill:#2196f3,color:#fff
+    style R6 fill:#ff9800,color:#fff
+    style R7 fill:#ff9800,color:#fff
+    style R8 fill:#2196f3,color:#fff
+    style R9 fill:#607d8b,color:#fff
+    style R10 fill:#607d8b,color:#fff

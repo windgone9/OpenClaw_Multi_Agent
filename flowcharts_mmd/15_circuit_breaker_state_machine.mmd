@@ -1,0 +1,18 @@
+stateDiagram-v2
+    [*] --> Normal: 初始状态<br/>local=0.6 cloud=0.4
+    
+    Normal --> LocalDegraded: 本地连续失败 ≥ 3次<br/>local_weight 急剧下降
+    Normal --> CloudDegraded: 云端连续失败 ≥ 3次<br/>cloud_weight 急剧下降
+    
+    LocalDegraded --> CloudFirst: 强制 CLOUD_FIRST<br/>本地熔断
+    CloudDegraded --> LocalFirst: 强制 LOCAL_FIRST<br/>云端熔断
+    
+    CloudFirst --> Normal: 云端成功<br/>本地恢复<br/>local_fail_streak 重置
+    LocalFirst --> Normal: 本地成功<br/>云端恢复<br/>cloud_fail_streak 重置
+    
+    CloudFirst --> CloudDegraded: 云端也开始失败
+    LocalFirst --> LocalDegraded: 本地也开始失败
+    
+    CloudDegraded --> Emergency: 双路径均失败
+    LocalDegraded --> Emergency: 双路径均失败
+    Emergency --> Normal: 任一路径恢复成功

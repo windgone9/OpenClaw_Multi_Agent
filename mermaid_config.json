@@ -1,0 +1,11 @@
+{
+  "theme": "default",
+  "flowchart": {
+    "useMaxWidth": true,
+    "htmlLabels": true,
+    "curve": "basis"
+  },
+  "themeVariables": {
+    "fontSize": "14px"
+  }
+}

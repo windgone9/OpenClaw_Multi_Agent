@@ -1,0 +1,21 @@
+flowchart TD
+    START[_route_cost_optimized] --> A{本地端点可用?}
+    
+    A -->|是| B[Power-of-Two 选择本地端点<br/>零成本]
+    B --> C[fallback = 本地其余 + 低成本云端]
+    C --> D[返回 adaptive_cost_optimized<br/>agent_type=local]
+    
+    A -->|否| E{有低成本云端端点?<br/>cost ≤ 0.01/1k tokens}
+    E -->|是| F[选择最便宜的云端端点]
+    F --> G[fallback = 其余低成本云端]
+    G --> H[返回 adaptive_cost_optimized<br/>agent_type=cloud]
+    
+    E -->|否| I{云端端点可用?}
+    I -->|是| J[选择最便宜的云端端点]
+    J --> K[返回 adaptive_cost_optimized_cheapest]
+    I -->|否| L[返回 adaptive_no_endpoint]
+
+    style D fill:#e8f5e9
+    style H fill:#e3f2fd
+    style K fill:#fff3e0
+    style L fill:#ffebee

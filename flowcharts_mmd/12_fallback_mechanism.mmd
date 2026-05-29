@@ -1,0 +1,40 @@
+flowchart TD
+    START[主请求执行] --> R{执行结果?}
+    
+    R -->|成功| S1[记录成功<br/>record_adaptive_result True]
+    S1 --> S2[fallback_results = null<br/>不执行降级]
+    S2 --> DONE[返回 SUCCESS]
+    
+    R -->|超时 TimeoutError| E1[记录失败<br/>record_adaptive_result False]
+    R -->|异常 Exception| E2[记录失败<br/>record_adaptive_result False]
+    
+    E1 --> F1{有 fallback_endpoints?}
+    E2 --> F1
+    
+    F1 -->|否| F2[返回 TIMEOUT/FAILED]
+    F1 -->|是| F3[_try_fallbacks]
+    
+    F3 --> F4[遍历 fallback_endpoints<br/>最多取前2个]
+    F4 --> F5{端点 is_available?}
+    F5 -->|否| F6[跳过此端点]
+    F5 -->|是| F7[获取对应 agent<br/>local/cloud]
+    F7 --> F8[agent.execute]
+    F8 --> F9{执行成功?}
+    F9 -->|是| F10[加入 results]
+    F9 -->|否| F11[记录 warning<br/>继续下一个]
+    
+    F6 --> F12{还有更多端点?}
+    F10 --> F12
+    F11 --> F12
+    F12 -->|是| F5
+    F12 -->|否| F13{有降级结果?}
+    
+    F13 -->|是| F14[执行 Post-Hook]
+    F14 --> F15[返回 PARTIAL<br/>result=首个降级结果]
+    F13 -->|否| F16[返回 TIMEOUT/FAILED]
+
+    style S2 fill:#e8f5e9
+    style DONE fill:#e8f5e9
+    style F15 fill:#fff3e0
+    style F2 fill:#ffebee
+    style F16 fill:#ffebee

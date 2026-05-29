@@ -1,0 +1,34 @@
+flowchart TD
+    START[record_result<br/>model_type, success, latency_ms] --> D{model_type?}
+    
+    D -->|local| L{success?}
+    L -->|Yes| L1{latency &lt;= threshold?}
+    L1 -->|Yes| L2["local_weight = min(1.0, lw + 0.1)<br/>cloud_weight = max(0.0, cw - 0.1)"]
+    L1 -->|No| L3[Record latency only<br/>No weight adjustment]
+    L -->|No| L4["local_weight = max(0.1, lw - 0.2)<br/>cloud_weight = min(0.9, cw + 0.2)<br/>_local_fail_streak++"]
+    
+    D -->|cloud| C{success?}
+    C -->|Yes| C1["cloud_weight = min(0.9, cw + 0.05)<br/>local_weight = max(0.1, lw - 0.05)"]
+    C -->|No| C2["cloud_weight = max(0.1, cw - 0.1)<br/>local_weight = min(0.9, lw + 0.1)<br/>_cloud_fail_streak++"]
+    
+    L2 --> W[Weight protection<br/>Range 0.1 - 0.9]
+    L3 --> W
+    L4 --> W
+    C1 --> W
+    C2 --> W
+    
+    W --> CB{Check circuit breaker}
+    CB --> CBA{_local_fail_streak &gt;= 3?}
+    CBA -->|Yes| CBB[Force switch to CLOUD_FIRST]
+    CBA -->|No| CBC{_cloud_fail_streak &gt;= 3?}
+    CBC -->|Yes| CBD[Force switch to LOCAL_FIRST]
+    CBC -->|No| DONE[Update complete]
+    CBB --> DONE
+    CBD --> DONE
+
+    style L2 fill:#e8f5e9
+    style L4 fill:#ffebee
+    style C1 fill:#e3f2fd
+    style C2 fill:#ffebee
+    style CBB fill:#ff9800
+    style CBD fill:#ff9800

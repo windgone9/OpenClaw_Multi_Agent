@@ -1,0 +1,187 @@
+{
+  "agent": {
+    "model": {
+      "primary": "ollama/qwen2.5:3b",
+      "fallbacks": [
+        "moonshot/kimi-k2.6",
+        "deepseek/deepseek-chat"
+      ]
+    },
+    "thinkingLevel": "medium",
+    "workspace": "./workspace"
+  },
+  "agents": {
+    "defaults": {
+      "model": "ollama/qwen2.5:3b",
+      "thinkingLevel": "medium",
+      "sandbox": {
+        "mode": "non-main",
+        "scope": "session"
+      },
+      "tools": {
+        "allow": ["bash", "read", "write", "edit", "glob", "grep"],
+        "deny": []
+      }
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "workspace": "./workspace",
+        "model": {
+          "primary": "ollama/qwen2.5:3b",
+          "fallbacks": ["moonshot/kimi-k2.6", "deepseek/deepseek-chat"]
+        }
+      },
+      {
+        "id": "local-dispatcher",
+        "workspace": "./workspace",
+        "model": {
+          "primary": "ollama/qwen2.5:3b"
+        },
+        "skills": ["bash", "read", "write"],
+        "tools": {
+          "allow": ["bash", "read", "write", "edit"]
+        }
+      },
+      {
+        "id": "cloud-dispatcher",
+        "workspace": "./workspace",
+        "model": {
+          "primary": "moonshot/kimi-k2.6",
+          "fallbacks": ["deepseek/deepseek-chat"]
+        },
+        "skills": ["bash", "browser"],
+        "tools": {
+          "allow": ["bash", "read", "write", "edit", "browser"]
+        }
+      },
+      {
+        "id": "code-executor",
+        "workspace": "./workspace",
+        "model": {
+          "primary": "deepseek/deepseek-chat",
+          "fallbacks": ["moonshot/kimi-k2.6"]
+        },
+        "skills": ["bash", "python"],
+        "tools": {
+          "allow": ["bash", "read", "write", "edit"]
+        }
+      }
+    ]
+  },
+  "models": {
+    "catalog": {
+      "local": [
+        {
+          "id": "ollama/qwen2.5:3b",
+          "provider": "ollama",
+          "modelId": "qwen2.5:3b",
+          "baseUrl": "http://localhost:11434/v1",
+          "contextLength": 32768,
+          "supportsStreaming": true,
+          "supportsTools": false,
+          "costPer1kInput": 0,
+          "costPer1kOutput": 0,
+          "priority": 1,
+          "tags": ["chat", "completion", "local"]
+        }
+      ],
+      "cloud": [
+        {
+          "id": "moonshot/kimi-k2.6",
+          "provider": "moonshot",
+          "modelId": "kimi-k2.6",
+          "baseUrl": "https://api.moonshot.cn/v1",
+          "contextLength": 262144,
+          "supportsStreaming": true,
+          "supportsTools": true,
+          "costPer1kInput": 0.76,
+          "costPer1kOutput": 3.2,
+          "priority": 2,
+          "tags": ["chat", "completion", "tool_call", "cloud"]
+        },
+        {
+          "id": "deepseek/deepseek-chat",
+          "provider": "deepseek",
+          "modelId": "deepseek-chat",
+          "baseUrl": "https://api.deepseek.com/v1",
+          "contextLength": 64000,
+          "supportsStreaming": true,
+          "supportsTools": false,
+          "costPer1kInput": 0.00014,
+          "costPer1kOutput": 0.00028,
+          "priority": 3,
+          "tags": ["chat", "completion", "code", "cloud"]
+        }
+      ]
+    },
+    "smartRouter": {
+      "enabled": true,
+      "threshold": 40,
+      "defaultMode": "smart",
+      "rules": {
+        "typeWeights": {
+          "chat": 5,
+          "completion": 5,
+          "tool_call": 35,
+          "code_execution": 40,
+          "image": 25,
+          "audio": 25,
+          "analysis": 20,
+          "translation": 10
+        },
+        "toolCallBase": 30,
+        "multiToolBonus": 10,
+        "promptLengthThresholds": [
+          { "max": 50, "score": 0 },
+          { "max": 200, "score": 3 },
+          { "max": 500, "score": 8 },
+          { "max": 1000, "score": 12 },
+          { "max": 99999, "score": 18 }
+        ],
+        "complexityKeywords": {
+          "moderate": ["分析", "比较", "设计", "评估", "优化", "推荐", "规划", "analyze", "compare", "design", "evaluate", "optimize"],
+          "high": ["多步骤", "链式", "编排", "协同", "自主", "执行计划", "multi-step", "chain", "orchestrate", "autonomous", "agent"]
+        },
+        "contextWeight": 5,
+        "contextMaxScore": 15,
+        "priorityBoost": { "1": 10, "2": 5, "3": 0, "4": -3, "5": -5 }
+      }
+    },
+    "routing": {
+      "defaultStrategy": "adaptive",
+      "strategies": {
+        "adaptive": {
+          "localFirst": true,
+          "latencyThresholdMs": 3000,
+          "costThreshold": 0.01,
+          "fallbackOnTimeout": true,
+          "fallbackOnError": true,
+          "preferLocalForPrivacy": true,
+          "preferCloudForComplex": true,
+          "complexityIndicators": ["tool_call", "code_execution", "multi_step"]
+        },
+        "priority": {
+          "criticalLocalOnly": true,
+          "highLocalFirst": true,
+          "normalBalanced": true,
+          "lowCheapestFirst": true
+        }
+      }
+    }
+  },
+  "gateway": {
+    "port": 3000,
+    "host": "0.0.0.0",
+    "auth": {
+      "enabled": false
+    }
+  },
+  "channels": {
+    "enabled": []
+  },
+  "heartbeat": {
+    "enabled": false
+  }
+}

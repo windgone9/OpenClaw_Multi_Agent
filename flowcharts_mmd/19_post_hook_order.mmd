@@ -1,0 +1,17 @@
+flowchart LR
+    subgraph Critical_Hook_priority_lte_50
+        H1["[SEC] ResponseSanitizationHook<br/>priority=10<br/>Sanitization"]
+        H2["[COST] CostCalculationHook<br/>priority=20<br/>Cost estimation"]
+        H3["[RETRY] RetryDecisionHook<br/>priority=30<br/>Retry decision"]
+    end
+    
+    subgraph Non_Critical_Hook_priority_gt_50
+        H4["[LOG] ResponseLoggingHook<br/>priority=90<br/>Response logging"]
+    end
+    
+    H1 --> H2 --> H3 --> H4
+
+    style H1 fill:#f44336,color:#fff
+    style H2 fill:#ff9800,color:#fff
+    style H3 fill:#2196f3,color:#fff
+    style H4 fill:#9e9e9e,color:#fff

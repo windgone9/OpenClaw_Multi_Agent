@@ -1,0 +1,39 @@
+flowchart TD
+    START[adaptiveRoute<br/>request] --> A{constraints.require_local?}
+    
+    A -->|是| B[selectBestModel<br/>本地端点]
+    B --> B1[返回 adaptive_local_required]
+    
+    A -->|否| C{constraints.preferred_providers<br/>有匹配?}
+    C -->|是| D[selectBestModel<br/>匹配供应商的端点]
+    D --> D1[返回 adaptive_preferred_provider]
+    
+    C -->|否| E{priority ≤ 2<br/>且 localFirst?}
+    E -->|是| F{本地端点可用?}
+    F -->|是| G[返回 adaptive_priority_local_first]
+    F -->|否| H[继续后续判断]
+    
+    E -->|否| I{复杂类型?<br/>tool_call/image/audio}
+    I -->|是 且 preferCloudForComplex| J{云端端点可用?}
+    J -->|是| K[返回 adaptive_complex_cloud_first]
+    J -->|否| H
+    
+    I -->|否| L{localFirst?}
+    L -->|是| M{本地端点可用?}
+    M -->|是| N{本地延迟 ≤ 阈值?}
+    N -->|是| O[返回 adaptive_local_first<br/>低延迟零成本]
+    N -->|否| P[返回 adaptive_local_first<br/>默认选择]
+    M -->|否| Q{云端端点可用?}
+    Q -->|是| R[返回 adaptive_cloud_only]
+    Q -->|否| S[返回 adaptive_no_endpoint]
+    
+    L -->|否| Q
+
+    style B1 fill:#f44336,color:#fff
+    style D1 fill:#2196f3,color:#fff
+    style G fill:#ff9800,color:#fff
+    style K fill:#9c27b0,color:#fff
+    style O fill:#4caf50,color:#fff
+    style P fill:#607d8b,color:#fff
+    style R fill:#2196f3,color:#fff
+    style S fill:#ffebee

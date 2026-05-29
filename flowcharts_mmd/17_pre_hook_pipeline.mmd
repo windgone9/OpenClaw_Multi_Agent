@@ -1,0 +1,23 @@
+flowchart TD
+    START[execute_pre_hooks<br/>request] --> SORT[按 priority 升序排列]
+    SORT --> LOOP[遍历 Pre-Hook 列表]
+    
+    LOOP --> H1{hook.enabled?}
+    H1 -->|否| SKIP[跳过此 Hook]
+    H1 -->|是| H2[执行 hook.execute]
+    
+    H2 --> H3{执行成功?}
+    H3 -->|是| H4{priority ≤ 50?<br/>关键 Hook}
+    H4 -->|是| H5[抛出异常<br/>中断管道]
+    H4 -->|否| H6[记录错误<br/>继续执行]
+    H3 -->|否| H7[记录 applied_hook]
+    
+    SKIP --> NEXT{还有更多 Hook?}
+    H5 --> ABORT[❌ 请求被拒绝]
+    H6 --> NEXT
+    H7 --> NEXT
+    NEXT -->|是| LOOP
+    NEXT -->|否| DONE[返回处理后的 request]
+
+    style ABORT fill:#ffebee
+    style DONE fill:#e8f5e9

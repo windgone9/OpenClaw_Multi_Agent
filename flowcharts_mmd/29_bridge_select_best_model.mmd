@@ -1,0 +1,26 @@
+flowchart TD
+    START[selectBestModel<br/>candidates, state, request] --> A[过滤可用端点<br/>currentLoad < maxConcurrent]
+    A --> B{有可用端点?}
+    B -->|否| C[返回 null]
+    B -->|是| D{有 model_hint?}
+    D -->|是| E[查找名称/模型ID匹配]
+    E --> F{找到匹配?}
+    F -->|是| G[返回匹配端点]
+    F -->|否| H[继续评分]
+    D -->|否| H
+    
+    H --> I[对每个端点计算评分]
+    I --> J["初始分 = 100.0"]
+    J --> K["- (priority-1) × 15.0"]
+    K --> L["- loadFactor × 20.0<br/>loadFactor = currentLoad/maxConcurrent"]
+    L --> M["+ successRate × 10.0"]
+    M --> N{延迟超出约束?}
+    N -->|是| O["- 50.0"]
+    N -->|否| P[保持当前分]
+    O --> Q[按 score 降序排序]
+    P --> Q
+    Q --> R[返回最高分端点]
+
+    style G fill:#e8f5e9
+    style R fill:#e8f5e9
+    style C fill:#ffebee

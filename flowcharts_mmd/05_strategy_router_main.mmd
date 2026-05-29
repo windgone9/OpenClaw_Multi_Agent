@@ -1,0 +1,27 @@
+flowchart TD
+    START[route request] --> D{use_openclaw?}
+    D -->|是| A[_route_adaptive]
+    D -->|否| B[_route_legacy]
+
+    A --> A1[AdaptiveStrategy.route<br/>→ agent_type, strategy]
+    A1 --> A2{strategy?}
+    
+    A2 -->|PRIVACY_FIRST| A3[_route_local<br/>adaptive_privacy_first]
+    A2 -->|LOCAL_FIRST| A4[_route_local_first_adaptive]
+    A2 -->|CLOUD_FIRST| A5[_route_cloud_first_adaptive]
+    A2 -->|LATENCY_OPTIMIZED| A6[_route_latency_optimized]
+    A2 -->|COST_OPTIMIZED| A7[_route_cost_optimized]
+    A2 -->|CAPABILITY_OPTIMIZED| A8[_route_capability_optimized]
+    A2 -->|默认| A9[_route_default]
+
+    A3 --> R[RoutingDecision]
+    A4 --> R
+    A5 --> R
+    A6 --> R
+    A7 --> R
+    A8 --> R
+    A9 --> R
+    B --> R
+
+    style A fill:#e3f2fd
+    style B fill:#f3e5f5

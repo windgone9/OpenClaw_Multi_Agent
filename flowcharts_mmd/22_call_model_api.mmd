@@ -1,0 +1,26 @@
+flowchart TD
+    START[callModelApi<br/>endpoint, request] --> A[endpoint.currentLoad++]
+    A --> B[构建 messages 数组]
+    B --> C{USE_OPENCLAW_GATEWAY?}
+    
+    C -->|是| D1["model = resolveGatewayModel(endpoint)<br/>如 openclaw/local-dispatcher"]
+    C -->|否| D2["model = endpoint.modelId<br/>如 qwen2.5:3b"]
+    
+    D1 --> E1["targetUrl = GATEWAY_URL/v1/chat/completions<br/>timeout=120s"]
+    D2 --> E2["targetUrl = baseUrl/chat/completions<br/>timeout=30s"]
+    
+    E1 --> F[fetch POST targetUrl]
+    E2 --> F
+    
+    F --> G{响应成功?}
+    G -->|是| H[解析响应<br/>计算成本]
+    H --> I[updateEndpointState<br/>latency, success=true]
+    I --> J[endpoint.currentLoad--]
+    J --> K[返回 ModelResult<br/>routed_via_gateway=true/false]
+    
+    G -->|否| L[updateEndpointState<br/>success=false]
+    L --> M[endpoint.currentLoad--]
+    M --> N[抛出异常]
+
+    style K fill:#e8f5e9
+    style N fill:#ffebee
