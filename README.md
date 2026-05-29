@@ -62,6 +62,8 @@ API Key 申请地址：
 - Moonshot (Kimi): https://platform.moonshot.cn/console/api-keys
 - DeepSeek: https://platform.deepseek.cn/api_keys
 
+> **重要**：Python 调度器通过 `python-dotenv` 自动加载 `.env` 文件，无需手动 `source`。Node.js 服务通过 `start-all.sh` 自动加载。
+
 ### 3. 安装依赖
 
 ```bash
@@ -74,7 +76,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. 启动 Ollama（本地模型）
+### 4. 启动 Ollama（本地模型，可选）
 
 ```bash
 # 安装 Ollama（如未安装）
@@ -111,10 +113,31 @@ node /path/to/openclaw/openclaw.mjs gateway run --port 3005 --auth none --force
 
 # 终端 4: Python 调度器
 source venv/bin/activate
-python scheduler/main.py
+python run.py
 ```
 
-### 6. 访问 Dashboard
+### 6. 验证服务
+
+启动完成后，逐一验证各服务状态：
+
+```bash
+# 查看服务状态
+./start-all.sh status
+
+# 验证 Gateway
+curl http://localhost:3000/health
+
+# 验证 Bridge
+curl http://localhost:3001/health
+
+# 验证 Python 调度器
+curl http://localhost:8000/models
+
+# 验证 Ollama
+curl http://localhost:11434/api/tags
+```
+
+### 7. 访问 Dashboard
 
 打开浏览器访问：http://localhost:3001/static/dashboard.html
 
@@ -232,10 +255,32 @@ OpenClaw_Multi_Agent/
 │   └── sequence.svg           # 时序图
 ├── openclaw.json              # 核心配置文件（Smart Router / Agents / Models）
 ├── .env.example               # 环境变量模板
+├── run.py                     # Python 调度器启动入口（自动加载 .env）
 ├── start-all.sh               # 一键启动脚本
 ├── requirements.txt           # Python 依赖
 └── package.json               # Node.js 依赖
 ```
+
+## 环境变量说明
+
+所有配置项均可通过 `.env` 文件管理，复制 `.env.example` 为 `.env` 后按需修改：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MOONSHOT_API_KEY` | - | Moonshot API Key（必填） |
+| `DEEPSEEK_API_KEY` | - | DeepSeek API Key（必填） |
+| `OPENCLAW_TOKEN` | - | OpenClaw Gateway 认证 Token |
+| `OPENCLAW_API_KEY` | - | OpenClaw API Key |
+| `GATEWAY_PORT` | 3000 | Custom Gateway 端口 |
+| `BRIDGE_PORT` | 3001 | Bridge 端口 |
+| `SCHEDULER_PORT` | 8000 | Python 调度器端口 |
+| `OPENCLAW_GATEWAY_URL` | http://localhost:3000 | Custom Gateway 地址 |
+| `OPENCLAW_OFFICIAL_GATEWAY_URL` | http://127.0.0.1:3005 | 官方 Gateway 地址 |
+| `USE_OPENCLAW_GATEWAY` | true | 是否启用 Gateway 路由 |
+| `DEFAULT_ROUTE_MODE` | smart | 默认路由模式（smart/gateway/agent） |
+| `SMART_ROUTER_THRESHOLD` | 40 | Smart Router 复杂度阈值 |
+| `RATE_LIMIT_RPM` | 60 | 全局限流 RPM |
+| `MAX_RETRIES` | 2 | 最大重试次数 |
 
 ## 常见问题
 
@@ -254,13 +299,12 @@ ollama serve          # 启动服务
 ollama pull qwen2.5:3b  # 拉取模型
 ```
 
-### Q: 云端模型调用失败？
+### Q: 云端模型调用返回 HTTP 401（API Key 错误）？
 
 1. 检查 `.env` 中的 API Key 是否正确
-2. 确保启动服务前已加载环境变量：
-```bash
-source .env  # 或 export MOONSHOT_API_KEY=sk-xxx
-```
+2. 确保 `.env` 文件存在于项目根目录
+3. Python 调度器通过 `python-dotenv` 自动加载 `.env`，无需手动 `source`
+4. Node.js 服务通过 `start-all.sh` 启动时自动加载 `.env`
 
 ### Q: Official Gateway 启动失败？
 
@@ -276,6 +320,23 @@ npm install openclaw
 编辑 `openclaw.json` 中 `models.smartRouter.threshold`，然后热重载：
 ```bash
 curl -X POST http://localhost:3001/route/reload
+```
+
+### Q: 端口被占用怎么办？
+
+```bash
+# 查看占用进程
+lsof -i :3000
+lsof -i :3001
+lsof -i :8000
+
+# 终止占用进程
+kill $(lsof -ti:3000)
+```
+
+或使用一键停止：
+```bash
+./start-all.sh stop
 ```
 
 ## 停止服务

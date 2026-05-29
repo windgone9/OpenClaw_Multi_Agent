@@ -353,21 +353,43 @@ async function api(path, opts = {}) {
 }
 
 async function refreshResources() {
+  let schedTotal = 0, schedSuccess = 0, schedFailed = 0, schedTotalLat = 0;
+  let bridgeTotal = 0, bridgeSuccess = 0, bridgeFailed = 0, bridgeTotalLat = 0;
+
   try {
     const res = await fetch(SCHEDULER_URL + '/stats', { signal: AbortSignal.timeout(3000) });
     const s = await res.json();
+    schedTotal = s.requests.total || 0;
+    schedSuccess = s.requests.success || 0;
+    schedFailed = s.requests.failed || 0;
+    schedTotalLat = (s.requests.avg_latency_ms || 0) * schedTotal;
     document.getElementById('g-cpu').textContent = s.system.cpu_percent + '%';
     document.getElementById('g-cpu').className = 'g-val ' + (s.system.cpu_percent < 60 ? 'c-green' : s.system.cpu_percent < 85 ? 'c-yellow' : 'c-red');
     document.getElementById('g-mem').textContent = s.system.memory_percent + '%';
     document.getElementById('g-mem').className = 'g-val ' + (s.system.memory_percent < 60 ? 'c-blue' : s.system.memory_percent < 85 ? 'c-yellow' : 'c-red');
-    document.getElementById('g-total').textContent = s.requests.total;
-    document.getElementById('g-success').textContent = s.requests.success;
-    document.getElementById('g-failed').textContent = s.requests.failed;
-    document.getElementById('g-avglat').textContent = s.requests.avg_latency_ms + 'ms';
     setDot('scheduler', true);
   } catch(e) {
     setDot('scheduler', false);
   }
+
+  try {
+    const res = await fetch(BRIDGE_URL + '/stats', { signal: AbortSignal.timeout(3000) });
+    const s = await res.json();
+    bridgeTotal = s.total_requests || 0;
+    bridgeSuccess = s.success_requests || 0;
+    bridgeFailed = s.total_failed || 0;
+    bridgeTotalLat = (s.avg_latency_ms || 0) * bridgeTotal;
+  } catch(e) {}
+
+  const combinedTotal = schedTotal + bridgeTotal;
+  const combinedSuccess = schedSuccess + bridgeSuccess;
+  const combinedFailed = schedFailed + bridgeFailed;
+  const combinedAvgLat = combinedTotal > 0 ? Math.round((schedTotalLat + bridgeTotalLat) / combinedTotal) : 0;
+
+  document.getElementById('g-total').textContent = combinedTotal;
+  document.getElementById('g-success').textContent = combinedSuccess;
+  document.getElementById('g-failed').textContent = combinedFailed;
+  document.getElementById('g-avglat').textContent = combinedAvgLat + 'ms';
 }
 
 async function refreshModels() {

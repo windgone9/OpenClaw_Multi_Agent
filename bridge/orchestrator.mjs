@@ -127,6 +127,13 @@ const MODEL_CATALOG = {
   ],
 };
 
+const bridgeStats = {
+  totalRequests: 0,
+  successRequests: 0,
+  failedRequests: 0,
+  totalLatencyMs: 0,
+};
+
 const endpointState = {};
 for (const model of [...MODEL_CATALOG.local, ...MODEL_CATALOG.cloud]) {
   endpointState[model.id] = {
@@ -1340,6 +1347,7 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/dispatch") {
       const body = await parseBody(req);
       const routeMode = body.route_mode || DEFAULT_ROUTE_MODE;
+      const dispatchStart = Date.now();
       let result;
       let smartDecision = null;
 
@@ -1364,6 +1372,14 @@ const server = createServer(async (req, res) => {
         result = await dispatchViaAgentChain(body);
       } else {
         result = await dispatchViaOpenClaw(body);
+      }
+
+      bridgeStats.totalRequests++;
+      bridgeStats.totalLatencyMs += Date.now() - dispatchStart;
+      if (result.status === "success") {
+        bridgeStats.successRequests++;
+      } else {
+        bridgeStats.failedRequests++;
       }
       sendJson(res, result.status === "failed" ? 400 : 200, result);
       return;
@@ -1506,21 +1522,18 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/stats") {
-      const totalReqs = Object.values(endpointState).reduce(
-        (sum, s) => sum + s.totalRequests,
-        0
-      );
-      const totalFailed = Object.values(endpointState).reduce(
-        (sum, s) => sum + s.failedRequests,
-        0
-      );
+      const avgLatency = bridgeStats.totalRequests > 0
+        ? Math.round(bridgeStats.totalLatencyMs / bridgeStats.totalRequests)
+        : 0;
       sendJson(res, 200, {
-        total_requests: totalReqs,
-        total_failed: totalFailed,
+        total_requests: bridgeStats.totalRequests,
+        success_requests: bridgeStats.successRequests,
+        total_failed: bridgeStats.failedRequests,
         success_rate:
-          totalReqs > 0
-            ? Math.round(((totalReqs - totalFailed) / totalReqs) * 10000) / 10000
+          bridgeStats.totalRequests > 0
+            ? Math.round((bridgeStats.successRequests / bridgeStats.totalRequests) * 10000) / 10000
             : 0,
+        avg_latency_ms: avgLatency,
         endpoints: Object.fromEntries(
           Object.entries(endpointState).map(([id, s]) => [
             id,
