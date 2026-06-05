@@ -160,6 +160,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   <div class="meta">
     <span><span class="dot" id="dot-scheduler"></span> Scheduler</span>
     <span><span class="dot" id="dot-bridge"></span> Bridge</span>
+    <span><span class="dot" id="dot-hermes"></span> Hermes</span>
     <span id="version-tag" style="color:var(--purple)">v2026.4.27</span>
     <span id="clock" style="color:var(--text3)"></span>
   </div>
@@ -246,6 +247,46 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
       <div class="panel-title"><span class="pt-icon">🤖</span> Agent Souls</div>
       <div id="agent-souls-list" style="font-size:11px"></div>
     </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">🧠</span> Hermes 智能路由</div>
+      <div class="bridge-status" id="hermes-info">
+        <div class="bs-row"><span class="bs-key">状态</span><span class="bs-val" id="hm-status">-</span></div>
+        <div class="bs-row"><span class="bs-key">学习迭代</span><span class="bs-val" id="hm-iterations">-</span></div>
+        <div class="bs-row"><span class="bs-key">复杂度阈值</span><span class="bs-val" id="hm-threshold">-</span></div>
+        <div class="bs-row"><span class="bs-key">探索率</span><span class="bs-val" id="hm-exploration">-</span></div>
+        <div class="bs-row"><span class="bs-key">记忆记录</span><span class="bs-val" id="hm-memory">-</span></div>
+        <div class="bs-row"><span class="bs-key">已学技能</span><span class="bs-val" id="hm-skills">-</span></div>
+      </div>
+      <div id="hermes-skills-list" style="margin-top:8px;font-size:10px;max-height:120px;overflow-y:auto"></div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">⚡</span> Official Hermes Agent</div>
+      <div class="bridge-status" id="official-agent-info">
+        <div class="bs-row"><span class="bs-key">API Server</span><span class="bs-val" id="oa-url">-</span></div>
+        <div class="bs-row"><span class="bs-key">状态</span><span class="bs-val" id="oa-status">-</span></div>
+        <div class="bs-row"><span class="bs-key">路由模式</span><span class="bs-val" id="oa-mode">-</span></div>
+      </div>
+      <div style="margin-top:6px;display:flex;gap:4px">
+        <button onclick="toggleOfficialAgent(true)" style="flex:1;padding:4px 8px;font-size:10px;border:1px solid var(--green2);background:transparent;color:var(--green);border-radius:4px;cursor:pointer">启用</button>
+        <button onclick="toggleOfficialAgent(false)" style="flex:1;padding:4px 8px;font-size:10px;border:1px solid var(--red);background:transparent;color:var(--red);border-radius:4px;cursor:pointer">禁用</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="panel-title"><span class="pt-icon">📨</span> 消息队列调度</div>
+      <div class="bridge-status" id="queue-info">
+        <div class="bs-row"><span class="bs-key">后端</span><span class="bs-val" id="q-backend">-</span></div>
+        <div class="bs-row"><span class="bs-key">Worker</span><span class="bs-val" id="q-worker">-</span></div>
+        <div class="bs-row"><span class="bs-key">请求队列</span><span class="bs-val" id="q-requests">0</span></div>
+        <div class="bs-row"><span class="bs-key">结果队列</span><span class="bs-val" id="q-results">0</span></div>
+        <div class="bs-row"><span class="bs-key">反馈队列</span><span class="bs-val" id="q-feedback">0</span></div>
+        <div class="bs-row"><span class="bs-key">已处理</span><span class="bs-val" id="q-processed">0</span></div>
+        <div class="bs-row"><span class="bs-key">成功/失败</span><span class="bs-val" id="q-success-failed">0/0</span></div>
+        <div class="bs-row"><span class="bs-key">路由分布</span><span class="bs-val" id="q-route-dist">-</span></div>
+      </div>
+    </div>
   </div>
 
   <!-- CENTER: Dispatch & Results -->
@@ -281,6 +322,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
         </select>
         <select id="f-route" onchange="onRouteChange()">
           <option value="smart" selected>🧠 Smart (智能路由)</option>
+          <option value="hermes">🧠 Hermes (自学习路由)</option>
+          <option value="queue">📨 Queue (消息队列调度)</option>
           <option value="direct">🐍 Python直连 (快速)</option>
           <option value="bridge">🌉 Bridge→Gateway (轻量)</option>
           <option value="agent">🤖 Bridge→Agent (Agent链路)</option>
@@ -322,6 +365,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
 const API = '';
 const SCHEDULER_URL = 'http://localhost:8000';
 const BRIDGE_URL = 'http://localhost:3001';
+const HERMES_URL = 'http://localhost:8082';
 let dispatchCounter = 0;
 const allResults = [];
 
@@ -452,6 +496,46 @@ async function refreshBridge() {
   }
 }
 
+async function refreshHermes() {
+  try {
+    const res = await fetch(HERMES_URL + '/health', { signal: AbortSignal.timeout(3000) });
+    const h = await res.json();
+    document.getElementById('hm-status').innerHTML = `<span style="color:var(--green)">✓ ${h.status}</span>`;
+    document.getElementById('hm-iterations').textContent = h.learning_iterations || 0;
+    document.getElementById('hm-threshold').textContent = h.complexity_threshold || 40;
+    document.getElementById('hm-exploration').textContent = (h.exploration_rate || 0).toFixed(3);
+    document.getElementById('hm-memory').textContent = h.memory_records || 0;
+    document.getElementById('hm-skills').textContent = h.skills_count || 0;
+    setDot('hermes', h.status === 'healthy');
+  } catch(e) {
+    document.getElementById('hm-status').innerHTML = `<span style="color:var(--red)">✗ 不可达</span>`;
+    document.getElementById('hm-iterations').textContent = '-';
+    document.getElementById('hm-threshold').textContent = '-';
+    document.getElementById('hm-exploration').textContent = '-';
+    document.getElementById('hm-memory').textContent = '-';
+    document.getElementById('hm-skills').textContent = '-';
+    setDot('hermes', false);
+  }
+
+  try {
+    const res = await fetch(HERMES_URL + '/skills', { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    const container = document.getElementById('hermes-skills-list');
+    if (!data.skills || data.skills.length === 0) {
+      container.innerHTML = '<div style="color:var(--text3);padding:4px">暂无学习技能</div>';
+    } else {
+      container.innerHTML = data.skills.slice(0, 10).map(s => {
+        const confColor = s.confidence >= 0.8 ? 'var(--green)' : s.confidence >= 0.6 ? 'var(--yellow)' : 'var(--red)';
+        return `<div style="background:var(--bg);border-radius:4px;padding:4px 6px;margin-bottom:3px;border-left:2px solid ${confColor}">
+          <span style="color:var(--text);font-weight:600">${s.name}</span>
+          <span style="color:var(--text3);margin-left:4px">${s.pattern_type}=${s.pattern_detail}</span>
+          <span style="color:${confColor};float:right">${(s.confidence * 100).toFixed(0)}%</span>
+        </div>`;
+      }).join('');
+    }
+  } catch(e) {}
+}
+
 async function refreshGateway() {
   let reachable = false;
   try {
@@ -490,6 +574,152 @@ async function refreshAgentSouls() {
   } catch(e) {
     document.getElementById('agent-souls-list').innerHTML = '<div style="color:var(--red)">✗ 不可达</div>';
   }
+}
+
+async function refreshOfficialAgent() {
+  try {
+    const res = await fetch(HERMES_URL + '/official-agent');
+    const data = await res.json();
+    document.getElementById('oa-url').textContent = data.api_url || '-';
+    const avail = data.available;
+    document.getElementById('oa-status').innerHTML = avail
+      ? '<span style="color:var(--green)">● 在线</span>'
+      : '<span style="color:var(--red)">● 离线</span>';
+    document.getElementById('oa-mode').textContent = avail ? 'Official Agent' : 'Fallback';
+  } catch(e) {
+    document.getElementById('oa-url').textContent = '-';
+    document.getElementById('oa-status').innerHTML = '<span style="color:var(--red)">● 不可达</span>';
+    document.getElementById('oa-mode').textContent = '-';
+  }
+}
+
+async function toggleOfficialAgent(enabled) {
+  try {
+    await fetch(HERMES_URL + '/official-agent/toggle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    log('info', enabled ? '⚡ Official Agent 已启用' : '⚡ Official Agent 已禁用');
+    refreshOfficialAgent();
+  } catch(e) {
+    log('err', '切换 Official Agent 失败: ' + e.message);
+  }
+}
+
+async function refreshQueueStatus() {
+  try {
+    const res = await fetch(HERMES_URL + '/queue/status', { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    const backend = data.queue_backend || {};
+    const worker = data.worker || {};
+
+    document.getElementById('q-backend').textContent = backend.backend || '-';
+    document.getElementById('q-worker').innerHTML = worker.is_running
+      ? '<span style="color:var(--green)">● 运行中 (' + worker.max_workers + '线程)</span>'
+      : '<span style="color:var(--red)">● 已停止</span>';
+
+    const qs = worker.queue_sizes || {};
+    document.getElementById('q-requests').textContent = qs.requests || 0;
+    document.getElementById('q-results').textContent = qs.results || 0;
+    document.getElementById('q-feedback').textContent = qs.feedback || 0;
+    document.getElementById('q-processed').textContent = worker.processed || 0;
+    document.getElementById('q-success-failed').textContent = (worker.success || 0) + '/' + (worker.failed || 0);
+
+    const byRoute = worker.by_route || {};
+    const routeParts = Object.entries(byRoute).map(([k,v]) => k + ':' + v);
+    document.getElementById('q-route-dist').textContent = routeParts.length > 0 ? routeParts.join(', ') : '-';
+  } catch(e) {
+    document.getElementById('q-backend').textContent = '不可达';
+    document.getElementById('q-worker').innerHTML = '<span style="color:var(--red)">● 不可达</span>';
+  }
+}
+
+async function sendQueueRequest(body, label) {
+  dispatchCounter++;
+  const rid = 'q-' + dispatchCounter;
+  log('info', `[${rid}] → Queue请求: type=${body.type}, priority=${body.priority}`);
+  log('info', `[${rid}]   prompt: "${body.prompt.slice(0, 60)}${body.prompt.length > 60 ? '...' : ''}"`);
+
+  const emptyHint = document.getElementById('empty-hint');
+  if (emptyHint) emptyHint.remove();
+
+  const area = document.getElementById('results-area');
+  const placeholder = document.createElement('div');
+  placeholder.className = 'dispatch-card';
+  placeholder.id = rid;
+  placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-strategy agent">📨 ${label}</span><span class="dc-model" style="color:var(--cyan)"><span class="spinner"></span> 队列调度中...</span></div><div class="dc-right"><span class="dc-status running">⏳ 运行中</span></div></div>`;
+  area.insertBefore(placeholder, area.firstChild);
+
+  const startTime = Date.now();
+
+  try {
+    const res = await fetch(HERMES_URL + '/queue/submit-sync?timeout=30', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    const elapsed = Date.now() - startTime;
+
+    const isOk = data.status === 'success';
+    const result = data.result || {};
+    const routing = data.routing || {};
+
+    log(isOk ? 'ok' : 'err', `[${rid}] ${isOk ? '✓' : '✗'} Queue: path=${routing.route_path || '-'}, model=${routing.selected_model || '-'}, latency=${data.total_latency_ms || elapsed}ms`);
+
+    if (!isOk && data.error) {
+      log('err', `[${rid}]   Error: ${data.error.message || JSON.stringify(data.error)}`);
+    }
+
+    const cardData = {
+      request_id: data.request_id || rid,
+      appid: body.appid || 'queue-test',
+      status: isOk ? 'success' : 'failed',
+      result: {
+        model_name: result.model_name || '-',
+        model_type: result.model_type || 'unknown',
+        output: result.output || '',
+        latency_ms: result.latency_ms || elapsed,
+        cost: result.cost,
+        usage: result.usage,
+        routed_via_gateway: result.routed_via_gateway || false,
+        actual_model: result.actual_model || null,
+        finish_reason: result.finish_reason || 'stop',
+      },
+      agent_trace: [],
+      prompt: body.prompt,
+      type: body.type,
+      priority: body.priority,
+      total_latency_ms: elapsed,
+      strategy_name: routing.route_path || '-',
+      is_bridge: true,
+      is_agent_chain: routing.route_path === 'agent_chain',
+      is_smart: false,
+      is_hermes: true,
+      hermes_routing: {
+        route_path: routing.route_path,
+        complexity_score: routing.complexity_score,
+        threshold: 40,
+        selected_model: routing.selected_model,
+        reason: routing.reason,
+        skill_matched: null,
+        memory_match: routing.memory_context_used || false,
+      },
+      smart_routing: null,
+      has_tool_call: false,
+      is_queue: true,
+    };
+
+    allResults.push(cardData);
+    placeholder.outerHTML = renderTraceCard(cardData);
+  } catch(e) {
+    log('err', `[${rid}] ✗ Queue请求失败: ${e.message}`);
+    placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-model" style="color:var(--red)">请求失败: ${e.message}</span></div><div class="dc-right"><span class="dc-status failed">✗ 失败</span></div></div>`;
+  }
+
+  refreshResources();
+  refreshQueueStatus();
 }
 
 async function refreshOfficialGateway() {
@@ -718,6 +948,18 @@ function renderTraceCard(data) {
     const routeIcon = sr.decision === 'agent' ? '🤖' : '🌉';
     html += `<span class="tag" style="background:#1a1a2e;color:${scoreColor};font-size:10px">🧠 ${sr.score}/${sr.threshold} → ${routeIcon} ${sr.decision}</span>`;
   }
+  if (data.is_hermes && data.hermes_routing) {
+    const hr = data.hermes_routing;
+    const scoreColor = (hr.complexity_score || 0) >= (hr.threshold || 40) ? 'var(--red)' : 'var(--green)';
+    const pathIcon = hr.route_path === 'agent_chain' ? '🤖' : hr.route_path === 'gateway' ? '🌉' : hr.route_path === 'direct_local' ? '🏠' : '☁️';
+    html += `<span class="tag" style="background:#0c2d48;color:var(--cyan);font-size:10px">🧠 Hermes ${hr.complexity_score || '?'}/${hr.threshold || 40} → ${pathIcon} ${hr.route_path}</span>`;
+    if (hr.skill_matched) {
+      html += `<span class="tag" style="background:#2e1065;color:var(--purple);font-size:10px">📖 ${hr.skill_matched}</span>`;
+    }
+    if (hr.memory_match) {
+      html += `<span class="tag" style="background:#1a1a2e;color:var(--yellow);font-size:10px">💾 记忆匹配</span>`;
+    }
+  }
   html += `<span class="dc-model">${result.model_name || '-'}</span>`;
   if (result.actual_model) html += `<span style="color:var(--text3);font-size:10px;margin-left:4px">(${result.actual_model})</span>`;
   html += `</div>`;
@@ -764,6 +1006,22 @@ function renderTraceCard(data) {
     html += `<div style="margin-bottom:4px"><b>原因:</b> ${escapeHtml(sr.reason)}</div>`;
     html += `<div style="margin-bottom:4px"><b>预计延迟:</b> ${sr.estimated_latency}</div>`;
     html += `<div style="color:var(--text3)"><b>评分明细:</b> ${escapeHtml(sr.breakdown)}</div>`;
+    html += `</div></div>`;
+  }
+
+  if (data.is_hermes && data.hermes_routing) {
+    const hr = data.hermes_routing;
+    const scoreColor = (hr.complexity_score || 0) >= (hr.threshold || 40) ? 'var(--red)' : 'var(--green)';
+    const pathNames = { gateway: '🌉 Gateway轻量路由', agent_chain: '🤖 Agent执行链', direct_local: '🏠 本地直连', direct_cloud: '☁️ 云端直连' };
+    html += `<div style="margin-top:8px"><div class="di-label">🧠 Hermes 智能路由决策</div>`;
+    html += `<div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #0e7490">`;
+    html += `<div style="margin-bottom:4px"><b>复杂度评分:</b> <span style="color:${scoreColor};font-weight:700">${hr.complexity_score || '?'}</span> / 阈值 ${hr.threshold || 40} → <b>${pathNames[hr.route_path] || hr.route_path}</b></div>`;
+    html += `<div style="margin-bottom:4px"><b>复杂度等级:</b> ${hr.complexity_level || '-'}</div>`;
+    html += `<div style="margin-bottom:4px"><b>推荐模型:</b> ${hr.selected_model || '-'}</div>`;
+    html += `<div style="margin-bottom:4px"><b>决策原因:</b> ${escapeHtml(hr.reason || '')}</div>`;
+    if (hr.skill_matched) html += `<div style="margin-bottom:4px"><b>技能匹配:</b> <span style="color:var(--purple)">📖 ${hr.skill_matched}</span></div>`;
+    if (hr.memory_match) html += `<div style="margin-bottom:4px"><b>记忆匹配:</b> <span style="color:var(--yellow)">💾 历史成功经验</span></div>`;
+    if (hr.exploration) html += `<div style="margin-bottom:4px"><b>探索模式:</b> <span style="color:var(--cyan)">🔬 尝试新路径</span></div>`;
     html += `</div></div>`;
   }
 
@@ -896,6 +1154,14 @@ async function sendSingle() {
     const body = buildRequestBody(constraint);
     body.route_mode = 'smart';
     await sendBridgeRequest(body, '🧠 Smart');
+  } else if (route === 'hermes') {
+    const constraint = document.getElementById('f-constraint').value;
+    const body = buildRequestBody(constraint);
+    await sendHermesRequest(body, 'Hermes智能路由');
+  } else if (route === 'queue') {
+    const constraint = document.getElementById('f-constraint').value;
+    const body = buildRequestBody(constraint);
+    await sendQueueRequest(body, '📨 队列调度');
   } else if (route === 'agent') {
     const agentId = document.getElementById('f-agent').value;
     const constraint = document.getElementById('f-constraint').value;
@@ -923,6 +1189,8 @@ function onRouteChange() {
   agentSel.style.display = route === 'agent' ? '' : 'none';
   if (route === 'smart') {
     log('info', '🧠 Smart模式: 根据请求复杂度自动选择 Gateway(快) 或 Agent(强), 阈值=40分');
+  } else if (route === 'queue') {
+    log('info', '📨 Queue模式: 请求进入消息队列，Hermes Agent自动路由调度，结果放入结果队列');
   }
 }
 
@@ -1077,6 +1345,95 @@ async function sendBridgeRequest(body, label) {
   refreshAdaptive();
 }
 
+async function sendHermesRequest(body, label) {
+  dispatchCounter++;
+  const rid = 'req-' + dispatchCounter;
+  const hermesEndpoint = HERMES_URL + '/route';
+  log('info', `[${rid}] → Hermes请求: type=${body.type}, priority=${body.priority}, tools=${body.tools ? body.tools.length : 0}`);
+  log('info', `[${rid}]   prompt: "${body.prompt.slice(0, 60)}${body.prompt.length > 60 ? '...' : ''}"`);
+
+  const emptyHint = document.getElementById('empty-hint');
+  if (emptyHint) emptyHint.remove();
+
+  const area = document.getElementById('results-area');
+  const placeholder = document.createElement('div');
+  placeholder.className = 'dispatch-card';
+  placeholder.id = rid;
+  placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-strategy agent">🧠 ${label}</span><span class="dc-model" style="color:var(--cyan)"><span class="spinner"></span> Hermes路由中...</span></div><div class="dc-right"><span class="dc-status running">⏳ 运行中</span></div></div>`;
+  area.insertBefore(placeholder, area.firstChild);
+
+  const startTime = Date.now();
+
+  try {
+    const res = await fetch(hermesEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    const elapsed = Date.now() - startTime;
+
+    const isOk = data.status === 'success';
+    const result = data.result || {};
+    const routing = data.routing || {};
+    const hermesTrace = data.hermes_trace || [];
+
+    log(isOk ? 'ok' : 'err', `[${rid}] ${isOk ? '✓' : '✗'} Hermes: path=${routing.route_path || '-'}, model=${routing.selected_model || '-'}, score=${routing.complexity_score || '-'}, latency=${data.total_latency_ms || elapsed}ms`);
+
+    if (hermesTrace.length > 0) {
+      hermesTrace.forEach(t => {
+        const lvl = t.message.includes('failed') || t.message.includes('Failed') ? 'warn' : 'info';
+        log(lvl, `[${rid}]   [${t.agent}] ${t.message.slice(0, 120)}`);
+      });
+    }
+
+    const finishReason = result.finish_reason || (isOk ? 'stop' : '?');
+    const hasToolCall = finishReason === 'tool_calls' || (result.output && result.output.includes('[Tool Call]'));
+
+    const cardData = {
+      request_id: rid,
+      appid: body.appid || 'hermes-test',
+      status: isOk ? 'success' : 'failed',
+      result: {
+        model_name: result.model_name || '-',
+        model_type: result.model_type || 'cloud',
+        output: result.output || '',
+        latency_ms: result.latency_ms || elapsed,
+        cost: result.cost,
+        usage: result.usage,
+        routed_via_gateway: result.routed_via_gateway || false,
+        actual_model: result.actual_model || null,
+        finish_reason: finishReason,
+      },
+      agent_trace: data.hermes_trace || [],
+      execution_context: null,
+      prompt: body.prompt,
+      type: body.type,
+      priority: body.priority,
+      total_latency_ms: elapsed,
+      strategy_name: routing.route_path || '-',
+      is_bridge: true,
+      is_agent_chain: routing.route_path === 'agent_chain',
+      is_smart: false,
+      is_hermes: true,
+      hermes_routing: routing,
+      smart_routing: null,
+      has_tool_call: hasToolCall,
+    };
+
+    allResults.push(cardData);
+    placeholder.outerHTML = renderTraceCard(cardData);
+  } catch(e) {
+    log('err', `[${rid}] ✗ Hermes请求失败: ${e.message}`);
+    placeholder.innerHTML = `<div class="dc-header"><div class="dc-left"><span class="dc-id">#${rid}</span><span class="dc-model" style="color:var(--red)">请求失败: ${e.message}</span></div><div class="dc-right"><span class="dc-status failed">✗ 失败</span></div></div>`;
+  }
+
+  refreshResources();
+  refreshModels();
+  refreshAdaptive();
+  refreshHermes();
+}
+
 async function runDualPathTest() {
   const btn = document.getElementById('btn-dual');
   btn.disabled = true;
@@ -1226,15 +1583,19 @@ async function runBatchTest() {
     { label: 'smart-simple', body: { appid, type: 'chat', prompt: '1+1=?', priority: 3, route_mode: 'smart' }, bridge: true },
     { label: 'smart-complex', body: { appid, type: 'tool_call', prompt: '请分析并比较三种方案的优劣', priority: 2, tools: SAMPLE_TOOLS, tool_choice: 'auto', route_mode: 'smart' }, bridge: true },
     { label: 'smart-keyword', body: { appid, type: 'chat', prompt: '请设计一个多步骤的自主执行计划来优化系统性能', priority: 3, route_mode: 'smart' }, bridge: true },
+    { label: 'hermes-simple', body: { appid, type: 'chat', prompt: '1+1=?', priority: 3 }, hermes: true },
+    { label: 'hermes-complex', body: { appid, type: 'tool_call', prompt: '请分析并比较三种方案的优劣', priority: 2, tools: SAMPLE_TOOLS, tool_choice: 'auto' }, hermes: true },
   ];
 
   log('info', `══════ 批量测试开始 (${testCases.length}种策略) ══════`);
 
   for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
-    log('info', `▶ 测试 ${i+1}/${testCases.length}: ${tc.label}${tc.bridge ? ' [Bridge]' : ' [直连]'}`);
+    log('info', `▶ 测试 ${i+1}/${testCases.length}: ${tc.label}${tc.bridge ? ' [Bridge]' : tc.hermes ? ' [Hermes]' : ' [直连]'}`);
     if (tc.bridge) {
       await sendBridgeRequest(tc.body, tc.label);
+    } else if (tc.hermes) {
+      await sendHermesRequest(tc.body, tc.label);
     } else {
       await sendRequest(tc.body, tc.label);
     }
@@ -1265,6 +1626,9 @@ async function refreshAll() {
     refreshGateway(),
     refreshAgentSouls(),
     refreshOfficialGateway(),
+    refreshHermes(),
+    refreshOfficialAgent(),
+    refreshQueueStatus(),
   ]);
 }
 

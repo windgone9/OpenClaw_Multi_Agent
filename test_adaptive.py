@@ -8,28 +8,28 @@ from scheduler.strategy.router import StrategyRouter, RoutingDecision
 
 registry = ModelRegistry()
 registry.register(ModelEndpoint(
-    name="ollama-qwen2.5", display_name="Ollama Qwen2.5 3B (Local)",
+    name="ollama/qwen2.5:3b", display_name="Ollama Qwen2.5 3B (Local)",
     model_type=ModelType.LOCAL, provider=ModelProvider.OLLAMA,
     base_url="http://localhost:11434/v1", model_id="qwen2.5:3b",
     max_context_length=32768, supports_streaming=True, supports_tools=False,
     cost_per_1k_input_tokens=0.0, cost_per_1k_output_tokens=0.0,
-    priority=1, weight=3, max_concurrent=5, tags=["chat", "completion"],
+    priority=1, weight=3, max_concurrent=5, tags=["chat", "completion", "local"],
 ))
 registry.register(ModelEndpoint(
-    name="kimi-k2.6", display_name="Kimi K2.6 (Cloud)",
+    name="moonshot/kimi-k2.6", display_name="Kimi K2.6 (Cloud)",
     model_type=ModelType.CLOUD, provider=ModelProvider.MOONSHOT,
     base_url="https://api.moonshot.cn/v1", model_id="kimi-k2.6",
     max_context_length=262144, supports_streaming=True, supports_tools=True,
     cost_per_1k_input_tokens=0.76, cost_per_1k_output_tokens=3.2,
-    priority=2, weight=2, max_concurrent=15, tags=["chat", "completion", "tool_call"],
+    priority=2, weight=2, max_concurrent=15, tags=["chat", "completion", "tool_call", "cloud"],
 ))
 registry.register(ModelEndpoint(
-    name="deepseek-chat", display_name="DeepSeek Chat (Cloud)",
+    name="deepseek/deepseek-chat", display_name="DeepSeek Chat (Cloud)",
     model_type=ModelType.CLOUD, provider=ModelProvider.DEEPSEEK,
     base_url="https://api.deepseek.com/v1", model_id="deepseek-chat",
     max_context_length=64000, supports_streaming=True, supports_tools=False,
     cost_per_1k_input_tokens=0.00014, cost_per_1k_output_tokens=0.00028,
-    priority=3, weight=3, max_concurrent=20, tags=["chat", "completion"],
+    priority=3, weight=3, max_concurrent=20, tags=["chat", "completion", "code", "cloud"],
 ))
 
 router = StrategyRouter(registry, use_openclaw=True)

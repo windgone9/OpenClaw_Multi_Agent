@@ -49,7 +49,7 @@ MAX_HISTORY = 50
 
 def _init_default_models():
     registry.register(ModelEndpoint(
-        name="ollama-qwen2.5",
+        name="ollama/qwen2.5:3b",
         display_name="Ollama Qwen2.5 3B (Local)",
         model_type=ModelType.LOCAL,
         provider=ModelProvider.OLLAMA,
@@ -63,10 +63,10 @@ def _init_default_models():
         priority=1,
         weight=3,
         max_concurrent=5,
-        tags=["chat", "completion"],
+        tags=["chat", "completion", "local"],
     ))
     registry.register(ModelEndpoint(
-        name="kimi-k2.6",
+        name="moonshot/kimi-k2.6",
         display_name="Kimi K2.6 (Cloud)",
         model_type=ModelType.CLOUD,
         provider=ModelProvider.MOONSHOT,
@@ -81,10 +81,10 @@ def _init_default_models():
         priority=2,
         weight=2,
         max_concurrent=15,
-        tags=["chat", "completion", "tool_call"],
+        tags=["chat", "completion", "tool_call", "cloud"],
     ))
     registry.register(ModelEndpoint(
-        name="deepseek-chat",
+        name="deepseek/deepseek-chat",
         display_name="DeepSeek Chat (Cloud)",
         model_type=ModelType.CLOUD,
         provider=ModelProvider.DEEPSEEK,
@@ -99,7 +99,7 @@ def _init_default_models():
         priority=3,
         weight=3,
         max_concurrent=20,
-        tags=["chat", "completion"],
+        tags=["chat", "completion", "code", "cloud"],
     ))
 
 

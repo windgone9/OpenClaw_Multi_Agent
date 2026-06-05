@@ -12,6 +12,8 @@ const OPENCLAW_GATEWAY_URL =
   process.env.OPENCLAW_GATEWAY_URL || "http://localhost:3000";
 const OPENCLAW_OFFICIAL_GATEWAY_URL =
   process.env.OPENCLAW_OFFICIAL_GATEWAY_URL || "http://127.0.0.1:3005";
+const HERMES_URL =
+  process.env.HERMES_URL || "http://localhost:8082";
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || "3001", 10);
 const USE_OPENCLAW_GATEWAY =
   process.env.USE_OPENCLAW_GATEWAY !== "false";
@@ -441,7 +443,17 @@ async function callOpenClawOfficialGateway(request, agentId) {
   }
   messages.push({ role: "user", content: request.prompt });
 
-  const model = agentId ? `openclaw/${agentId}` : "openclaw";
+  // Official OpenClaw GW only recognizes: openclaw, openclaw/default, openclaw/main
+  // Map custom agent IDs to valid model IDs
+  let model;
+  if (!agentId) {
+    model = "openclaw";
+  } else if (agentId === "main" || agentId === "default") {
+    model = `openclaw/${agentId}`;
+  } else {
+    // For custom agent IDs (local-dispatcher, cloud-dispatcher, etc.), use default
+    model = "openclaw/default";
+  }
 
   const payload = {
     model,
@@ -1347,11 +1359,30 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/dispatch") {
       const body = await parseBody(req);
       const routeMode = body.route_mode || DEFAULT_ROUTE_MODE;
+      const hermesRouting = body.hermes_routing || null;
       const dispatchStart = Date.now();
       let result;
       let smartDecision = null;
 
-      if (routeMode === "smart") {
+      if (hermesRouting) {
+        const hermesPath = hermesRouting.route_path;
+        if (hermesPath === "agent_chain") {
+          // Complex requests → Agent Chain → Official OpenClaw GW → Volcano
+          result = await dispatchViaAgentChain(body);
+        } else if (hermesPath === "direct_local" || hermesPath === "local_inference") {
+          // Simple/privacy requests → Gateway registered local model (Ollama/vLLM)
+          // Force local model selection via adaptive routing with require_local constraint
+          if (!body.constraints) body.constraints = {};
+          body.constraints.require_local = true;
+          result = await dispatchViaOpenClaw(body);
+          result.routing_note = "Hermes direct_local: routed via Gateway to registered local model (Ollama/vLLM)";
+        } else {
+          // gateway / other → Gateway model resolution (local or cloud)
+          result = await dispatchViaOpenClaw(body);
+        }
+        result.hermes_routing = hermesRouting;
+        result.routing_source = "hermes";
+      } else if (routeMode === "smart") {
         smartDecision = smartRouteDecision(body);
         const actualMode = smartDecision.decision;
         if (actualMode === "agent") {
@@ -1368,10 +1399,13 @@ const server = createServer(async (req, res) => {
           reason: smartDecision.reason,
           estimated_latency: smartDecision.estimatedLatency,
         };
+        result.routing_source = "bridge_smart";
       } else if (routeMode === "agent") {
         result = await dispatchViaAgentChain(body);
+        result.routing_source = "bridge_agent";
       } else {
         result = await dispatchViaOpenClaw(body);
+        result.routing_source = "bridge_gateway";
       }
 
       bridgeStats.totalRequests++;
@@ -1436,6 +1470,18 @@ const server = createServer(async (req, res) => {
         officialGatewayReachable = ogRes.ok;
       } catch {}
 
+      let hermesReachable = false;
+      let hermesInfo = null;
+      try {
+        const hermesRes = await fetch(`${HERMES_URL}/health`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (hermesRes.ok) {
+          hermesReachable = true;
+          hermesInfo = await hermesRes.json();
+        }
+      } catch {}
+
       sendJson(res, 200, {
         status: "healthy",
         openclaw_version: "2026.4.27",
@@ -1444,6 +1490,15 @@ const server = createServer(async (req, res) => {
         gateway_routing: USE_OPENCLAW_GATEWAY,
         official_gateway_url: OPENCLAW_OFFICIAL_GATEWAY_URL,
         official_gateway_reachable: officialGatewayReachable,
+        hermes_url: HERMES_URL,
+        hermes_reachable: hermesReachable,
+        hermes_info: hermesInfo ? {
+          learning_iterations: hermesInfo.learning_iterations,
+          complexity_threshold: hermesInfo.complexity_threshold,
+          exploration_rate: hermesInfo.exploration_rate,
+          memory_records: hermesInfo.memory_records,
+          skills_count: hermesInfo.skills_count,
+        } : null,
         default_route_mode: DEFAULT_ROUTE_MODE,
         local_models: localAvailable,
         cloud_models: cloudAvailable,
@@ -1607,6 +1662,86 @@ const server = createServer(async (req, res) => {
         sendJson(res, 200, result);
       } else {
         sendJson(res, 400, { error: "Unknown service. Use 'gateway' or 'officialGateway'" });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/hermes/health") {
+      try {
+        const hermesRes = await fetch(`${HERMES_URL}/health`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        const data = await hermesRes.json();
+        sendJson(res, hermesRes.ok ? 200 : 502, data);
+      } catch (e) {
+        sendJson(res, 502, { status: "unreachable", url: HERMES_URL, error: e.message });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/hermes/state") {
+      try {
+        const hermesRes = await fetch(`${HERMES_URL}/state`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await hermesRes.json();
+        sendJson(res, hermesRes.ok ? 200 : 502, data);
+      } catch (e) {
+        sendJson(res, 502, { status: "unreachable", url: HERMES_URL, error: e.message });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/hermes/skills") {
+      try {
+        const hermesRes = await fetch(`${HERMES_URL}/skills`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await hermesRes.json();
+        sendJson(res, hermesRes.ok ? 200 : 502, data);
+      } catch (e) {
+        sendJson(res, 502, { status: "unreachable", url: HERMES_URL, error: e.message });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/hermes/memory/recent") {
+      try {
+        const limit = url.searchParams.get("limit") || "20";
+        const hermesRes = await fetch(`${HERMES_URL}/memory/recent?limit=${limit}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await hermesRes.json();
+        sendJson(res, hermesRes.ok ? 200 : 502, data);
+      } catch (e) {
+        sendJson(res, 502, { status: "unreachable", url: HERMES_URL, error: e.message });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/hermes/evolution") {
+      try {
+        const limit = url.searchParams.get("limit") || "20";
+        const hermesRes = await fetch(`${HERMES_URL}/evolution?limit=${limit}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await hermesRes.json();
+        sendJson(res, hermesRes.ok ? 200 : 502, data);
+      } catch (e) {
+        sendJson(res, 502, { status: "unreachable", url: HERMES_URL, error: e.message });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/hermes/stats") {
+      try {
+        const hermesRes = await fetch(`${HERMES_URL}/stats`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        const data = await hermesRes.json();
+        sendJson(res, hermesRes.ok ? 200 : 502, data);
+      } catch (e) {
+        sendJson(res, 502, { status: "unreachable", url: HERMES_URL, error: e.message });
       }
       return;
     }
