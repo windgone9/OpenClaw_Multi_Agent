@@ -421,6 +421,8 @@ class HermesRouter:
         self.llm_enhancer = llm_enhancer
         self.hermes_agent = hermes_agent
         self.official_agent = official_agent
+        self._cloud_available: Optional[bool] = None
+        self._cloud_check_time: float = 0
         self._load_state()
 
     def _load_state(self):
@@ -542,6 +544,26 @@ class HermesRouter:
             recommended_path=recommended_path,
         )
 
+    def _check_cloud_available(self) -> bool:
+        """Check if cloud models are actually available via Bridge (cached for 30s)."""
+        now = time.time()
+        if self._cloud_available is not None and (now - self._cloud_check_time) < 30:
+            return self._cloud_available
+        try:
+            import httpx
+            resp = httpx.get("http://localhost:3001/health", timeout=5.0)
+            data = resp.json()
+            cloud_count = data.get("cloud_models", 0)
+            ogw_reachable = data.get("official_gateway_reachable", False)
+            self._cloud_available = cloud_count > 0 and ogw_reachable
+            self._cloud_check_time = now
+            logger.info(f"Cloud availability check: {cloud_count} cloud models, OGW reachable={ogw_reachable} → available={self._cloud_available}")
+        except Exception as e:
+            logger.warning(f"Cloud availability check failed: {e}")
+            self._cloud_available = False
+            self._cloud_check_time = now - 25  # Allow retry in 5s
+        return self._cloud_available
+
     def _decide_path(self, score: float, request: Dict) -> RoutePath:
         has_tools = bool(request.get("tools"))
         constraints = request.get("constraints") or {}
@@ -550,16 +572,25 @@ class HermesRouter:
         if require_local:
             return RoutePath.LOCAL_INFERENCE
 
-        if score >= self.complexity_threshold:
-            return RoutePath.AGENT_CHAIN
-
+        # Agent-related requests: tools, code, multi-step → OfficialGW (cloud)
         if has_tools:
             return RoutePath.GATEWAY
 
-        if score < 15:
-            return RoutePath.DIRECT_LOCAL
+        req_type = request.get("type", "chat")
+        if req_type in ("code", "code_execution", "tool_call"):
+            return RoutePath.GATEWAY
 
-        return RoutePath.GATEWAY
+        if score >= self.complexity_threshold:
+            return RoutePath.GATEWAY
+
+        # High-complexity keywords indicate agent-related tasks regardless of score
+        prompt = request.get("prompt", "")
+        high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+        if any(kw in prompt for kw in high_complexity_keywords):
+            return RoutePath.GATEWAY
+
+        # Everything else: local model (Ollama/vLLM)
+        return RoutePath.DIRECT_LOCAL
 
     def _recalc_level(self, total: float) -> ComplexityLevel:
         if total < 20:
@@ -700,6 +731,33 @@ class HermesRouter:
                 logger.info(f"Hermes exploration: trying alternative path {path.value} "
                             f"instead of {score.recommended_path.value}")
 
+        # Apply simplified routing override as final guard
+        # This ensures consistent routing regardless of LLM/skill/memory decisions
+        constraints_final = request.get("constraints") or {}
+        require_local_final = constraints_final.get("require_local", False)
+
+        if require_local_final:
+            path = RoutePath.LOCAL_INFERENCE
+        else:
+            req_type_final = request.get("type", "chat")
+            has_tools_final = bool(request.get("tools"))
+            prompt_final = request.get("prompt", "")
+            high_complexity_keywords_final = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+            has_hck_final = any(kw in prompt_final for kw in high_complexity_keywords_final)
+
+            is_agent_related_final = (
+                has_tools_final
+                or req_type_final in ("code", "code_execution", "tool_call")
+                or score.total >= self.complexity_threshold
+                or has_hck_final
+            )
+            correct_path_final = RoutePath.GATEWAY if is_agent_related_final else RoutePath.DIRECT_LOCAL
+
+            if path != correct_path_final:
+                logger.info(f"Simplified routing override: {path.value} → {correct_path_final.value} "
+                            f"({'agent-related' if is_agent_related_final else 'simple'}, score={score.total})")
+                path = correct_path_final
+
         selected_model = self._select_model(request, path)
 
         result = {
@@ -732,17 +790,32 @@ class HermesRouter:
         except ValueError:
             path = score.recommended_path
 
-        # Force code type requests to agent_chain
-        req_type = request.get("type", "chat")
-        if req_type in ("code", "code_execution") and path != RoutePath.AGENT_CHAIN:
-            path = RoutePath.AGENT_CHAIN
-            agent_result["reason"] = f"{agent_result.get('reason', '')} [forced: code→agent_chain]"
-
-        # Force privacy-sensitive requests to local_inference
+        # Apply simplified routing override (same logic as _post_validate_route)
         constraints = request.get("constraints") or {}
-        if constraints.get("require_local", False) and path != RoutePath.LOCAL_INFERENCE:
+        require_local = constraints.get("require_local", False)
+
+        if require_local:
             path = RoutePath.LOCAL_INFERENCE
-            agent_result["reason"] = f"{agent_result.get('reason', '')} [forced: require_local→local_inference]"
+            agent_result["reason"] = f"Override: require_local (was {path.value})"
+        else:
+            req_type = request.get("type", "chat")
+            has_tools = bool(request.get("tools"))
+            prompt = request.get("prompt", "")
+            high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+            has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+
+            is_agent_related = (
+                has_tools
+                or req_type in ("code", "code_execution", "tool_call")
+                or score.total >= self.complexity_threshold
+                or has_high_complexity_keywords
+            )
+            correct_path = RoutePath.GATEWAY if is_agent_related else RoutePath.DIRECT_LOCAL
+
+            if path != correct_path:
+                original = path.value
+                path = correct_path
+                agent_result["reason"] = f"Override: {'agent-related' if is_agent_related else 'simple'} (was {original}, score={score.total})"
 
         selected_model = agent_result.get("selected_model") or self._select_model(request, path)
 
@@ -784,6 +857,33 @@ class HermesRouter:
             path = RoutePath(agent_decision.get("route_path", score.recommended_path.value))
         except ValueError:
             path = score.recommended_path
+
+        # Apply simplified routing override (same logic as _route_via_official_agent)
+        constraints = request.get("constraints") or {}
+        require_local = constraints.get("require_local", False)
+
+        if require_local:
+            path = RoutePath.LOCAL_INFERENCE
+            agent_decision["reasoning"] = f"Override: require_local"
+        else:
+            req_type = request.get("type", "chat")
+            has_tools = bool(request.get("tools"))
+            prompt = request.get("prompt", "")
+            high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+            has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+
+            is_agent_related = (
+                has_tools
+                or req_type in ("code", "code_execution", "tool_call")
+                or score.total >= self.complexity_threshold
+                or has_high_complexity_keywords
+            )
+            correct_path = RoutePath.GATEWAY if is_agent_related else RoutePath.DIRECT_LOCAL
+
+            if path != correct_path:
+                original = path.value
+                path = correct_path
+                agent_decision["reasoning"] = f"Override: {'agent-related' if is_agent_related else 'simple'} (was {original}, score={score.total})"
 
         selected_model = agent_decision.get("model_hint") or self._select_model(request, path)
 

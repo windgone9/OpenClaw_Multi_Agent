@@ -329,110 +329,85 @@ class AgentExecutionContext {
 
 async function dispatchViaAgentChain(request) {
   const agentId = resolveAgentId(request);
-  const ctx = new AgentExecutionContext(agentId, request);
+  const dispatchStart = Date.now();
 
-  ctx.addTrace("agent_router", `Agent chain mode: routing to agent=${agentId}`);
-
-  if (!ctx.soul) {
-    ctx.addTrace("agent_router", `Agent '${agentId}' not found, falling back to gateway mode`);
-    return dispatchViaOpenClaw(request);
-  }
-
-  ctx.addTrace("agent_soul", `Loaded soul: ${ctx.soul.soul.name} (${ctx.soul.soul.personality})`);
-  ctx.addTrace("agent_soul", `Capabilities: ${ctx.soul.soul.capabilities.join(", ")}`);
-  ctx.addTrace("agent_soul", `Execution plan: ${ctx.soul.soul.executionSteps.join(" → ")}`);
-
-  ctx.addStep("analyze_request", "Analyzing request type and complexity");
-  const analysis = analyzeRequest(request, ctx.soul);
-  ctx.addTrace("agent_analyzer", `Request analysis: type=${analysis.type}, complexity=${analysis.complexity}, requires_tools=${analysis.requires_tools}, recommended_model=${analysis.recommendedModel}`);
-  ctx.completeStep(analysis);
-
-  ctx.addStep("select_model", "Selecting optimal model based on agent soul and request analysis");
-  const modelSelection = selectModelForAgent(analysis, ctx.soul);
-  ctx.addTrace("agent_selector", `Model selected: ${modelSelection.endpoint.id} (reason: ${modelSelection.reason})`);
-  if (modelSelection.fallbacks.length > 0) {
-    ctx.addTrace("agent_selector", `Fallback chain: ${modelSelection.fallbacks.map((f) => f.id).join(" → ")}`);
-  }
-  ctx.completeStep(modelSelection);
-
-  ctx.addStep("execute_inference", "Executing model inference via OpenClaw Official Gateway");
-  let result;
+  // ── Fast path: direct passthrough to Official OpenClaw GW ──
+  // Skip Agent Soul analysis, model selection, and validation steps.
+  // The Official GW already runs its own Agent loop internally,
+  // so our Agent Soul steps only add ~5-10s overhead for no value.
   try {
-    result = await callOpenClawOfficialGateway(request, agentId);
-    ctx.addTrace("agent_executor", `OpenClaw Gateway inference completed: model=${result.model_name}, latency=${result.latency_ms}ms, finish=${result.finish_reason}`);
-    ctx.completeStep(result);
+    const result = await callOpenClawOfficialGateway(request, agentId);
+    const totalMs = Date.now() - dispatchStart;
+
+    return {
+      request_id: request.request_id,
+      appid: request.appid,
+      status: "success",
+      result,
+      fallback_results: null,
+      agent_trace: [
+        { step: "direct_passthrough", action: "Forwarded to Official OpenClaw GW", agent: agentId, ts: Date.now() },
+      ],
+      execution_context: {
+        agent_id: agentId,
+        status: "completed",
+        total_duration_ms: totalMs,
+        mode: "direct_passthrough",
+        steps_completed: 1,
+        steps_total: 1,
+      },
+      strategy_name: "agent_chain_fast",
+      routing_decision: {
+        agent_type: result.model_type || "cloud",
+        selected_endpoint: result.model_name,
+        strategy_name: "agent_chain_openclaw_gateway_fast",
+        reason: `Direct passthrough to OpenClaw Official GW (agent=${agentId})`,
+        openclaw_gateway: OPENCLAW_OFFICIAL_GATEWAY_URL,
+      },
+    };
   } catch (error) {
-    ctx.addTrace("agent_executor", `OpenClaw Gateway failed: ${error.message}, falling back to direct model call`);
-    ctx.failStep(error.message);
-
+    // Fallback: try local model via Gateway
+    const totalMs = Date.now() - dispatchStart;
     try {
-      result = await callModelApi(modelSelection.endpoint, request);
-      ctx.addTrace("agent_executor", `Fallback direct call succeeded: model=${result.model_name}, latency=${result.latency_ms}ms`);
-      result.fallback_used = true;
-      result.fallback_from = "openclaw_official_gateway";
-      ctx.completeStep(result);
+      const fallbackResult = await dispatchViaOpenClaw(request);
+      fallbackResult.fallback_used = true;
+      fallbackResult.fallback_from = "openclaw_official_gateway";
+      fallbackResult.fallback_reason = error.message;
+      fallbackResult.agent_trace = [
+        { step: "direct_passthrough", action: "Official GW failed", error: error.message, ts: Date.now() },
+        { step: "fallback_gateway", action: "Routed via Gateway to local model", ts: Date.now() },
+      ];
+      fallbackResult.execution_context = {
+        agent_id: agentId,
+        status: "completed_with_fallback",
+        total_duration_ms: Date.now() - dispatchStart,
+        mode: "direct_passthrough_with_fallback",
+      };
+      return fallbackResult;
     } catch (fbError) {
-      ctx.addTrace("agent_executor", `Fallback also failed: ${fbError.message}`);
-
-      if (modelSelection.fallbacks.length > 0) {
-        ctx.addTrace("agent_fallback", `Attempting fallback models...`);
-        for (const fb of modelSelection.fallbacks.slice(0, 2)) {
-          try {
-            result = await callModelApi(fb, request);
-            ctx.addTrace("agent_fallback", `Fallback succeeded: model=${result.model_name}, latency=${result.latency_ms}ms`);
-            result.fallback_used = true;
-            result.fallback_from = modelSelection.endpoint.id;
-            break;
-          } catch (fbErr) {
-            ctx.addTrace("agent_fallback", `Fallback ${fb.id} failed: ${fbErr.message}`);
-          }
-        }
-      }
-
-      if (!result) {
-        ctx.status = "failed";
-        ctx.addTrace("agent_chain", `All models failed for agent ${agentId}`);
-        return {
-          request_id: request.request_id,
-          appid: request.appid,
+      return {
+        request_id: request.request_id,
+        appid: request.appid,
+        status: "failed",
+        error: {
+          code: "ALL_MODELS_FAILED",
+          message: `Official GW: ${error.message}; Gateway fallback: ${fbError.message}`,
+          retryable: true,
+        },
+        agent_trace: [
+          { step: "direct_passthrough", action: "Official GW failed", error: error.message, ts: Date.now() },
+          { step: "fallback_gateway", action: "Gateway also failed", error: fbError.message, ts: Date.now() },
+        ],
+        execution_context: {
+          agent_id: agentId,
           status: "failed",
-          error: { code: "ALL_MODELS_FAILED", message: `Agent ${agentId}: all models failed`, retryable: true },
-          agent_trace: ctx.trace,
-          execution_context: ctx.getSummary(),
-          strategy_name: "agent_chain_failed",
-        };
-      }
+          total_duration_ms: totalMs,
+          mode: "direct_passthrough",
+        },
+        strategy_name: "agent_chain_failed",
+      };
     }
   }
-
-  ctx.addStep("validate_output", "Validating output quality");
-  const validation = validateOutput(result, analysis);
-  ctx.addTrace("agent_validator", `Output validation: quality=${validation.quality}, complete=${validation.isComplete}, tokens=${result.usage?.total_tokens || "?"}`);
-  ctx.completeStep(validation);
-
-  ctx.addStep("report_result", "Generating execution report");
-  ctx.status = "completed";
-  const summary = ctx.getSummary();
-  ctx.addTrace("agent_report", `Execution complete: ${summary.steps_completed}/${summary.steps_total} steps, total=${summary.total_duration_ms}ms`);
-  ctx.completeStep(summary);
-
-  return {
-    request_id: request.request_id,
-    appid: request.appid,
-    status: "success",
-    result,
-    fallback_results: null,
-    agent_trace: ctx.trace,
-    execution_context: summary,
-    strategy_name: "agent_chain",
-    routing_decision: {
-      agent_type: result.model_type || "cloud",
-      selected_endpoint: result.model_name,
-      strategy_name: `agent_chain_openclaw_gateway`,
-      reason: `Routed via OpenClaw Official Gateway (agent=${agentId})`,
-      openclaw_gateway: OPENCLAW_OFFICIAL_GATEWAY_URL,
-    },
-  };
 }
 
 async function callOpenClawOfficialGateway(request, agentId) {
@@ -458,7 +433,7 @@ async function callOpenClawOfficialGateway(request, agentId) {
   const payload = {
     model,
     messages,
-    max_tokens: 1024,
+    max_tokens: 512,
   };
   if (request.tools && request.tools.length > 0) {
     payload.tools = request.tools;
@@ -1376,8 +1351,46 @@ const server = createServer(async (req, res) => {
           body.constraints.require_local = true;
           result = await dispatchViaOpenClaw(body);
           result.routing_note = "Hermes direct_local: routed via Gateway to registered local model (Ollama/vLLM)";
+        } else if (hermesPath === "gateway") {
+          // Agent-related requests → Official OpenClaw GW directly
+          // Bypasses local Gateway (3000) and goes straight to Official GW (3005)
+          const agentId = resolveAgentId(body);
+          try {
+            result = await callOpenClawOfficialGateway(body, agentId);
+            result = {
+              request_id: body.request_id,
+              appid: body.appid,
+              status: "success",
+              result,
+              fallback_results: null,
+              agent_trace: [
+                { step: "hermes_gateway", action: "Forwarded to Official OpenClaw GW via Hermes gateway route", agent: agentId, ts: Date.now() },
+              ],
+              execution_context: {
+                agent_id: agentId,
+                status: "completed",
+                total_duration_ms: result.latency_ms || 0,
+                mode: "hermes_gateway_passthrough",
+              },
+              strategy_name: "hermes_gateway",
+              routing_decision: {
+                agent_type: result.model_type || "cloud",
+                selected_endpoint: result.model_name,
+                strategy_name: "hermes_gateway_openclaw_official",
+                reason: `Hermes gateway route → Official OpenClaw GW (agent=${agentId})`,
+                openclaw_gateway: OPENCLAW_OFFICIAL_GATEWAY_URL,
+              },
+            };
+          } catch (ogError) {
+            // Fallback: try local model via Gateway if Official GW is unreachable
+            console.error(`[Bridge] Official GW failed for gateway route, falling back to local: ${ogError.message}`);
+            if (!body.constraints) body.constraints = {};
+            body.constraints.require_local = true;
+            result = await dispatchViaOpenClaw(body);
+            result.routing_note = `Hermes gateway: Official GW unavailable (${ogError.message}), fell back to local model`;
+          }
         } else {
-          // gateway / other → Gateway model resolution (local or cloud)
+          // other → Gateway model resolution (local or cloud)
           result = await dispatchViaOpenClaw(body);
         }
         result.hermes_routing = hermesRouting;

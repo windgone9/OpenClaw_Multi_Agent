@@ -96,6 +96,8 @@ class OfficialHermesAdapter:
         self._feedback_queue: list = []
         self._feedback_lock = threading.Lock()
         self._memory_write_thread: Optional[threading.Thread] = None
+        self._cloud_available: Optional[bool] = None
+        self._cloud_check_time: float = 0
 
     @property
     def _headers(self) -> Dict[str, str]:
@@ -242,11 +244,12 @@ class OfficialHermesAdapter:
         """Build routing rules from MEMORY.md — the single source of truth.
 
         Generates the routing rules section of the system prompt dynamically
-        from Memory's 'Routing Patterns Learned' and 'Key Rules' sections.
+        from Memory's 'Routing Patterns Learned', 'Key Rules', and 'Latency Stats'.
         No hardcoded routing rules — all rules come from MEMORY.md.
         """
         rules = self._parse_routing_rules_from_memory()
         memory_ctx = self._load_memory_context()
+        latency_info = self._load_latency_stats_from_memory()
 
         if rules:
             # Build human-readable routing rules from Memory
@@ -260,9 +263,42 @@ class OfficialHermesAdapter:
             routing_rules = f"路由规则(从Memory学习):\n{memory_ctx}"
         else:
             # Last resort: minimal default rules
-            routing_rules = "路由规则:\n- 简单闲聊 → direct_local\n- 代码/编程 → agent_chain\n- 隐私敏感 → local_inference\n- 其他 → gateway"
+            routing_rules = "路由规则:\n- 简单闲聊 → direct_local\n- 代码/编程 → gateway\n- 隐私敏感 → local_inference\n- 其他 → direct_local"
+
+        # Append latency awareness to help LLM make cost-aware decisions
+        if latency_info:
+            routing_rules += f"\n\n延迟统计(从Memory学习):\n{latency_info}"
 
         return ROUTING_PROMPT_TEMPLATE.format(routing_rules=routing_rules)
+
+    def _load_latency_stats_from_memory(self) -> str:
+        """Load latency stats section from MEMORY.md for routing awareness."""
+        if not os.path.exists(MEMORY_FILE):
+            return ""
+
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            return ""
+
+        latency_header = "## Latency Stats (auto-updated)"
+        if latency_header not in content:
+            return ""
+
+        parts = content.split(latency_header, 1)
+        after = parts[1] if len(parts) > 1 else ""
+
+        # Extract until next section
+        next_section = after.find("\n## ")
+        if next_section >= 0:
+            stats_section = after[:next_section].strip()
+        else:
+            stats_section = after.strip()
+
+        # Only return lines starting with "-"
+        lines = [l.strip() for l in stats_section.split("\n") if l.strip().startswith("-")]
+        return "\n".join(lines)
 
     # ── Session Warmup ───────────────────────────────────────────────
 
@@ -632,6 +668,11 @@ class OfficialHermesAdapter:
         Bypasses the Agent's memory tool (which has a 1375 char limit and
         replace-only semantics) by directly appending to MEMORY.md.
         Keeps the file concise with a rolling window of recent feedback.
+
+        Auto-updates:
+        1. Feedback History (rolling window of 10)
+        2. Latency Stats (running avg/p95 per route)
+        3. Rule evolution on failure
         """
         if not os.path.exists(MEMORY_FILE):
             return False
@@ -650,29 +691,48 @@ class OfficialHermesAdapter:
         if request_summary:
             line += f" '{request_summary[:30]}'"
 
-        # Update feedback section
+        # ── Update Feedback History ──
         feedback_header = "## Feedback History"
         if feedback_header in content:
-            # Append to existing feedback section
             parts = content.split(feedback_header, 1)
-            before = parts[0]
-            after = parts[1] if len(parts) > 1 else ""
+            before_fb = parts[0]
+            after_fb = parts[1] if len(parts) > 1 else ""
 
-            # Keep only last 10 feedback lines
-            feedback_lines = [l for l in after.strip().split("\n") if l.strip().startswith("-")]
+            feedback_lines = [l for l in after_fb.strip().split("\n") if l.strip().startswith("-")]
             feedback_lines.append(line)
             feedback_lines = feedback_lines[-10:]  # Rolling window
-
-            new_content = before + feedback_header + "\n" + "\n".join(feedback_lines) + "\n"
         else:
-            # Add feedback section
-            new_content = content.rstrip() + f"\n\n{feedback_header}\n{line}\n"
+            before_fb = content.rstrip()
+            feedback_lines = [line]
 
-        # Write back (keep under 1500 chars for Hermes compatibility)
-        if len(new_content) > 1500:
-            # Trim oldest feedback lines only (not routing rules!)
-            feedback_lines = feedback_lines[1:]  # Remove oldest feedback
-            new_content = before + feedback_header + "\n" + "\n".join(feedback_lines) + "\n"
+        # ── Update Latency Stats ──
+        latency_header = "## Latency Stats (auto-updated)"
+        latency_line = self._compute_latency_stats(content, route_path, latency_ms)
+
+        # Reconstruct content
+        # Split into sections: before_latency | latency_section | between | feedback_section
+        if latency_header in before_fb:
+            lparts = before_fb.split(latency_header, 1)
+            before_latency = lparts[0]
+            after_latency = lparts[1] if len(lparts) > 1 else ""
+            # Remove old latency section (everything until next ## or end)
+            next_section = after_latency.find("\n## ")
+            if next_section >= 0:
+                between = after_latency[next_section:]
+            else:
+                between = ""
+            new_content = before_latency + latency_header + "\n" + latency_line + "\n" + between
+        else:
+            new_content = before_fb + "\n" + latency_header + "\n" + latency_line + "\n"
+
+        # Append feedback section
+        new_content += "\n" + feedback_header + "\n" + "\n".join(feedback_lines) + "\n"
+
+        # Write back (keep under 2000 chars for Hermes compatibility)
+        if len(new_content) > 2000:
+            feedback_lines = feedback_lines[1:]
+            new_content_parts = new_content.split(feedback_header, 1)
+            new_content = new_content_parts[0] + feedback_header + "\n" + "\n".join(feedback_lines) + "\n"
 
         try:
             with open(MEMORY_FILE, "w", encoding="utf-8") as f:
@@ -682,14 +742,102 @@ class OfficialHermesAdapter:
             # Invalidate memory context cache so next request picks up changes
             self._memory_context_cached_at = 0
 
-            # Skill evolution: extract new rule from failed feedback
+            # Rule evolution: on failure, extract corrective rule
             if not success and request_summary:
                 self._evolve_rule_from_feedback(route_path, request_summary)
+
+            # Rule reinforcement: on success with high latency, suggest optimization
+            if success and latency_ms > 30000 and route_path == "gateway":
+                self._reinforce_latency_awareness(route_path, latency_ms, request_summary)
 
             return True
         except Exception as e:
             logger.error(f"Failed to write MEMORY.md: {e}")
             return False
+
+    def _compute_latency_stats(self, content: str, route_path: str, latency_ms: int) -> str:
+        """Compute updated latency stats from existing stats + new data point."""
+        import re
+
+        # Parse existing stats
+        stats = {}
+        stats_pattern = r"- (\w+): avg=(\d+)ms, p95=(\d+)ms, samples=(\d+)"
+        for match in re.finditer(stats_pattern, content):
+            rp, avg, p95, samples = match.group(1), int(match.group(2)), int(match.group(3)), int(match.group(4))
+            stats[rp] = {"avg": avg, "p95": p95, "samples": samples}
+
+        # Update with new data point
+        if route_path in stats:
+            s = stats[route_path]
+            # Running average: new_avg = (old_avg * old_n + new_val) / (old_n + 1)
+            total = s["avg"] * s["samples"] + latency_ms
+            s["samples"] += 1
+            s["avg"] = total // s["samples"]
+            # P95: approximate — if new value > p95, nudge p95 up
+            if latency_ms > s["p95"]:
+                s["p95"] = (s["p95"] + latency_ms) // 2
+            elif s["samples"] % 10 == 0:
+                # Every 10 samples, nudge p95 down slightly (decay)
+                s["p95"] = int(s["p95"] * 0.95)
+        else:
+            stats[route_path] = {"avg": latency_ms, "p95": latency_ms, "samples": 1}
+
+        # Build output lines
+        lines = []
+        for rp in ["direct_local", "gateway", "local_inference", "agent_chain"]:
+            if rp in stats:
+                s = stats[rp]
+                lines.append(f"- {rp}: avg={s['avg']}ms, p95={s['p95']}ms, samples={s['samples']}")
+        return "\n".join(lines)
+
+    def _reinforce_latency_awareness(self, route_path: str, latency_ms: int,
+                                      request_summary: str) -> None:
+        """Reinforce latency-aware routing rules based on successful but slow executions.
+
+        When a gateway request succeeds but takes >30s, this method updates
+        the Key Rules section to note the latency trade-off, helping future
+        routing decisions consider whether the complexity justifies the wait.
+        """
+        if not os.path.exists(MEMORY_FILE):
+            return
+
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            return
+
+        # Add latency note to Key Rules if not already present
+        key_rules_header = "## Key Rules"
+        if key_rules_header not in content:
+            return
+
+        latency_note = f"- gateway延迟avg~70s, 简单请求优先用direct_local(avg~6s)"
+        if latency_note in content:
+            return  # Already present
+
+        parts = content.split(key_rules_header, 1)
+        before = parts[0]
+        after = parts[1] if len(parts) > 1 else ""
+
+        # Find next section
+        next_section_idx = after.find("\n## ")
+        if next_section_idx >= 0:
+            rules_section = after[:next_section_idx]
+            rest = after[next_section_idx:]
+        else:
+            rules_section = after
+            rest = ""
+
+        # Append latency note
+        new_rules = rules_section.rstrip() + f"\n{latency_note}\n"
+
+        new_content = before + key_rules_header + new_rules + rest
+
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        logger.info(f"Latency awareness reinforced in MEMORY.md: gateway avg~{latency_ms}ms")
 
     def _evolve_rule_from_feedback(self, failed_route: str, request_summary: str) -> None:
         """Extract a new routing rule from failed feedback and add to Memory.
@@ -912,42 +1060,79 @@ class OfficialHermesAdapter:
         return {"route_path": "gateway", "complexity_score": 25,
                 "reason": "Default gateway (text fallback)"}
 
-    def _post_validate_route(self, routing: Dict, request: Dict) -> Dict:
-        """Post-validate routing decision using Memory rules.
+    def _check_cloud_available(self) -> bool:
+        """Check if cloud models are actually available via Bridge (cached for 30s)."""
+        now = time.time()
+        if hasattr(self, '_cloud_available') and self._cloud_available is not None and (now - self._cloud_check_time) < 30:
+            return self._cloud_available
+        try:
+            url = f"{self.hermes_router_url}/proxy/bridge/health"
+            logger.info(f"Checking cloud availability via: {url}")
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get(url)
+                logger.info(f"Cloud check response: status={resp.status_code}")
+                data = resp.json()
+            cloud_count = data.get("cloud_models", 0)
+            ogw_reachable = data.get("official_gateway_reachable", False)
+            self._cloud_available = cloud_count > 0 and ogw_reachable
+            self._cloud_check_time = now
+            logger.info(f"Cloud availability: {cloud_count} cloud models, OGW reachable={ogw_reachable} → available={self._cloud_available}")
+        except Exception as e:
+            logger.warning(f"Cloud availability check failed: {type(e).__name__}: {e}")
+            # Don't cache failure — allow retry on next request
+            self._cloud_available = False
+            self._cloud_check_time = now - 25  # Allow retry in 5s
+        return self._cloud_available
 
-        All routing rules come from MEMORY.md — no hardcoded keyword lists.
-        Priority order (highest first):
-        1. Privacy override (absolute, from constraints)
-        2. Memory-learned override (from MEMORY.md Routing Patterns)
-        3. Type-based override (from MEMORY.md Key Rules)
+    def _post_validate_route(self, routing: Dict, request: Dict) -> Dict:
+        """Post-validate routing decision.
+
+        Simplified routing logic:
+        - Agent-related (tools, code, tool_call, high complexity) → gateway (OfficialGW)
+        - Everything else → direct_local (Ollama/vLLM)
+        - Privacy override: require_local → local_inference
+
+        This prevents LLM from making wrong routing decisions (e.g. score=3 → agent_chain).
         """
         route = routing.get("route_path", "")
         prompt = request.get("prompt", "")
         constraints = request.get("constraints", {})
+        req_type = request.get("type", "chat")
+        has_tools = bool(request.get("tools"))
+        complexity = routing.get("complexity_score", 0)
+        if isinstance(complexity, str):
+            try:
+                complexity = float(complexity)
+            except (ValueError, TypeError):
+                complexity = 0
 
-        # Rule 1: Privacy override (absolute, regardless of model output)
+        # Rule 1: Privacy override (absolute)
         require_local = False
         if isinstance(constraints, dict):
             require_local = constraints.get("require_local", False)
-        if require_local and route != "local_inference":
+        if require_local:
             routing["route_path"] = "local_inference"
             routing["reason"] = f"Override: require_local (was {route})"
             routing["post_validated"] = True
             return routing
 
-        # Rule 2: Memory-learned override — scan all Memory rules for prompt match
-        memory_override = self._check_memory_override(prompt, route)
-        if memory_override:
-            routing["route_path"] = memory_override
-            routing["reason"] = f"Override: memory-learned rule (was {route})"
-            routing["post_validated"] = True
-            return routing
+        # Rule 2: Determine correct route based on request characteristics
+        # High-complexity keywords indicate agent-related tasks regardless of score
+        high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+        has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
 
-        # Rule 3: Type-based override (from Key Rules)
-        req_type = request.get("type", "chat")
-        if req_type in ("code", "code_execution") and route != "agent_chain":
-            routing["route_path"] = "agent_chain"
-            routing["reason"] = f"Override: type={req_type} (was {route})"
+        is_agent_related = (
+            has_tools
+            or req_type in ("code", "code_execution", "tool_call")
+            or complexity >= 40
+            or has_high_complexity_keywords
+        )
+
+        correct_route = "gateway" if is_agent_related else "direct_local"
+
+        if route != correct_route:
+            routing["route_path"] = correct_route
+            routing["reason"] = f"Override: {'agent-related' if is_agent_related else 'simple'} request (was {route}, complexity={complexity})"
             routing["post_validated"] = True
             return routing
 
@@ -959,10 +1144,30 @@ class OfficialHermesAdapter:
         Uses _parse_routing_rules_from_memory to get structured rules with
         keywords, then matches prompt against each rule's keyword list.
         Returns the override route or empty string.
+
+        Priority logic: if the current route already matches a rule's keywords,
+        don't allow a lower-priority rule to override it. This prevents
+        "hello, how are you?" from being overridden from direct_local→gateway
+        just because "how" appears in a General Q&A rule.
         """
         rules = self._parse_routing_rules_from_memory()
         prompt_lower = prompt.lower()
 
+        # First check: does the current route already have a matching rule?
+        current_match_strength = 0
+        for rule in rules:
+            if rule["route"] == current_route:
+                keywords = rule["keywords"]
+                if keywords and any(kw in prompt_lower for kw in keywords):
+                    # Count how many keywords match — more matches = stronger
+                    current_match_strength = max(
+                        current_match_strength,
+                        sum(1 for kw in keywords if kw in prompt_lower)
+                    )
+
+        # Second check: find the best override candidate
+        best_override = ""
+        best_override_strength = 0
         for rule in rules:
             target_route = rule["route"]
             if target_route == current_route:
@@ -973,8 +1178,14 @@ class OfficialHermesAdapter:
                 continue  # No keywords to match against
 
             # Check if any keyword matches the prompt
-            if any(kw in prompt_lower for kw in keywords):
-                return target_route
+            match_strength = sum(1 for kw in keywords if kw in prompt_lower)
+            if match_strength > 0 and match_strength > best_override_strength:
+                best_override = target_route
+                best_override_strength = match_strength
+
+        # Only override if the new rule matches more strongly than current
+        if best_override and best_override_strength > current_match_strength:
+            return best_override
 
         return ""
 

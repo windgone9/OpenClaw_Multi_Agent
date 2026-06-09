@@ -3,13 +3,15 @@ load_dotenv()
 
 import logging
 import os
+import subprocess
 import threading
 import time
 import psutil
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional as Opt
@@ -140,6 +142,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve static dashboard files
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import pathlib
+STATIC_DIR = pathlib.Path(__file__).parent.parent / "static"
+if STATIC_DIR.exists():
+    @app.get("/dashboard.html")
+    async def dashboard():
+        return FileResponse(STATIC_DIR / "dashboard.html", media_type="text/html")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.post("/route", summary="Hermes intelligent routing decision")
@@ -335,13 +348,20 @@ async def get_state():
 @app.get("/stats", summary="Hermes request statistics")
 async def get_stats():
     total = _stats["total_requests"]
+    # Merge dispatch worker stats
+    worker_stats = dispatch_worker.get_stats()
+    combined_total = total + worker_stats.get("processed", 0)
+    combined_success = _stats["success_requests"] + worker_stats.get("success", 0)
+    combined_failed = _stats["failed_requests"] + worker_stats.get("failed", 0)
+    combined_latency = _stats["total_latency_ms"] + worker_stats.get("total_latency_ms", 0)
     return {
         "requests": {
-            "total": total,
-            "success": _stats["success_requests"],
-            "failed": _stats["failed_requests"],
-            "success_rate": round(_stats["success_requests"] / total, 4) if total > 0 else 0,
-            "avg_latency_ms": round(_stats["total_latency_ms"] / total) if total > 0 else 0,
+            "total": combined_total,
+            "success": combined_success,
+            "failed": combined_failed,
+            "success_rate": round(combined_success / combined_total, 4) if combined_total > 0 else 0,
+            "avg_latency_ms": round(combined_latency / combined_total) if combined_total > 0 else 0,
+            "by_route": worker_stats.get("by_route", {}),
         },
         "system": {
             "cpu_percent": psutil.cpu_percent(interval=0.5),
@@ -362,10 +382,41 @@ async def analyze_request(request: HermesDispatchRequest):
         request_with_score["_rule_complexity_score"] = score.total
         agent_decision = hermes.hermes_agent.decide(request_with_score)
 
+        # Apply simplified routing with privacy override
+        req_type = request.type or "chat"
+        has_tools = bool(request.tools)
+        constraints = request.constraints or {}
+        require_local = constraints.get("require_local", False)
+
+        # Rule 1: Privacy override (absolute priority)
+        if require_local:
+            correct_path = "local_inference"
+        else:
+            # Rule 2: Agent-related → gateway, else → direct_local
+            # High-complexity keywords indicate agent-related tasks regardless of score
+            prompt_text = request.prompt or ""
+            high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+            has_high_complexity_keywords = any(kw in prompt_text for kw in high_complexity_keywords)
+            is_agent_related = (
+                has_tools
+                or req_type in ("code", "code_execution", "tool_call")
+                or score.total >= hermes.complexity_threshold
+                or has_high_complexity_keywords
+            )
+            correct_path = "gateway" if is_agent_related else "direct_local"
+
         try:
             final_path = RoutePath(agent_decision.get("route_path", score.recommended_path.value))
         except ValueError:
             final_path = score.recommended_path
+
+        # Override if LLM decision doesn't match simplified routing
+        if final_path.value != correct_path:
+            original_path = final_path.value
+            final_path = RoutePath(correct_path)
+            reason_detail = 'require_local' if require_local else ('agent-related' if correct_path == 'gateway' else 'simple')
+            agent_decision["route_path"] = correct_path
+            agent_decision["reason"] = f"Simplified routing: {reason_detail} (was {original_path}, score={score.total})"
 
         result = {
             "complexity_score": score.total,
@@ -410,42 +461,27 @@ async def analyze_request(request: HermesDispatchRequest):
 
     final_path = score.recommended_path
 
-    if llm_enhanced and llm_result:
-        requires_local = llm_result.get("requires_local", False)
-        requires_tools = llm_result.get("requires_tools", False)
-        llm_suggested = llm_result.get("suggested_path")
-        llm_confidence = llm_result.get("confidence", 0.5)
+    # Apply simplified routing with privacy override (same logic as agent path)
+    req_type_fallback = request.type or "chat"
+    has_tools_fallback = bool(request.tools)
+    constraints_fallback = request.constraints or {}
+    require_local_fallback = constraints_fallback.get("require_local", False)
+    prompt_fallback = request.prompt or ""
+    high_complexity_keywords_fb = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+    has_high_complexity_keywords_fb = any(kw in prompt_fallback for kw in high_complexity_keywords_fb)
 
-        if requires_local:
-            final_path = RoutePath.DIRECT_LOCAL
-        elif requires_tools and llm_confidence >= 0.7:
-            try:
-                final_path = RoutePath(llm_suggested) if llm_suggested else final_path
-            except ValueError:
-                pass
-        elif llm_confidence >= 0.8:
-            try:
-                llm_path = RoutePath(llm_suggested)
-                if llm_path != final_path:
-                    final_path = llm_path
-            except ValueError:
-                pass
-
-    if skill:
+    if require_local_fallback:
+        final_path = RoutePath.LOCAL_INFERENCE
+    else:
+        is_agent_related_fallback = (
+            has_tools_fallback
+            or req_type_fallback in ("code", "code_execution", "tool_call")
+            or score.total >= hermes.complexity_threshold
+            or has_high_complexity_keywords_fb
+        )
+        correct_path_fallback = "gateway" if is_agent_related_fallback else "direct_local"
         try:
-            skill_path = RoutePath(skill["recommended_path"])
-            skill_confidence = skill.get("confidence", 0.5)
-            if llm_enhanced and llm_result and llm_result.get("confidence", 0) >= 0.8 and skill_confidence < 0.8:
-                pass
-            else:
-                final_path = skill_path
-        except ValueError:
-            pass
-    elif memory:
-        try:
-            mem_path = RoutePath(memory["route_path"])
-            if memory["success"] == 1:
-                final_path = mem_path
+            final_path = RoutePath(correct_path_fallback)
         except ValueError:
             pass
 
@@ -736,6 +772,19 @@ async def refresh_memory():
     return {"refreshed": True}
 
 
+@app.get("/memory/content", summary="Get MEMORY.md content for Dashboard")
+async def memory_content():
+    """Return the raw content of MEMORY.md for the Dashboard Memory tab."""
+    try:
+        from hermes.official_agent_adapter import MEMORY_FILE
+        if os.path.exists(MEMORY_FILE):
+            content = open(MEMORY_FILE, "r", encoding="utf-8").read()
+            return {"content": content, "path": MEMORY_FILE}
+        return {"content": "", "path": MEMORY_FILE}
+    except Exception as e:
+        return {"content": "", "error": str(e)}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Queue-based Dispatch API
 # ══════════════════════════════════════════════════════════════════════════════
@@ -928,6 +977,192 @@ async def queue_flush(queue_name: Opt[str] = None):
     for name, q in name_map.items():
         flushed[name] = msg_queue.flush(q)
     return {"flushed": flushed}
+
+
+# ─── Service Management ───────────────────────────────────────────────
+_managed_procs: Dict[str, Dict] = {}  # name → {process, pid, status, port}
+_proc_lock = threading.Lock()
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _find_openclaw_bin():
+    """Find openclaw binary path."""
+    candidates = [
+        os.path.join(PROJECT_ROOT, "..", "OpenClaw", "openclaw", "openclaw.mjs"),
+        os.path.join(os.path.expanduser("~"), ".openclaw", "openclaw.mjs"),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    # Try npx
+    return "npx"
+
+
+class ServiceStartRequest(BaseModel):
+    service: str  # bridge | gateway | officialGateway
+
+
+class ServiceStopRequest(BaseModel):
+    service: str
+
+
+@app.post("/services/start", summary="Start a managed service")
+async def api_start_service(req: ServiceStartRequest):
+    name = req.service
+    with _proc_lock:
+        if name in _managed_procs and _managed_procs[name].get("process"):
+            return {"started": False, "message": f"{name} already running (pid={_managed_procs[name].get('pid')})"}
+
+    configs = {
+        "bridge": {
+            "cmd": ["node", os.path.join(PROJECT_ROOT, "bridge", "orchestrator.mjs")],
+            "cwd": PROJECT_ROOT,
+            "port": 3001,
+        },
+        "gateway": {
+            "cmd": ["node", os.path.join(PROJECT_ROOT, "gateway", "gateway.mjs")],
+            "cwd": PROJECT_ROOT,
+            "port": 3000,
+        },
+        "officialGateway": {
+            "cmd": ["npx", "openclaw", "gateway", "run", "--port", "3005", "--auth", "none", "--force"],
+            "cwd": PROJECT_ROOT,
+            "port": 3005,
+        },
+    }
+
+    if name not in configs:
+        raise HTTPException(status_code=400, detail=f"Unknown service: {name}. Use: {list(configs.keys())}")
+
+    cfg = configs[name]
+    try:
+        proc = subprocess.Popen(
+            cfg["cmd"],
+            cwd=cfg["cwd"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={**os.environ},
+        )
+        with _proc_lock:
+            _managed_procs[name] = {"process": proc, "pid": proc.pid, "status": "starting", "port": cfg["port"]}
+
+        def _watch():
+            # Read subprocess output to prevent buffer deadlock and capture logs
+            import selectors
+            sel = selectors.DefaultSelector()
+            if proc.stdout:
+                sel.register(proc.stdout, selectors.EVENT_READ, 'stdout')
+            if proc.stderr:
+                sel.register(proc.stderr, selectors.EVENT_READ, 'stderr')
+            while sel.get_map():
+                events = sel.select(timeout=1.0)
+                for key, _ in events:
+                    data = key.fileobj.readline()
+                    if data:
+                        line = data.decode(errors='replace').rstrip()
+                        tag = key.data
+                        logger.info(f"[{name}:{tag}] {line}")
+                    else:
+                        sel.unregister(key.fileobj)
+                        key.fileobj.close()
+            proc.wait()
+            rc = proc.returncode
+            with _proc_lock:
+                if name in _managed_procs:
+                    _managed_procs[name]["status"] = "stopped"
+                    _managed_procs[name]["process"] = None
+                    _managed_procs[name]["exit_code"] = rc
+            logger.info(f"{name} exited with code {rc}")
+
+        threading.Thread(target=_watch, daemon=True).start()
+        logger.info(f"Started {name}: pid={proc.pid}, port={cfg['port']}")
+        return {"started": True, "pid": proc.pid, "port": cfg["port"], "message": f"{name} starting on port {cfg['port']}..."}
+
+    except Exception as e:
+        logger.error(f"Failed to start {name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/services/stop", summary="Stop a managed service")
+async def api_stop_service(req: ServiceStopRequest):
+    name = req.service
+    with _proc_lock:
+        info = _managed_procs.get(name)
+        if not info or not info.get("process"):
+            return {"stopped": False, "message": f"{name} not managed by Hermes"}
+
+        proc = info["process"]
+        pid = info.get("pid")
+        proc.terminate()
+        info["status"] = "stopping"
+
+    logger.info(f"Stopped {name}: pid={pid}")
+    return {"stopped": True, "pid": pid, "message": f"{name} stopping..."}
+
+
+@app.get("/services/status", summary="Get all managed services status")
+async def api_services_status():
+    result = {}
+    with _proc_lock:
+        for name, info in _managed_procs.items():
+            alive = info.get("process") is not None and info["process"].poll() is None
+            result[name] = {
+                "status": "running" if alive else info.get("status", "stopped"),
+                "pid": info.get("pid") if alive else None,
+                "port": info.get("port"),
+                "exit_code": info.get("exit_code") if not alive else None,
+            }
+    return result
+
+
+@app.get("/proxy/health", summary="Proxy health check for all services (bypasses CORS)")
+async def api_proxy_health():
+    import httpx
+    services = {
+        "hermes": "http://localhost:8082/health",
+        "bridge": "http://localhost:3001/health",
+        "gateway": "http://localhost:3000/health",
+        "officialGateway": "http://localhost:3005/health",
+        "ollama": "http://localhost:11434/api/tags",
+    }
+    result = {}
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for name, url in services.items():
+            try:
+                r = await client.get(url)
+                result[name] = {"healthy": r.status_code == 200, "status_code": r.status_code, "data": r.json()}
+            except Exception as e:
+                result[name] = {"healthy": False, "error": str(e)}
+    return result
+
+
+@app.get("/proxy/ollama-ps", summary="Proxy Ollama /api/ps (bypasses CORS)")
+async def api_proxy_ollama_ps():
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get("http://localhost:11434/api/ps")
+            return r.json()
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+
+@app.api_route("/proxy/bridge/{path:path}", methods=["GET", "POST", "PUT", "DELETE"], summary="Proxy Bridge API (bypasses CORS)")
+async def api_proxy_bridge(path: str, request: Request):
+    import httpx
+    target_url = f"http://localhost:3001/{path}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.request(
+                method=request.method,
+                url=target_url,
+                headers={k: v for k, v in request.headers.items() if k.lower() not in ("host",)},
+                content=await request.body(),
+            )
+            return Response(content=r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
+    except Exception as e:
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":

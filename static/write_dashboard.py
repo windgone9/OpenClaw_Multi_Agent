@@ -1,11 +1,14 @@
-<!DOCTYPE html>
+#!/usr/bin/env python3
+"""Write the complete dashboard.html file."""
+import os
+
+DASHBOARD = os.path.join(os.path.dirname(__file__), "dashboard.html")
+
+html = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <title>OpenClaw 调度监控中心</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -183,7 +186,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   <button class="tab-btn active" onclick="switchTab('pipeline',this)">🔗 全链路追踪</button>
   <button class="tab-btn" onclick="switchTab('services',this)">🚀 服务管理</button>
   <button class="tab-btn" onclick="switchTab('metrics',this)">📊 监控指标</button>
-  <button class="tab-btn" onclick="switchTab('memory',this)">🧬 Memory闭环</button>
   <button class="tab-btn" onclick="switchTab('logs',this)">📋 实时日志</button>
 </div>
 <div class="tab-content active" id="tab-pipeline">
@@ -210,11 +212,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
         <textarea id="req-prompt" rows="2" placeholder="输入请求内容...">你好，请介绍一下你自己</textarea>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="sendRequest()">🚀 发送请求</button>
-          <button class="btn btn-green" onclick="sendBatch('all')">📦 全场景批量</button>
-          <button class="btn btn-green btn-sm" onclick="sendBatch('simple')" style="background:#059669">💬 简单聊天</button>
-          <button class="btn btn-blue btn-sm" onclick="sendBatch('code')" style="background:#2563eb">💻 代码执行</button>
-          <button class="btn btn-purple btn-sm" onclick="sendBatch('agent')" style="background:#7c3aed">🤖 Agent任务</button>
-          <button class="btn btn-cyan btn-sm" onclick="sendBatch('privacy')" style="background:#0e7490">🔒 隐私请求</button>
+          <button class="btn btn-green" onclick="sendBatch()">📦 批量测试</button>
           <button class="btn btn-purple" onclick="analyzeComplexity()">🧠 分析复杂度</button>
           <button class="btn btn-ghost" onclick="clearResults()">🗑 清空</button>
         </div>
@@ -229,86 +227,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
     </div>
   </div>
 </div>
-<div class="tab-content" id="tab-services">
-  <div style="padding:16px 20px 0;display:flex;gap:10px;align-items:center">
-    <button class="btn btn-primary" onclick="startAllServices()" id="btn-start-all">🚀 一键启动全部</button>
-    <button class="btn" style="background:#991b1b;color:#fff" onclick="stopAllServices()" id="btn-stop-all">⏹ 一键停止全部</button>
-    <button class="btn btn-ghost" onclick="refreshServices()">🔄 刷新状态</button>
-    <span style="font-size:12px;color:var(--text3)" id="svc-op-status"></span>
-  </div>
-  <div class="svc-layout" id="svc-layout"></div>
-</div>
+<div class="tab-content" id="tab-services"><div class="svc-layout" id="svc-layout"></div></div>
 <div class="tab-content" id="tab-metrics">
   <div class="metrics-layout">
     <div class="metrics-card"><div class="metrics-card-title">🖥️ 系统资源</div><div class="gauge-grid"><div class="mini-gauge"><div class="mg-val" id="m-cpu">-</div><div class="mg-lbl">CPU %</div><div class="mg-bar"><div class="mg-bar-fill" id="m-cpu-bar" style="width:0;background:var(--green)"></div></div></div><div class="mini-gauge"><div class="mg-val" id="m-mem">-</div><div class="mg-lbl">内存 %</div><div class="mg-bar"><div class="mg-bar-fill" id="m-mem-bar" style="width:0;background:var(--blue)"></div></div></div><div class="mini-gauge"><div class="mg-val" id="m-gpu">-</div><div class="mg-lbl">GPU %</div><div class="mg-bar"><div class="mg-bar-fill" id="m-gpu-bar" style="width:0;background:var(--purple)"></div></div></div><div class="mini-gauge"><div class="mg-val" id="m-gpumem">-</div><div class="mg-lbl">GPU显存 %</div><div class="mg-bar"><div class="mg-bar-fill" id="m-gpumem-bar" style="width:0;background:var(--orange)"></div></div></div></div><div style="margin-top:12px;font-size:11px;color:var(--text3)"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>内存总量</span><span id="m-mem-total">-</span></div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>内存已用</span><span id="m-mem-used">-</span></div><div style="display:flex;justify-content:space-between"><span>GPU显存已用</span><span id="m-gpumem-used">-</span></div></div></div>
     <div class="metrics-card"><div class="metrics-card-title">📊 请求统计</div><div class="gauge-grid"><div class="mini-gauge"><div class="mg-val" id="m-total">0</div><div class="mg-lbl">总请求</div></div><div class="mini-gauge"><div class="mg-val" id="m-success">0</div><div class="mg-lbl">成功</div></div><div class="mini-gauge"><div class="mg-val" id="m-failed">0</div><div class="mg-lbl">失败</div></div><div class="mini-gauge"><div class="mg-val" id="m-srate">-</div><div class="mg-lbl">成功率</div></div></div><div style="margin-top:12px"><div style="font-size:12px;color:var(--text3);margin-bottom:6px">路由分布</div><div id="route-dist"></div></div></div>
     <div class="metrics-card"><div class="metrics-card-title">⏱️ 延迟趋势 (ms)</div><div class="chart-container"><canvas id="chart-latency"></canvas></div></div>
     <div class="metrics-card"><div class="metrics-card-title">✅ 成功率趋势 (%)</div><div class="chart-container"><canvas id="chart-success"></canvas></div></div>
-  </div>
-</div>
-<div class="tab-content" id="tab-memory">
-  <div class="memory-layout" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;height:calc(100vh - 90px);overflow-y:auto">
-    <div class="metrics-card" style="grid-column:1/-1">
-      <div class="metrics-card-title" style="display:flex;justify-content:space-between;align-items:center">
-        <span>🧬 Memory 闭环进化</span>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-sm btn-primary" onclick="refreshMemory()">🔄 刷新</button>
-          <span style="font-size:11px;color:var(--text3)" id="mem-last-refresh">-</span>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px">
-        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
-          <div style="font-size:24px;font-weight:700;color:var(--green)" id="mem-fb-count">0</div>
-          <div style="font-size:11px;color:var(--text3)">反馈记录</div>
-        </div>
-        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
-          <div style="font-size:24px;font-weight:700;color:var(--blue)" id="mem-rule-count">0</div>
-          <div style="font-size:11px;color:var(--text3)">路由规则</div>
-        </div>
-        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
-          <div style="font-size:24px;font-weight:700;color:var(--purple)" id="mem-skill-count">0</div>
-          <div style="font-size:11px;color:var(--text3)">技能数</div>
-        </div>
-        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
-          <div style="font-size:24px;font-weight:700;color:var(--cyan)" id="mem-evolve-count">0</div>
-          <div style="font-size:11px;color:var(--text3)">进化次数</div>
-        </div>
-      </div>
-    </div>
-    <div class="metrics-card">
-      <div class="metrics-card-title">⏱️ 延迟统计 (auto-updated)</div>
-      <div id="mem-latency-stats" style="margin-top:8px;font-size:12px;color:var(--text2)">加载中...</div>
-    </div>
-    <div class="metrics-card">
-      <div class="metrics-card-title">📊 路由规则 (从Memory学习)</div>
-      <div id="mem-routing-rules" style="margin-top:8px;font-size:12px;color:var(--text2)">加载中...</div>
-    </div>
-    <div class="metrics-card">
-      <div class="metrics-card-title">📝 反馈历史 (滚动窗口)</div>
-      <div id="mem-feedback-history" style="margin-top:8px;font-size:12px;max-height:300px;overflow-y:auto">加载中...</div>
-    </div>
-    <div class="metrics-card">
-      <div class="metrics-card-title">🔑 关键规则 (Key Rules)</div>
-      <div id="mem-key-rules" style="margin-top:8px;font-size:12px;max-height:300px;overflow-y:auto">加载中...</div>
-    </div>
-    <div class="metrics-card" style="grid-column:1/-1">
-      <div class="metrics-card-title">🔄 闭环流程</div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;font-size:12px">
-        <span style="background:#052e16;color:var(--green);padding:4px 10px;border-radius:6px">请求进入</span>
-        <span style="color:var(--text3)">→</span>
-        <span style="background:#172554;color:var(--blue);padding:4px 10px;border-radius:6px">路由决策(读Memory)</span>
-        <span style="color:var(--text3)">→</span>
-        <span style="background:#312e81;color:var(--purple);padding:4px 10px;border-radius:6px">执行请求</span>
-        <span style="color:var(--text3)">→</span>
-        <span style="background:#0c4a6e;color:var(--cyan);padding:4px 10px;border-radius:6px">反馈写入Memory</span>
-        <span style="color:var(--text3)">→</span>
-        <span style="background:#713f12;color:var(--yellow);padding:4px 10px;border-radius:6px">延迟统计更新</span>
-        <span style="color:var(--text3)">→</span>
-        <span style="background:#450a0a;color:var(--red);padding:4px 10px;border-radius:6px">规则进化(失败时)</span>
-        <span style="color:var(--text3)">→</span>
-        <span style="background:#052e16;color:var(--green);padding:4px 10px;border-radius:6px">下次路由优化</span>
-      </div>
-    </div>
   </div>
 </div>
 <div class="tab-content" id="tab-logs">
@@ -324,8 +249,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
     <div class="logs-body" id="logs-body"></div>
   </div>
 </div>
-<script>
-const H='http://localhost:8082',B='http://localhost:3001',GW='http://localhost:3000',OGW='http://localhost:3005',OLL='http://localhost:11434';
+"""
+
+js = """<script>
+const H='http://localhost:8082',B='http://localhost:3001',GW='http://localhost:3000',OGW='http://127.0.0.1:3005',OLL='http://localhost:11434';
 let dc=0;const AR=[],RC={},LH=[],SH=[],LOGS=[];const MAX_LOGS=2000;
 let svcStatus={hermes:false,bridge:false,gateway:false,official:false,ollama:false};
 
@@ -352,7 +279,7 @@ function renderLogEntry(e){
 
 function clearLogs(){document.getElementById('logs-body').innerHTML='';LOGS.length=0;log('info','日志已清空')}
 function exportLogs(){
-  const t=LOGS.map(e=>'['+e.time+']['+e.svc+']['+e.level.toUpperCase()+'] '+e.msg).join('\n');
+  const t=LOGS.map(e=>'['+e.time+']['+e.svc+']['+e.level.toUpperCase()+'] '+e.msg).join('\\n');
   const b=new Blob([t],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(b);a.download='openclaw-logs-'+Date.now()+'.txt';a.click();
 }
@@ -362,13 +289,12 @@ function switchTab(name,btn){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');btn.classList.add('active');
   if(name==='services')refreshServices();if(name==='metrics')refreshMetrics();
-  if(name==='memory')refreshMemory();
 }
 
 function extractStrat(trace){
   if(!trace||!trace.length)return{name:'unknown'};
   for(const t of trace){
-    if(t.agent&&t.agent.includes('router')){const m=t.message&&t.message.match(/strategy[=:]\s*(\w+)/i);if(m)return{name:m[1]}}
+    if(t.agent&&t.agent.includes('router')){const m=t.message&&t.message.match(/strategy[=:]\\s*(\\w+)/i);if(m)return{name:m[1]}}
     if(t.agent&&t.agent.includes('local'))return{name:'local_first'};
     if(t.agent&&t.agent.includes('cloud'))return{name:'cloud_first'};
     if(t.agent&&t.agent.includes('agent'))return{name:'agent_chain'};
@@ -381,34 +307,31 @@ function renderCard(data){
   const strat=extractStrat(data.agent_trace),sc=getStratCls(strat.name);
   const isOk=data.status==='success',result=data.result||{};
   const mt=result.model_type||'unknown',mTag=mt==='local'?'tag-local':'tag-cloud';
-  let h='<div class="dispatch-card"><div class="dc-header" onclick="toggleCard(\''+data.request_id+'\')"><div class="dc-left">';
+  let h='<div class="dispatch-card"><div class="dc-header" onclick="toggleCard(\\''+data.request_id+'\\')"><div class="dc-left">';
   h+='<span class="dc-id">#'+(data.request_id||'?').slice(0,8)+'</span>';
   h+='<span class="dc-strategy '+sc+'">'+strat.name.replace('adaptive_','')+'</span>';
   h+='<span class="tag '+mTag+'">'+mt+'</span>';
   if(data.is_hermes&&data.hermes_routing){
     const hr=data.hermes_routing;
-    const pi=hr.route_path==='agent_chain'?'\u{1F916}':hr.route_path==='gateway'?'\u{1F309}':hr.route_path==='direct_local'?'\u{1F3E0}':'\u2601';
-    const scoreDisplay=hr.complexity_score!=null?hr.complexity_score:'Bridge';
-    h+='<span class="tag" style="background:#0c2d48;color:var(--cyan)">\u{1F9E0} '+scoreDisplay+'/'+(hr.threshold||40)+' \u2192 '+pi+' '+hr.route_path+'</span>';
+    const pi=hr.route_path==='agent_chain'?'\\u{1F916}':hr.route_path==='gateway'?'\\u{1F309}':hr.route_path==='direct_local'?'\\u{1F3E0}':'\\u2601';
+    h+='<span class="tag" style="background:#0c2d48;color:var(--cyan)">\\u{1F9E0} '+(hr.complexity_score||'?')+'/'+(hr.threshold||40)+' \\u2192 '+pi+' '+hr.route_path+'</span>';
   }
-  if(result.routed_via_gateway)h+='<span class="tag" style="background:#312e81;color:var(--purple)">\u{1F309} GW</span>';
-  if(data.is_agent_chain)h+='<span class="tag" style="background:#4c1d95;color:var(--purple)">\u{1F916} Agent</span>';
+  if(result.routed_via_gateway)h+='<span class="tag" style="background:#312e81;color:var(--purple)">\\u{1F309} GW</span>';
+  if(data.is_agent_chain)h+='<span class="tag" style="background:#4c1d95;color:var(--purple)">\\u{1F916} Agent</span>';
   h+='<span class="dc-model">'+(result.model_name||'-')+'</span></div><div class="dc-right">';
   if(data.total_latency_ms)h+='<span class="dc-latency">'+data.total_latency_ms+'ms</span>';
-  h+='<span class="dc-status '+(isOk?'success':'failed')+'">'+(isOk?'\u2713 成功':'\u2717 失败')+'</span></div></div>';
+  h+='<span class="dc-status '+(isOk?'success':'failed')+'">'+(isOk?'\\u2713 成功':'\\u2717 失败')+'</span></div></div>';
   h+='<div class="dc-body" id="dc-body-'+data.request_id+'">';
-  h+='<div class="dc-input"><div class="di-label">\u{1F4E5} 输入</div><div class="di-text"><span class="tag '+mTag+'">'+data.appid+'</span> <span class="tag" style="background:var(--border2);color:var(--text2)">'+(data.type||'chat')+'</span> <span class="tag" style="background:var(--border2);color:var(--text2)">P'+(data.priority||3)+'</span><br>'+esc(data.prompt||'')+'</div></div>';
-  if(isOk&&result.output)h+='<div class="dc-output"><div class="do-label">\u{1F4E4} 输出 <span style="color:var(--text3);font-weight:400">('+(result.usage&&result.usage.total_tokens||'?')+' tokens, '+(result.latency_ms||'?')+'ms)</span></div><div class="do-text">'+esc(result.output)+'</div></div>';
+  h+='<div class="dc-input"><div class="di-label">\\u{1F4E5} 输入</div><div class="di-text"><span class="tag '+mTag+'">'+data.appid+'</span> <span class="tag" style="background:var(--border2);color:var(--text2)">'+(data.type||'chat')+'</span> <span class="tag" style="background:var(--border2);color:var(--text2)">P'+(data.priority||3)+'</span><br>'+esc(data.prompt||'')+'</div></div>';
+  if(isOk&&result.output)h+='<div class="dc-output"><div class="do-label">\\u{1F4E4} 输出 <span style="color:var(--text3);font-weight:400">('+(result.usage&&result.usage.total_tokens||'?')+' tokens, '+(result.latency_ms||'?')+'ms)</span></div><div class="do-text">'+esc(result.output)+'</div></div>';
   if(data.is_hermes&&data.hermes_routing){
     const hr=data.hermes_routing;
-    const hasScore=hr.complexity_score!=null;
-    const cc=hasScore&&hr.complexity_score>=(hr.threshold||40)?'var(--red)':'var(--green)';
-    const pn={gateway:'\u{1F309} Gateway',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理'};
-    const scoreLine=hasScore?'<b>复杂度:</b> <span style="color:'+cc+';font-weight:700">'+hr.complexity_score+'</span> / '+(hr.threshold||40):'<b>路由:</b> Bridge native';
-    h+='<div style="margin-top:8px"><div class="di-label">\u{1F9E0} 路由决策</div><div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #0e7490"><div style="margin-bottom:4px">'+scoreLine+' \u2192 <b>'+(pn[hr.route_path]||hr.route_path)+'</b></div><div style="margin-bottom:4px"><b>模型:</b> '+(hr.selected_model||'-')+'</div><div><b>原因:</b> '+esc(hr.reason||'')+'</div></div></div>';
+    const cc=(hr.complexity_score||0)>=(hr.threshold||40)?'var(--red)':'var(--green)';
+    const pn={gateway:'\\u{1F309} Gateway',agent_chain:'\\u{1F916} Agent链路',direct_local:'\\u{1F3E0} 本地直连',local_inference:'\\u{1F512} 本地推理'};
+    h+='<div style="margin-top:8px"><div class="di-label">\\u{1F9E0} Hermes 路由决策</div><div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #0e7490"><div style="margin-bottom:4px"><b>复杂度:</b> <span style="color:'+cc+';font-weight:700">'+(hr.complexity_score||'?')+'</span> / '+(hr.threshold||40)+' \\u2192 <b>'+(pn[hr.route_path]||hr.route_path)+'</b></div><div style="margin-bottom:4px"><b>模型:</b> '+(hr.selected_model||'-')+'</div><div><b>原因:</b> '+esc(hr.reason||'')+'</div></div></div>';
   }
   if(data.agent_trace&&data.agent_trace.length>0){
-    h+='<div style="margin-top:8px"><div class="di-label">\u{1F517} 调度链路</div><div class="trace-timeline">';
+    h+='<div style="margin-top:8px"><div class="di-label">\\u{1F517} 调度链路</div><div class="trace-timeline">';
     data.agent_trace.forEach(t=>{
       let c='';if(t.agent.includes('router'))c='router';else if(t.agent.includes('agent')||t.agent.includes('local')||t.agent.includes('openclaw'))c='agent';else if(t.agent.includes('fallback'))c='fallback';else if(t.message&&t.message.includes('完成'))c='result-ok';else if(t.message&&t.message.includes('失败'))c='result-err';
       h+='<div class="trace-step '+c+'"><span class="ts-agent">'+t.agent+'</span><span class="ts-msg">'+esc((t.message||'').slice(0,120))+'</span></div>';
@@ -421,18 +344,18 @@ function toggleCard(id){const b=document.getElementById('dc-body-'+id);if(b)b.cl
 
 async function sendQueueRequest(body,label){
   dc++;const rid='q-'+dc;
-  log('info','['+rid+'] \u2192 Queue: type='+body.type+', prompt="'+body.prompt.slice(0,50)+'..."','hermes');
+  log('info','['+rid+'] \\u2192 Queue: type='+body.type+', prompt="'+body.prompt.slice(0,50)+'..."','hermes');
   const eh=document.getElementById('empty-hint');if(eh)eh.remove();
   const area=document.getElementById('results-area');
   const ph=document.createElement('div');ph.className='dispatch-card';ph.id=rid;
-  ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-strategy agent">\u{1F4E8} '+label+'</span><span class="dc-model" style="color:var(--cyan)"><span class="spinner"></span> 队列调度中...</span></div><div class="dc-right"><span class="dc-status running">\u23F3 运行中</span></div></div>';
+  ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-strategy agent">\\u{1F4E8} '+label+'</span><span class="dc-model" style="color:var(--cyan)"><span class="spinner"></span> 队列调度中...</span></div><div class="dc-right"><span class="dc-status running">\\u23F3 运行中</span></div></div>';
   area.insertBefore(ph,area.firstChild);
   const st=Date.now();
   try{
     const res=await fetch(H+'/queue/submit-sync?timeout=120',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json();const elapsed=Date.now()-st;
     const isOk=data.status==='success',result=data.result||{},routing=data.routing||{};
-    log(isOk?'ok':'err','['+rid+'] '+(isOk?'\u2713':'\u2717')+' Queue: path='+(routing.route_path||'-')+', model='+(routing.selected_model||'-')+', latency='+(data.total_latency_ms||elapsed)+'ms','hermes');
+    log(isOk?'ok':'err','['+rid+'] '+(isOk?'\\u2713':'\\u2717')+' Queue: path='+(routing.route_path||'-')+', model='+(routing.selected_model||'-')+', latency='+(data.total_latency_ms||elapsed)+'ms','hermes');
     if(routing.route_path)RC[routing.route_path]=(RC[routing.route_path]||0)+1;
     LH.push({value:elapsed,label:'#'+dc});SH.push({rate:isOk?100:0});
     const cardData={
@@ -445,45 +368,40 @@ async function sendQueueRequest(body,label){
     };
     AR.push(cardData);ph.outerHTML=renderCard(cardData);
   }catch(e){
-    log('err','['+rid+'] \u2717 Queue失败: '+e.message,'hermes');
-    ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-model" style="color:var(--red)">失败: '+e.message+'</span></div><div class="dc-right"><span class="dc-status failed">\u2717 失败</span></div></div>';
+    log('err','['+rid+'] \\u2717 Queue失败: '+e.message,'hermes');
+    ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-model" style="color:var(--red)">失败: '+e.message+'</span></div><div class="dc-right"><span class="dc-status failed">\\u2717 失败</span></div></div>';
   }
   refreshPipeline();updateCharts();
 }
 
 async function sendBridgeRequest(body,label){
   dc++;const rid='br-'+dc;
-  log('info','['+rid+'] \u2192 Bridge: type='+body.type+', prompt="'+body.prompt.slice(0,50)+'..."','bridge');
+  log('info','['+rid+'] \\u2192 Bridge: type='+body.type+', prompt="'+body.prompt.slice(0,50)+'..."','bridge');
   const eh=document.getElementById('empty-hint');if(eh)eh.remove();
   const area=document.getElementById('results-area');
   const ph=document.createElement('div');ph.className='dispatch-card';ph.id=rid;
-  ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-strategy cloud">\u{1F309} '+label+'</span><span class="dc-model" style="color:var(--purple)"><span class="spinner"></span> Bridge调度中...</span></div><div class="dc-right"><span class="dc-status running">\u23F3 运行中</span></div></div>';
+  ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-strategy cloud">\\u{1F309} '+label+'</span><span class="dc-model" style="color:var(--purple)"><span class="spinner"></span> Bridge调度中...</span></div><div class="dc-right"><span class="dc-status running">\\u23F3 运行中</span></div></div>';
   area.insertBefore(ph,area.firstChild);
   const st=Date.now();
   try{
-    const res=await fetch(H+'/proxy/bridge/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await fetch(B+'/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json();const elapsed=Date.now()-st;
-    const isOk=data.status==='success',result=data.result||{};
-    // Bridge response: hermes_routing (if Hermes-routed) or routing_decision (Bridge native)
-    const hermesR=data.hermes_routing||null;
-    const bridgeR=data.routing_decision||{};
-    const routePath=hermesR?hermesR.route_path:(bridgeR.agent_type==='local'?'direct_local':bridgeR.agent_type==='cloud'?'gateway':'unknown');
-    const strategyName=data.strategy_name||data.routing_source||'-';
-    log(isOk?'ok':'err','['+rid+'] '+(isOk?'\u2713':'\u2717')+' Bridge: path='+routePath+', model='+(result.model_name||'-')+', strategy='+strategyName+', latency='+elapsed+'ms','bridge');
-    if(routePath)RC[routePath]=(RC[routePath]||0)+1;
+    const isOk=data.status==='success',result=data.result||{},routing=data.routing||{};
+    log(isOk?'ok':'err','['+rid+'] '+(isOk?'\\u2713':'\\u2717')+' Bridge: path='+(routing.route_path||'-')+', model='+(routing.selected_model||'-')+', latency='+(data.total_latency_ms||elapsed)+'ms','bridge');
+    if(routing.route_path)RC[routing.route_path]=(RC[routing.route_path]||0)+1;
     LH.push({value:elapsed,label:'#'+dc});SH.push({rate:isOk?100:0});
     const cardData={
       request_id:data.request_id||rid,appid:body.appid||'br-test',status:isOk?'success':'failed',
       result:{model_name:result.model_name||'-',model_type:result.model_type||'unknown',output:result.output||'',latency_ms:result.latency_ms||elapsed,cost:result.cost,usage:result.usage,routed_via_gateway:result.routed_via_gateway||false,actual_model:result.actual_model||null,finish_reason:result.finish_reason||'stop'},
       agent_trace:data.agent_trace||[],prompt:body.prompt,type:body.type,priority:body.priority,
-      total_latency_ms:elapsed,strategy_name:strategyName,is_bridge:true,
-      is_agent_chain:routePath==='agent_chain',is_hermes:!!hermesR,
-      hermes_routing:hermesR?{route_path:hermesR.route_path,complexity_score:hermesR.complexity_score,threshold:hermesR.threshold||40,selected_model:hermesR.selected_model,reason:hermesR.reason}:{route_path:routePath,complexity_score:null,threshold:40,selected_model:result.model_name,reason:'Bridge native: '+strategyName}
+      total_latency_ms:elapsed,strategy_name:routing.route_path||'-',is_bridge:true,
+      is_agent_chain:routing.route_path==='agent_chain',is_hermes:!!data.hermes_routing,
+      hermes_routing:data.hermes_routing?{route_path:data.hermes_routing.route_path,complexity_score:data.hermes_routing.complexity_score,threshold:40,selected_model:data.hermes_routing.selected_model,reason:data.hermes_routing.reason}:null
     };
     AR.push(cardData);ph.outerHTML=renderCard(cardData);
   }catch(e){
-    log('err','['+rid+'] \u2717 Bridge失败: '+e.message,'bridge');
-    ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-model" style="color:var(--red)">失败: '+e.message+'</span></div><div class="dc-right"><span class="dc-status failed">\u2717 失败</span></div></div>';
+    log('err','['+rid+'] \\u2717 Bridge失败: '+e.message,'bridge');
+    ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-model" style="color:var(--red)">失败: '+e.message+'</span></div><div class="dc-right"><span class="dc-status failed">\\u2717 失败</span></div></div>';
   }
   refreshPipeline();updateCharts();
 }
@@ -494,44 +412,9 @@ function sendRequest(){
   if(mode==='queue')sendQueueRequest(body,'Queue调度');else sendBridgeRequest(body,'Bridge调度');
 }
 
-function sendBatch(scenario){
-  const SCENARIOS={
-    simple:[
-      {prompt:'你好，今天天气怎么样？',label:'💬 简单问候',expect:'direct_local'},
-      {prompt:'1+1等于几？',label:'💬 简单计算',expect:'direct_local'},
-      {prompt:'翻译：hello world',label:'💬 翻译请求',expect:'direct_local'},
-      {prompt:'什么是AI？',label:'💬 简单问答',expect:'direct_local'},
-    ],
-    code:[
-      {prompt:'执行Python脚本计算斐波那契数列',label:'💻 代码执行',expect:'gateway',type:'code'},
-      {prompt:'写一个JavaScript函数实现快速排序',label:'💻 代码生成',expect:'gateway',type:'code'},
-      {prompt:'调试这段SQL查询语句的性能问题',label:'💻 SQL调试',expect:'gateway',type:'code'},
-    ],
-    agent:[
-      {prompt:'请设计一个完整的用户认证系统架构方案',label:'🤖 架构设计',expect:'gateway'},
-      {prompt:'设计一个分布式微服务架构系统',label:'🤖 分布式设计',expect:'gateway'},
-      {prompt:'请制定一个市场调研方案并分析竞品',label:'🤖 多步规划',expect:'gateway'},
-    ],
-    privacy:[
-      {prompt:'分析这份内部财务数据',label:'🔒 隐私数据',expect:'local_inference',constraints:{require_local:true}},
-      {prompt:'处理用户个人信息并脱敏',label:'🔒 脱敏处理',expect:'local_inference',constraints:{require_local:true}},
-    ],
-  };
-  let items=[];
-  if(scenario==='all'){
-    for(const k of Object.keys(SCENARIOS))items.push(...SCENARIOS[k]);
-  }else{
-    items=SCENARIOS[scenario]||[];
-  }
-  if(!items.length){log('warn','未知场景: '+scenario,'system');return}
-  log('info','批量测试: '+scenario+' ('+items.length+'条)','system');
-  items.forEach((item,i)=>{
-    setTimeout(()=>{
-      const body={appid:'batch-test',type:item.type||'chat',priority:3,prompt:item.prompt};
-      if(item.constraints)body.constraints=item.constraints;
-      sendQueueRequest(body,item.label);
-    },i*2000);
-  });
+function sendBatch(){
+  const prompts=['你好','1+1等于几？','写一首短诗','什么是AI？','翻译：hello world'];
+  prompts.forEach((p,i)=>{setTimeout(()=>{sendQueueRequest({appid:'batch-test',type:'chat',priority:3,prompt:p},'批量#'+(i+1))},i*1500)});
 }
 
 async function analyzeComplexity(){
@@ -547,21 +430,23 @@ async function analyzeComplexity(){
 }
 
 function clearResults(){
-  document.getElementById('results-area').innerHTML='<div class="empty-state" id="empty-hint"><div class="es-icon">\u{1F43E}</div>发送请求以查看全链路追踪</div>';
+  document.getElementById('results-area').innerHTML='<div class="empty-state" id="empty-hint"><div class="es-icon">\\u{1F43E}</div>发送请求以查看全链路追踪</div>';
   AR.length=0;
 }
 
 async function refreshPipeline(){
   try{const r=await fetch(H+'/queue/status');const d=await r.json();const q=d.queue_backend||{},w=d.worker||{};setBadge('pf-q','ok');setMetric('pf-q',q.size||0);document.getElementById('pf-q-backend').textContent=q.backend||'-';document.getElementById('pf-q-worker').textContent=w.running?'运行中':'停止';document.getElementById('pf-q-req').textContent=q.requests_size||q.size||0;document.getElementById('pf-q-res').textContent=q.results_size||0;document.getElementById('pf-q-proc').textContent=w.total_processed||0}catch{setBadge('pf-q','err');setMetric('pf-q','-')}
-  try{const r=await fetch(H+'/health');const d=await r.json();setBadge('pf-hm','ok');setMetric('pf-hm',d.skills_count||d.learning_iterations||0);document.getElementById('pf-hm-mode').textContent=d.learning_iterations>0?'Agent模式':'规则模式';document.getElementById('pf-hm-threshold').textContent=d.complexity_threshold||'-';document.getElementById('pf-hm-exploration').textContent=d.exploration_rate?(d.exploration_rate*100).toFixed(1)+'%':'-';document.getElementById('pf-hm-memory').textContent=d.memory_records||0;document.getElementById('pf-hm-skills').textContent=d.skills_count||0}catch{setBadge('pf-hm','err');setMetric('pf-hm','-')}
-  try{const r=await fetch(H+'/proxy/bridge/health');const d=await r.json();setBadge('pf-br','ok');setMetric('pf-br',d.total_endpoints||0);document.getElementById('pf-br-strategy').textContent=d.default_route_mode||d.route_mode||'-';document.getElementById('pf-br-local').textContent=d.local_models||'-';document.getElementById('pf-br-cloud').textContent=d.cloud_models||'-';document.getElementById('pf-br-gwr').textContent=d.gateway_routing?'启用':'禁用'}catch{setBadge('pf-br','err');setMetric('pf-br','-')}
+  try{const r=await fetch(H+'/health');const d=await r.json();setBadge('pf-hm','ok');setMetric('pf-hm',d.skills_count||0);document.getElementById('pf-hm-mode').textContent=d.hermes_agent_enabled?'Agent模式':'规则模式';document.getElementById('pf-hm-threshold').textContent=d.complexity_threshold||'-';document.getElementById('pf-hm-exploration').textContent=d.exploration_rate?d.exploration_rate.toFixed(3):'-';document.getElementById('pf-hm-memory').textContent=d.memory_records||0;document.getElementById('pf-hm-skills').textContent=d.skills_count||0}catch{setBadge('pf-hm','err');setMetric('pf-hm','-')}
+  try{const r=await fetch(B+'/health');const d=await r.json();setBadge('pf-br','ok');setMetric('pf-br',d.stats&&d.stats.total||0);document.getElementById('pf-br-strategy').textContent=d.route_mode||'-';document.getElementById('pf-br-local').textContent=d.local_models||'-';document.getElementById('pf-br-cloud').textContent=d.cloud_models||'-';document.getElementById('pf-br-gwr').textContent=d.use_openclaw_gateway?'启用':'禁用'}catch{setBadge('pf-br','err');setMetric('pf-br','-')}
   let gwOk=false,ogwOk=false,ollOk=false;
-  try{const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});const d=await r.json();gwOk=d.gateway&&d.gateway.healthy||false;ogwOk=d.officialGateway&&d.officialGateway.healthy||false;ollOk=d.ollama&&d.ollama.healthy||false}catch{}
+  try{const r=await fetch(GW+'/health');if(r.ok)gwOk=true}catch{}
+  try{const r=await fetch(OGW+'/health');if(r.ok)ogwOk=true}catch{}
+  try{const r=await fetch(OLL+'/api/tags');if(r.ok)ollOk=true}catch{}
   setBadge('pf-ex',gwOk||ogwOk||ollOk?'ok':'err');
   setMetric('pf-ex',[gwOk?'GW':'',ogwOk?'OGW':'',ollOk?'Oll':''].filter(Boolean).join('/')||'-');
-  document.getElementById('pf-ex-gw').textContent=gwOk?'\u2713 运行':'\u2717 停止';
-  document.getElementById('pf-ex-ogw').textContent=ogwOk?'\u2713 运行':'\u2717 停止';
-  document.getElementById('pf-ex-ollama').textContent=ollOk?'\u2713 运行':'\u2717 停止';
+  document.getElementById('pf-ex-gw').textContent=gwOk?'\\u2713 运行':'\\u2717 停止';
+  document.getElementById('pf-ex-ogw').textContent=ogwOk?'\\u2713 运行':'\\u2717 停止';
+  document.getElementById('pf-ex-ollama').textContent=ollOk?'\\u2713 运行':'\\u2717 停止';
   try{const r=await fetch(H+'/stats');const d=await r.json();const req=d.requests||{};setBadge('pf-rt',req.total>0?'ok':'idle');setMetric('pf-rt',req.success_rate?Math.round(req.success_rate*100)+'%':'-');document.getElementById('pf-rt-srate').textContent=req.success_rate?Math.round(req.success_rate*10000)/100+'%':'-'}catch{setBadge('pf-rt','err');setMetric('pf-rt','-')}
   try{const r=await fetch(H+'/queue/feedback?limit=1');const d=await r.json();document.getElementById('pf-rt-fb').textContent=d.count||0}catch{}
   try{const r=await fetch(H+'/queue/results?limit=1&pop=false');const d=await r.json();document.getElementById('pf-rt-resq').textContent=d.remaining||0}catch{}
@@ -571,47 +456,34 @@ function setBadge(prefix,state){const b=document.getElementById(prefix+'-badge')
 function setMetric(prefix,val){const m=document.getElementById(prefix+'-metric');if(m)m.textContent=val}
 
 const SVC_DEFS=[
-  {id:'hermes',name:'Hermes 路由器',icon:'\u{1F9E0}',url:H+'/health',port:8082,startSvc:null,stopSvc:null},
-  {id:'bridge',name:'Bridge 调度器',icon:'\u{1F309}',url:B+'/health',port:3001,startSvc:'bridge',stopSvc:'bridge'},
-  {id:'gateway',name:'OpenClaw Gateway',icon:'\u26A1',url:GW+'/health',port:3000,startSvc:'gateway',stopSvc:'gateway'},
-  {id:'official',name:'Official Gateway',icon:'\u{1F3E2}',url:OGW+'/health',port:3005,startSvc:'officialGateway',stopSvc:'officialGateway'},
-  {id:'ollama',name:'Ollama 本地推理',icon:'\u{1F999}',url:OLL+'/api/tags',port:11434,startSvc:null,stopSvc:null},
+  {id:'hermes',name:'Hermes 路由器',icon:'\\u{1F9E0}',url:H+'/health',port:8082,startSvc:null,stopSvc:null},
+  {id:'bridge',name:'Bridge 调度器',icon:'\\u{1F309}',url:B+'/health',port:3001,startSvc:null,stopSvc:null},
+  {id:'gateway',name:'OpenClaw Gateway',icon:'\\u26A1',url:GW+'/health',port:3000,startSvc:'gateway',stopSvc:'gateway'},
+  {id:'official',name:'Official Gateway',icon:'\\u{1F3E2}',url:OGW+'/health',port:3005,startSvc:'officialGateway',stopSvc:'officialGateway'},
+  {id:'ollama',name:'Ollama 本地推理',icon:'\\u{1F999}',url:OLL+'/api/tags',port:11434,startSvc:null,stopSvc:null},
 ];
 
 async function refreshServices(){
   const layout=document.getElementById('svc-layout');let html='';
-  let managedStatus={},proxyHealth={};
-  try{const r=await fetch(H+'/services/status',{signal:AbortSignal.timeout(3000)});managedStatus=await r.json()}catch{}
-  try{const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});proxyHealth=await r.json()}catch{}
   for(const svc of SVC_DEFS){
-    const ph=proxyHealth[svc.id==='official'?'officialGateway':svc.id]||{};
-    const healthy=ph.healthy||false;
-    const info=ph.data||{};
-    const mInfo=managedStatus[svc.startSvc||''];
-    const managedRunning=mInfo&&mInfo.status==='running';
-    const isRunning=healthy||managedRunning;
-    svcStatus[svc.id]=isRunning;
-    const dotCls=isRunning?'ok':'err';
-    const statusText=isRunning?(healthy?'\u2713 运行中':'\u23F3 启动中'):'\u2717 已停止';
-    const statusColor=isRunning?(healthy?'var(--green)':'var(--yellow)'):'var(--red)';
+    let healthy=false,info={};
+    try{const r=await fetch(svc.url,{signal:AbortSignal.timeout(3000)});info=await r.json();healthy=r.ok}catch{}
+    svcStatus[svc.id]=healthy;
+    const dotCls=healthy?'ok':'err';const statusText=healthy?'\\u2713 运行中':'\\u2717 已停止';
     const canStart=!!svc.startSvc;const canStop=!!svc.stopSvc;
     html+='<div class="svc-card"><div class="svc-card-title"><span class="svc-dot '+dotCls+'"></span>'+svc.icon+' '+svc.name+'</div>';
-    html+='<div class="svc-row"><span class="svc-key">状态</span><span class="svc-val" style="color:'+statusColor+'">'+statusText+'</span></div>';
+    html+='<div class="svc-row"><span class="svc-key">状态</span><span class="svc-val" style="color:'+(healthy?'var(--green)':'var(--red)')+'">'+statusText+'</span></div>';
     html+='<div class="svc-row"><span class="svc-key">端口</span><span class="svc-val">'+svc.port+'</span></div>';
     html+='<div class="svc-row"><span class="svc-key">URL</span><span class="svc-val" style="font-size:11px">'+svc.url+'</span></div>';
-    if(mInfo&&mInfo.pid){html+='<div class="svc-row"><span class="svc-key">PID</span><span class="svc-val">'+mInfo.pid+'</span></div>'}
-    if(mInfo&&mInfo.exit_code!=null){html+='<div class="svc-row"><span class="svc-key">退出码</span><span class="svc-val" style="color:var(--red)">'+mInfo.exit_code+'</span></div>'}
     if(svc.id==='hermes'&&healthy){
-      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.learning_iterations>0?'Agent学习('+info.learning_iterations+'轮)':'规则')+'</span></div>';
+      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.hermes_agent_enabled?'Agent':'规则')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">复杂度阈值</span><span class="svc-val">'+(info.complexity_threshold||'-')+'</span></div>';
-      html+='<div class="svc-row"><span class="svc-key">探索率</span><span class="svc-val">'+(info.exploration_rate?(info.exploration_rate*100).toFixed(1)+'%':'-')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">记忆记录</span><span class="svc-val">'+(info.memory_records||0)+'</span></div>';
+      html+='<div class="svc-row"><span class="svc-key">技能数</span><span class="svc-val">'+(info.skills_count||0)+'</span></div>';
     }
     if(svc.id==='bridge'&&healthy){
-      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.default_route_mode||info.route_mode||'-')+'</span></div>';
-      html+='<div class="svc-row"><span class="svc-key">本地模型</span><span class="svc-val">'+(info.local_models||0)+'</span></div>';
-      html+='<div class="svc-row"><span class="svc-key">云端模型</span><span class="svc-val">'+(info.cloud_models||0)+'</span></div>';
-      html+='<div class="svc-row"><span class="svc-key">Agent灵魂</span><span class="svc-val">'+(info.agent_souls||0)+'</span></div>';
+      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.route_mode||'-')+'</span></div>';
+      html+='<div class="svc-row"><span class="svc-key">总请求</span><span class="svc-val">'+(info.stats&&info.stats.total||0)+'</span></div>';
     }
     if(svc.id==='gateway'&&healthy){
       html+='<div class="svc-row"><span class="svc-key">模型数</span><span class="svc-val">'+(info.models_registered||0)+'</span></div>';
@@ -624,180 +496,21 @@ async function refreshServices(){
       if(models.length>0)html+='<div class="svc-row"><span class="svc-key">模型列表</span><span class="svc-val" style="font-size:10px">'+models.slice(0,3).map(m=>m.name).join(', ')+(models.length>3?'...':'')+'</span></div>';
     }
     html+='<div class="svc-actions">';
-    if(canStart)html+='<button class="svc-btn svc-btn-start" onclick="startService(\''+svc.startSvc+'\')" '+(isRunning?'disabled':'')+' >\u25B6 启动</button>';
-    if(canStop)html+='<button class="svc-btn svc-btn-stop" onclick="stopService(\''+svc.stopSvc+'\')" '+(!isRunning?'disabled':'')+'>\u25A0 停止</button>';
-    html+='<button class="svc-btn svc-btn-restart" onclick="restartService(\''+svc.id+'\')\u21BB 刷新</button>';
+    if(canStart)html+='<button class="svc-btn svc-btn-start" onclick="startService(\\''+svc.startSvc+'\\')" '+(healthy?'disabled':'')+' >\\u25B6 启动</button>';
+    if(canStop)html+='<button class="svc-btn svc-btn-stop" onclick="stopService(\\''+svc.stopSvc+'\\')" '+(!healthy?'disabled':'')+'>\\u25A0 停止</button>';
+    html+='<button class="svc-btn svc-btn-restart" onclick="restartService(\\''+svc.id+'\\')\\u21BB 刷新</button>';
     html+='</div></div>';
   }
   layout.innerHTML=html;updateTopbarDots();
 }
 
-async function startService(name){if(!name)return;log('info','启动服务: '+name,'system');try{const r=await fetch(H+'/services/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:name})});const d=await r.json();if(d.started){log('ok',d.message,'system');return true}else{log('warn',d.message,'system');return false}}catch(e){log('err','启动失败: Hermes不可用 - '+e.message,'system');return false}}
-async function stopService(name){if(!name)return;log('info','停止服务: '+name,'system');try{const r=await fetch(H+'/services/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:name})});const d=await r.json();if(d.stopped){log('ok',d.message,'system');return true}else{log('warn',d.message,'system');return false}}catch(e){log('err','停止失败: Hermes不可用 - '+e.message,'system');return false}}
+async function startService(name){if(!name)return;log('info','启动服务: '+name,'system');try{const r=await fetch(B+'/services/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:name})});const d=await r.json();log(d.started?'ok':'warn',d.message||JSON.stringify(d),'system');setTimeout(refreshServices,2000)}catch(e){log('err','启动失败: '+e.message,'system')}}
+async function stopService(name){if(!name)return;log('info','停止服务: '+name,'system');try{const r=await fetch(B+'/services/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:name})});const d=await r.json();log(d.stopped?'ok':'warn',d.message||JSON.stringify(d),'system');setTimeout(refreshServices,2000)}catch(e){log('err','停止失败: '+e.message,'system')}}
 function restartService(id){const svc=SVC_DEFS.find(s=>s.id===id);if(svc&&svc.stopSvc){stopService(svc.stopSvc).then(()=>setTimeout(()=>startService(svc.startSvc),1500))}else{refreshServices()}}
-
-async function startAllServices(){
-  const btn=document.getElementById('btn-start-all');btn.disabled=true;
-  const statusEl=document.getElementById('svc-op-status');
-  statusEl.textContent='正在启动所有服务...';statusEl.style.color='var(--yellow)';
-  log('info','🚀 一键启动所有服务','system');
-  const managed=SVC_DEFS.filter(s=>s.startSvc);
-  for(const svc of managed){
-    statusEl.textContent='启动 '+svc.name+'...';
-    await startService(svc.startSvc);
-    await new Promise(r=>setTimeout(r,2000));
-  }
-  statusEl.textContent='等待服务就绪...';
-  log('info','所有启动命令已发送，等待服务就绪...','system');
-  await new Promise(r=>setTimeout(r,5000));
-  await refreshServices();
-  const allOk=managed.every(s=>svcStatus[s.id]);
-  statusEl.textContent=allOk?'✓ 所有服务已启动':'部分服务未就绪，请稍后刷新';
-  statusEl.style.color=allOk?'var(--green)':'var(--yellow)';
-  btn.disabled=false;
-}
-
-async function stopAllServices(){
-  const btn=document.getElementById('btn-stop-all');btn.disabled=true;
-  const statusEl=document.getElementById('svc-op-status');
-  statusEl.textContent='正在停止所有服务...';statusEl.style.color='var(--yellow)';
-  log('info','⏹ 一键停止所有服务','system');
-  const managed=SVC_DEFS.filter(s=>s.stopSvc);
-  for(const svc of managed){
-    statusEl.textContent='停止 '+svc.name+'...';
-    await stopService(svc.stopSvc);
-    await new Promise(r=>setTimeout(r,1000));
-  }
-  statusEl.textContent='等待服务停止...';
-  await new Promise(r=>setTimeout(r,2000));
-  await refreshServices();
-  const allStopped=managed.every(s=>!svcStatus[s.id]);
-  statusEl.textContent=allStopped?'✓ 所有服务已停止':'部分服务仍在运行';
-  statusEl.style.color=allStopped?'var(--green)':'var(--yellow)';
-  btn.disabled=false;
-}
-
-async function refreshMemory(){
-  try{
-    const r=await fetch(H+'/queue/feedback?limit=20');
-    const d=await r.json();
-    const feedbacks=d.feedback||[];
-    document.getElementById('mem-fb-count').textContent=feedbacks.length;
-    document.getElementById('mem-last-refresh').textContent='更新于 '+ts();
-
-    // Render feedback history
-    const fbEl=document.getElementById('mem-feedback-history');
-    if(feedbacks.length===0){fbEl.innerHTML='<div style="color:var(--text3)">暂无反馈记录</div>'}
-    else{
-      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)'};
-      const routeIcons={direct_local:'🏠',gateway:'🌉',agent_chain:'🤖',local_inference:'🔒'};
-      fbEl.innerHTML=feedbacks.map(fb=>{
-        const path=fb.route_path||'?';
-        const ok=fb.success!==false;
-        const lat=fb.latency_ms||'?';
-        const summary=(fb.request_summary||fb.prompt||'').slice(0,30);
-        return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg);border-radius:6px;margin-bottom:4px;border:1px solid var(--border)">'+
-          '<span style="color:'+(routeColors[path]||'var(--text3)')+'">'+(routeIcons[path]||'☁')+' '+path+'</span>'+
-          '<span style="color:'+(ok?'var(--green)':'var(--red)')+'">'+(ok?'✓':'✗')+'</span>'+
-          '<span style="color:var(--blue);font-weight:600">'+lat+'ms</span>'+
-          '<span style="color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">'+esc(summary)+'</span>'+
-          '</div>';
-      }).join('');
-    }
-  }catch(e){document.getElementById('mem-feedback-history').innerHTML='<div style="color:var(--red)">加载失败: '+e.message+'</div>'}
-
-  // Load MEMORY.md content via a dedicated endpoint
-  try{
-    const r=await fetch(H+'/memory/content');
-    const d=await r.json();
-    const content=d.content||'';
-
-    // Parse sections
-    const sections={patterns:[],rules:[],latency:[],keyRules:[]};
-    const patternMatch=content.match(/## Routing Patterns Learned\n([\s\S]*?)(?=\n## )/);
-    const keyRulesMatch=content.match(/## Key Rules\n([\s\S]*?)(?=\n## )/);
-    const latencyMatch=content.match(/## Latency Stats[\s\S]*?\n([\s\S]*?)(?=\n## |\n*$)/);
-
-    // Render routing patterns
-    if(patternMatch){
-      const lines=patternMatch[1].trim().split('\n').filter(l=>l.startsWith('-'));
-      sections.patterns=lines;
-      document.getElementById('mem-rule-count').textContent=lines.length;
-      const rulesEl=document.getElementById('mem-routing-rules');
-      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)'};
-      rulesEl.innerHTML=lines.map(l=>{
-        const m=l.match(/^- (.+?)\s*\[(.+?)\]\s*→\s*(\w+)/);
-        if(m){
-          const cat=m[1],kws=m[2].slice(0,40),route=m[3];
-          return '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--bg);border-radius:6px;margin-bottom:3px;border:1px solid var(--border)">'+
-            '<span style="color:'+(routeColors[route]||'var(--text3)')+';font-weight:600;min-width:90px">'+route+'</span>'+
-            '<span style="color:var(--text)">'+esc(cat)+'</span>'+
-            '<span style="color:var(--text3);font-size:10px;margin-left:auto">['+esc(kws)+']</span>'+
-            '</div>';
-        }
-        return '<div style="padding:4px 8px;color:var(--text3)">'+esc(l)+'</div>';
-      }).join('');
-    }
-
-    // Render key rules
-    if(keyRulesMatch){
-      const lines=keyRulesMatch[1].trim().split('\n').filter(l=>l.startsWith('-'));
-      sections.keyRules=lines;
-      const krEl=document.getElementById('mem-key-rules');
-      krEl.innerHTML=lines.map(l=>{
-        let color='var(--text2)';
-        if(l.includes('gateway')||l.includes('OfficialGW'))color='var(--blue)';
-        else if(l.includes('direct_local')||l.includes('本地'))color='var(--green)';
-        else if(l.includes('local_inference')||l.includes('隐私'))color='var(--cyan)';
-        else if(l.includes('延迟')||l.includes('avg'))color='var(--yellow)';
-        return '<div style="padding:5px 8px;background:var(--bg);border-radius:6px;margin-bottom:3px;border:1px solid var(--border);color:'+color+'">'+esc(l.replace(/^- /,''))+'</div>';
-      }).join('');
-    }
-
-    // Render latency stats
-    if(latencyMatch){
-      const lines=latencyMatch[1].trim().split('\n').filter(l=>l.startsWith('-'));
-      const latEl=document.getElementById('mem-latency-stats');
-      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)'};
-      latEl.innerHTML=lines.map(l=>{
-        const m=l.match(/^- (\w+): avg=(\d+)ms, p95=(\d+)ms, samples=(\d+)/);
-        if(m){
-          const route=m[1],avg=parseInt(m[2]),p95=parseInt(m[3]),samples=parseInt(m[4]);
-          const avgPct=Math.min(avg/1000,100);
-          const p95Pct=Math.min(p95/1000,100);
-          return '<div style="padding:8px;background:var(--bg);border-radius:6px;margin-bottom:6px;border:1px solid var(--border)">'+
-            '<div style="display:flex;justify-content:space-between;margin-bottom:6px">'+
-            '<span style="color:'+(routeColors[route]||'var(--text3)')+';font-weight:700">'+route+'</span>'+
-            '<span style="color:var(--text3)">samples: '+samples+'</span></div>'+
-            '<div style="margin-bottom:4px"><span style="color:var(--text3);font-size:10px">avg</span> <span style="color:var(--blue);font-weight:600">'+avg+'ms</span>'+
-            '<div style="background:var(--border);border-radius:3px;height:6px;margin-top:2px"><div style="background:var(--blue);border-radius:3px;height:6px;width:'+avgPct+'%"></div></div></div>'+
-            '<div><span style="color:var(--text3);font-size:10px">p95</span> <span style="color:var(--orange);font-weight:600">'+p95+'ms</span>'+
-            '<div style="background:var(--border);border-radius:3px;height:6px;margin-top:2px"><div style="background:var(--orange);border-radius:3px;height:6px;width:'+p95Pct+'%"></div></div></div>'+
-            '</div>';
-        }
-        return '<div style="padding:4px 8px;color:var(--text3)">'+esc(l)+'</div>';
-      }).join('');
-    }
-
-    // Skill count from health
-    try{
-      const hr=await fetch(H+'/health');const hd=await hr.json();
-      document.getElementById('mem-skill-count').textContent=hd.skills_count||0;
-    }catch{}
-
-    // Evolve count = feedback count where success=false (approximation)
-    const evolveCount=feedbacks.filter(f=>f.success===false).length;
-    document.getElementById('mem-evolve-count').textContent=evolveCount;
-
-  }catch(e){
-    document.getElementById('mem-latency-stats').innerHTML='<div style="color:var(--red)">加载失败: '+e.message+'</div>';
-    document.getElementById('mem-routing-rules').innerHTML='<div style="color:var(--red)">加载失败</div>';
-  }
-}
 
 async function refreshMetrics(){
   try{const r=await fetch(H+'/stats');const d=await r.json();const sys=d.system||{},req=d.requests||{};document.getElementById('m-cpu').textContent=sys.cpu_percent?sys.cpu_percent.toFixed(1):'-';document.getElementById('m-mem').textContent=sys.memory_percent?sys.memory_percent.toFixed(1):'-';document.getElementById('m-mem-total').textContent=sys.memory_total_gb?sys.memory_total_gb+'GB':'-';document.getElementById('m-mem-used').textContent=sys.memory_used_gb?sys.memory_used_gb+'GB':'-';const cpuPct=sys.cpu_percent||0;const cpuBar=document.getElementById('m-cpu-bar');cpuBar.style.width=cpuPct+'%';cpuBar.style.background=cpuPct>80?'var(--red)':cpuPct>50?'var(--yellow)':'var(--green)';const memPct=sys.memory_percent||0;const memBar=document.getElementById('m-mem-bar');memBar.style.width=memPct+'%';memBar.style.background=memPct>80?'var(--red)':memPct>50?'var(--yellow)':'var(--blue)';document.getElementById('m-total').textContent=req.total||0;document.getElementById('m-success').textContent=req.success||0;document.getElementById('m-failed').textContent=req.failed||0;document.getElementById('m-srate').textContent=req.success_rate?Math.round(req.success_rate*100)+'%':'-'}catch{}
-  try{const r=await fetch(H+'/proxy/ollama-ps');const d=await r.json();const models=d.models||[];document.getElementById('m-gpu').textContent=models.length>0?'活跃':'-';document.getElementById('m-gpumem').textContent=models.length>0?'占用':'-';document.getElementById('m-gpu-bar').style.width=models.length>0?'60%':'0%';document.getElementById('m-gpumem-bar').style.width=models.length>0?'40%':'0%';if(models.length>0){const vram=models.reduce((s,m)=>s+(m.size||0),0);document.getElementById('m-gpumem-used').textContent=(vram/1e9).toFixed(1)+'GB'}else{document.getElementById('m-gpumem-used').textContent='-'}}catch{document.getElementById('m-gpu').textContent='-';document.getElementById('m-gpumem').textContent='-';document.getElementById('m-gpumem-used').textContent='-'}
+  try{const r=await fetch(OLL+'/api/ps');const d=await r.json();const models=d.models||[];document.getElementById('m-gpu').textContent=models.length>0?'活跃':'-';document.getElementById('m-gpumem').textContent=models.length>0?'占用':'-';document.getElementById('m-gpu-bar').style.width=models.length>0?'60%':'0%';document.getElementById('m-gpumem-bar').style.width=models.length>0?'40%':'0%';if(models.length>0){const vram=models.reduce((s,m)=>s+(m.size||0),0);document.getElementById('m-gpumem-used').textContent=(vram/1e9).toFixed(1)+'GB'}else{document.getElementById('m-gpumem-used').textContent='-'}}catch{document.getElementById('m-gpu').textContent='-';document.getElementById('m-gpumem').textContent='-';document.getElementById('m-gpumem-used').textContent='-'}
   renderRouteDist();updateCharts();
 }
 
@@ -805,7 +518,7 @@ function renderRouteDist(){
   const total=Object.values(RC).reduce((s,v)=>s+v,0);const el=document.getElementById('route-dist');
   if(!el||total===0)return;
   const colors={gateway:'var(--blue)',agent_chain:'var(--purple)',direct_local:'var(--green)',local_inference:'var(--cyan)'};
-  const labels={gateway:'\u{1F309} Gateway',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理'};
+  const labels={gateway:'\\u{1F309} Gateway',agent_chain:'\\u{1F916} Agent链路',direct_local:'\\u{1F3E0} 本地直连',local_inference:'\\u{1F512} 本地推理'};
   let html='';
   for(const[k,v]of Object.entries(RC)){const pct=Math.round(v/total*100);html+='<div class="route-bar"><span class="rb-label">'+(labels[k]||k)+'</span><div class="rb-track"><div class="rb-fill" style="width:'+pct+'%;background:'+(colors[k]||'var(--border2)')+'">'+pct+'%</div></div><span style="font-size:11px;color:var(--text3)">'+v+'</span></div>'}
   el.innerHTML=html;
@@ -854,25 +567,18 @@ function refilterLogs(){
 async function init(){
   updateClock();setInterval(updateClock,1000);
   log('info','OpenClaw 调度监控中心已启动','system');
-  async function checkAllViaProxy(){
-    try{
-      const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});
-      const data=await r.json();
-      svcStatus['hermes']=data.hermes&&data.hermes.healthy;
-      svcStatus['bridge']=data.bridge&&data.bridge.healthy;
-      svcStatus['gateway']=data.gateway&&data.gateway.healthy;
-      svcStatus['official']=data.officialGateway&&data.officialGateway.healthy;
-      svcStatus['ollama']=data.ollama&&data.ollama.healthy;
-    }catch{
-      svcStatus['hermes']=true;svcStatus['bridge']=false;svcStatus['gateway']=false;svcStatus['official']=false;svcStatus['ollama']=false;
-    }
-    updateTopbarDots();
-  }
-  await checkAllViaProxy();refreshPipeline();
-  setInterval(checkAllViaProxy,10000);
+  async function checkSvc(id,url){try{const r=await fetch(url,{signal:AbortSignal.timeout(3000)});svcStatus[id]=r.ok}catch{svcStatus[id]=false}}
+  await Promise.all([checkSvc('hermes',H+'/health'),checkSvc('bridge',B+'/health'),checkSvc('gateway',GW+'/health'),checkSvc('official',OGW+'/health'),checkSvc('ollama',OLL+'/api/tags')]);
+  updateTopbarDots();refreshPipeline();
+  setInterval(async()=>{await Promise.all([checkSvc('hermes',H+'/health'),checkSvc('bridge',B+'/health'),checkSvc('gateway',GW+'/health'),checkSvc('official',OGW+'/health'),checkSvc('ollama',OLL+'/api/tags')]);updateTopbarDots()},10000);
   setInterval(refreshPipeline,5000);
 }
 init();
 </script>
 </body>
-</html>
+</html>"""
+
+with open(DASHBOARD, "w", encoding="utf-8") as f:
+    f.write(html + js)
+
+print(f"Dashboard written: {os.path.getsize(DASHBOARD)} bytes")

@@ -202,33 +202,71 @@ class DispatchWorker:
     # ── Dispatch ─────────────────────────────────────────────────────
 
     def _dispatch(self, request: Dict, routing: Dict) -> Dict:
-        """Dispatch request through Gateway (all routes go via Gateway).
+        """Dispatch request based on simplified routing.
 
-        Route mapping (all through Gateway):
-          - direct_local / local_inference → Bridge → Gateway → registered local model (Ollama/vLLM)
-          - gateway → Bridge → Gateway → cloud model
-          - agent_chain → Bridge → Agent Chain → Official OpenClaw GW → Volcano
-
-        Benefits:
-          - Unified monitoring via Gateway console
-          - Model catalog management at Gateway level
-          - Request logging and metrics for all paths
-          - Official OpenClaw monitoring for agent_chain requests
+        Route mapping:
+          - direct_local / local_inference → Ollama/vLLM directly (low latency)
+          - gateway → Bridge → Gateway → OfficialGW (cloud/agent models)
+          - agent_chain → Bridge → Agent Chain → Official OpenClaw GW
+        Fallback: If Bridge is unavailable, gateway/agent_chain fall back to local model.
         """
         route_path = routing["route_path"]
 
         if route_path in ("direct_local", "local_inference"):
-            # Simple/privacy requests → Gateway registered local model
-            return self._dispatch_to_bridge(request, routing, mode="gateway")
-        elif route_path == "gateway":
-            # Standard requests → Gateway cloud model
-            return self._dispatch_to_bridge(request, routing, mode="gateway")
-        elif route_path == "agent_chain":
-            # Complex requests → Agent Chain → Official OpenClaw GW → Volcano
-            return self._dispatch_to_bridge(request, routing, mode="agent")
+            # Simple requests → local model directly
+            return self._dispatch_to_local(request, routing)
+        elif route_path in ("gateway", "agent_chain"):
+            # Agent-related requests → Gateway → OfficialGW (cloud)
+            # Fallback to local model if Bridge is unavailable
+            try:
+                mode = "agent" if route_path == "agent_chain" else "gateway"
+                return self._dispatch_to_bridge(request, routing, mode=mode)
+            except Exception as e:
+                logger.warning(f"Bridge dispatch failed for {route_path}, falling back to local: {e}")
+                routing["route_path"] = "direct_local"
+                routing["reason"] = f"Fallback: Bridge unavailable ({str(e)[:50]})"
+                return self._dispatch_to_local(request, routing)
         else:
-            # Default: gateway
-            return self._dispatch_to_bridge(request, routing, mode="smart")
+            # Default: try bridge, fallback to local
+            try:
+                return self._dispatch_to_bridge(request, routing, mode="smart")
+            except Exception as e:
+                logger.warning(f"Bridge dispatch failed, falling back to local: {e}")
+                routing["route_path"] = "direct_local"
+                return self._dispatch_to_local(request, routing)
+
+    def _dispatch_to_local(self, request: Dict, routing: Dict) -> Dict:
+        """Dispatch directly to local Ollama/vLLM (bypasses Bridge/Gateway for low latency)."""
+        prompt = request.get("prompt", "")
+        model = os.getenv("LOCAL_MODEL", "qwen2.5:3b")
+
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"num_ctx": 4096, "temperature": 0.7},
+        }
+
+        start = time.time()
+        with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+            resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+            resp.raise_for_status()
+        elapsed_ms = int((time.time() - start) * 1000)
+
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        usage = data.get("usage", {})
+
+        return {
+            "model_name": model,
+            "model_type": "local",
+            "output": content,
+            "latency_ms": elapsed_ms,
+            "usage": usage,
+            "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+            "routed_via": "hermes_direct_local",
+            "dispatch_latency_ms": elapsed_ms,
+        }
 
     def _dispatch_to_bridge(self, request: Dict, routing: Dict, mode: str = "smart") -> Dict:
         """Dispatch to Bridge for Gateway/Agent Chain routing.
