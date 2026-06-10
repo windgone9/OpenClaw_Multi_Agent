@@ -137,9 +137,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
 .log-entry .le-time{color:var(--text3);min-width:85px}
 .log-entry .le-svc{min-width:60px;font-weight:600}
 .log-entry .le-svc.hermes{color:var(--cyan)}
-.log-entry .le-svc.bridge{color:var(--purple)}
-.log-entry .le-svc.gateway{color:var(--green)}
-.log-entry .le-svc.official{color:var(--orange)}
+.log-entry .le-svc.official{color:var(--blue)}
 .log-entry .le-svc.ollama{color:var(--yellow)}
 .log-entry .le-level{min-width:40px;font-weight:600}
 .log-entry .le-level.info{color:var(--blue)}
@@ -171,8 +169,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   <h1><span class="logo">🐾</span> <span>OpenClaw 调度监控中心</span></h1>
   <div class="meta">
     <span class="svc-dot"><span class="dot" id="dot-hermes"></span> Hermes</span>
-    <span class="svc-dot"><span class="dot" id="dot-bridge"></span> Bridge</span>
-    <span class="svc-dot"><span class="dot" id="dot-gateway"></span> Gateway</span>
     <span class="svc-dot"><span class="dot" id="dot-official"></span> OfficialGW</span>
     <span class="svc-dot"><span class="dot" id="dot-ollama"></span> Ollama</span>
     <span style="color:var(--purple)">v2026.6</span>
@@ -194,9 +190,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
       <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-hm')"><span class="pf-icon">🧠</span><div class="pf-info"><div class="pf-title">Hermes 智能路由</div><div class="pf-desc">复杂度评分 + Memory规则</div></div><span class="pf-badge idle" id="pf-hm-badge">待机</span><span class="pf-metric" id="pf-hm-metric">-</span></div><div class="pf-detail" id="pf-hm-detail"><div class="pf-detail-row"><span class="pf-detail-key">路由模式</span><span class="pf-detail-val" id="pf-hm-mode">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">复杂度阈值</span><span class="pf-detail-val" id="pf-hm-threshold">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">探索率</span><span class="pf-detail-val" id="pf-hm-exploration">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">记忆记录</span><span class="pf-detail-val" id="pf-hm-memory">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">已学技能</span><span class="pf-detail-val" id="pf-hm-skills">-</span></div></div></div>
       <div class="pf-arrow">▼</div>
-      <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-br')"><span class="pf-icon">🌉</span><div class="pf-info"><div class="pf-title">Bridge 调度</div><div class="pf-desc">路由分发 → Gateway/Agent</div></div><span class="pf-badge idle" id="pf-br-badge">待机</span><span class="pf-metric" id="pf-br-metric">-</span></div><div class="pf-detail" id="pf-br-detail"><div class="pf-detail-row"><span class="pf-detail-key">策略</span><span class="pf-detail-val" id="pf-br-strategy">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">本地模型</span><span class="pf-detail-val" id="pf-br-local">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">云端模型</span><span class="pf-detail-val" id="pf-br-cloud">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">GW路由</span><span class="pf-detail-val" id="pf-br-gwr">-</span></div></div></div>
-      <div class="pf-arrow">▼</div>
-      <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-ex')"><span class="pf-icon">⚡</span><div class="pf-info"><div class="pf-title">执行引擎</div><div class="pf-desc">direct_local / agent_chain</div></div><span class="pf-badge idle" id="pf-ex-badge">待机</span><span class="pf-metric" id="pf-ex-metric">-</span></div><div class="pf-detail" id="pf-ex-detail"><div class="pf-detail-row"><span class="pf-detail-key">Gateway</span><span class="pf-detail-val" id="pf-ex-gw">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">Official GW</span><span class="pf-detail-val" id="pf-ex-ogw">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">Ollama</span><span class="pf-detail-val" id="pf-ex-ollama">-</span></div></div></div>
+      <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-ex')"><span class="pf-icon">⚡</span><div class="pf-info"><div class="pf-title">执行引擎</div><div class="pf-desc">direct_local / gateway / multimodal</div></div><span class="pf-badge idle" id="pf-ex-badge">待机</span><span class="pf-metric" id="pf-ex-metric">-</span></div><div class="pf-detail" id="pf-ex-detail"><div class="pf-detail-row"><span class="pf-detail-key">Official GW</span><span class="pf-detail-val" id="pf-ex-ogw">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">Ollama</span><span class="pf-detail-val" id="pf-ex-ollama">-</span></div></div></div>
       <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-rt')"><span class="pf-icon">📤</span><div class="pf-info"><div class="pf-title">结果返回</div><div class="pf-desc">结果入队 + 反馈学习</div></div><span class="pf-badge idle" id="pf-rt-badge">待机</span><span class="pf-metric" id="pf-rt-metric">-</span></div><div class="pf-detail" id="pf-rt-detail"><div class="pf-detail-row"><span class="pf-detail-key">结果队列</span><span class="pf-detail-val" id="pf-rt-resq">0</span></div><div class="pf-detail-row"><span class="pf-detail-key">反馈记录</span><span class="pf-detail-val" id="pf-rt-fb">0</span></div><div class="pf-detail-row"><span class="pf-detail-key">成功率</span><span class="pf-detail-val" id="pf-rt-srate">-</span></div></div></div>
     </div>
@@ -205,15 +199,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
         <select id="req-appid"><option value="test-app">test-app</option><option value="prod-app">prod-app</option><option value="demo">demo</option></select>
         <select id="req-type"><option value="chat">chat</option><option value="completion">completion</option></select>
         <select id="req-priority"><option value="3">P3 普通</option><option value="2">P2 较高</option><option value="1">P1 紧急</option></select>
-        <select id="req-mode"><option value="queue">Queue 队列</option><option value="bridge">Bridge 直连</option></select>
+        <select id="req-mode"><option value="queue">Queue 队列</option></select>
         <select id="req-model"><option value="">自动选择</option><option value="ollama/qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
         <textarea id="req-prompt" rows="2" placeholder="输入请求内容...">你好，请介绍一下你自己</textarea>
         <div class="btn-row">
           <button class="btn btn-primary" onclick="sendRequest()">🚀 发送请求</button>
           <button class="btn btn-green" onclick="sendBatch('all')">📦 全场景批量</button>
-          <button class="btn btn-green btn-sm" onclick="sendBatch('simple')" style="background:#059669">💬 简单聊天</button>
-          <button class="btn btn-blue btn-sm" onclick="sendBatch('code')" style="background:#2563eb">💻 代码执行</button>
-          <button class="btn btn-purple btn-sm" onclick="sendBatch('agent')" style="background:#7c3aed">🤖 Agent任务</button>
+          <button class="btn btn-green btn-sm" onclick="sendBatch('simple')" style="background:#059669">💬 单步问答</button>
+          <button class="btn btn-blue btn-sm" onclick="sendBatch('code')" style="background:#2563eb">🔧 多步批处理</button>
+          <button class="btn btn-purple btn-sm" onclick="sendBatch('multimodal')" style="background:#7c3aed">🖼️ 多模态</button>
           <button class="btn btn-cyan btn-sm" onclick="sendBatch('privacy')" style="background:#0e7490">🔒 隐私请求</button>
           <button class="btn btn-purple" onclick="analyzeComplexity()">🧠 分析复杂度</button>
           <button class="btn btn-ghost" onclick="clearResults()">🗑 清空</button>
@@ -230,11 +224,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   </div>
 </div>
 <div class="tab-content" id="tab-services">
-  <div style="padding:16px 20px 0;display:flex;gap:10px;align-items:center">
+  <div style="padding:16px 20px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <button class="btn btn-primary" onclick="startAllServices()" id="btn-start-all">🚀 一键启动全部</button>
     <button class="btn" style="background:#991b1b;color:#fff" onclick="stopAllServices()" id="btn-stop-all">⏹ 一键停止全部</button>
     <button class="btn btn-ghost" onclick="refreshServices()">🔄 刷新状态</button>
     <span style="font-size:12px;color:var(--text3)" id="svc-op-status"></span>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <span id="watchdog-indicator" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--bg);border:1px solid var(--text3)">🐕 Watchdog: 检测中</span>
+      <button class="btn btn-ghost" style="font-size:11px;padding:2px 8px" onclick="toggleWatchdog()" id="btn-watchdog">启动</button>
+    </div>
   </div>
   <div class="svc-layout" id="svc-layout"></div>
 </div>
@@ -309,12 +307,39 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
         <span style="background:#052e16;color:var(--green);padding:4px 10px;border-radius:6px">下次路由优化</span>
       </div>
     </div>
+    <div class="metrics-card" style="grid-column:1/-1">
+      <div class="metrics-card-title">
+        <span>🧠 自学习闭环 (原生 Memory 闭环)</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px">
+        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
+          <div style="font-size:20px;font-weight:700;color:var(--green)" id="learn-feedback-count">0</div>
+          <div style="font-size:11px;color:var(--text3)">反馈记录</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
+          <div style="font-size:20px;font-weight:700;color:var(--blue)" id="learn-rule-count">0</div>
+          <div style="font-size:11px;color:var(--text3)">路由规则</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
+          <div style="font-size:20px;font-weight:700;color:var(--purple)" id="learn-pattern-discoveries">0</div>
+          <div style="font-size:11px;color:var(--text3)">模式发现</div>
+        </div>
+        <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--border);text-align:center">
+          <div style="font-size:20px;font-weight:700;color:var(--cyan)" id="learn-rule-prunes">0</div>
+          <div style="font-size:11px;color:var(--text3)">规则修剪</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.8">
+        <div>闭环流程: <b>请求</b> → 路由(读Memory) → <b>执行</b> → <b>反馈</b>(写Memory) → <b>规则进化</b> → 下次路由优化</div>
+        <div style="margin-top:4px">学习机制: 失败→规则进化 | 成功→模式发现 | 高延迟→延迟感知 | 延迟差距→规则修剪</div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="tab-content" id="tab-logs">
   <div class="logs-layout">
     <div class="logs-toolbar">
-      <select id="log-filter-svc"><option value="">全部服务</option><option value="hermes">Hermes</option><option value="bridge">Bridge</option><option value="gateway">Gateway</option><option value="official">OfficialGW</option><option value="ollama">Ollama</option></select>
+      <select id="log-filter-svc"><option value="">全部服务</option><option value="hermes">Hermes</option><option value="official">OfficialGW</option><option value="ollama">Ollama</option></select>
       <select id="log-filter-level"><option value="">全部级别</option><option value="info">INFO</option><option value="ok">OK</option><option value="warn">WARN</option><option value="err">ERROR</option></select>
       <input type="text" id="log-search" placeholder="搜索日志..." style="flex:1">
       <button class="btn btn-ghost btn-sm" onclick="clearLogs()">清空</button>
@@ -325,12 +350,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   </div>
 </div>
 <script>
-const H='http://localhost:8082',B='http://localhost:3001',GW='http://localhost:3000',OGW='http://localhost:3005',OLL='http://localhost:11434';
+const H='http://localhost:8082',OGW='http://localhost:3005',OLL='http://localhost:11434';
 let dc=0;const AR=[],RC={},LH=[],SH=[],LOGS=[];const MAX_LOGS=2000;
-let svcStatus={hermes:false,bridge:false,gateway:false,official:false,ollama:false};
+let svcStatus={hermes:false,official:false,ollama:false};
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function ts(){return new Date().toLocaleTimeString('zh-CN',{hour12:false})}
+
+function showToast(msg){
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;top:20px;right:20px;background:var(--card);color:var(--text);padding:12px 20px;border-radius:8px;border:1px solid var(--border);z-index:9999;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.3)';
+  el.textContent=msg;document.body.appendChild(el);
+  setTimeout(()=>el.remove(),3000);
+}
 function log(level,msg,svc){const e={time:ts(),level,svc:svc||'system',msg};LOGS.push(e);if(LOGS.length>MAX_LOGS)LOGS.shift();renderPipelineLog(e);renderLogEntry(e)}
 
 function renderPipelineLog(e){
@@ -381,31 +413,46 @@ function renderCard(data){
   const strat=extractStrat(data.agent_trace),sc=getStratCls(strat.name);
   const isOk=data.status==='success',result=data.result||{};
   const mt=result.model_type||'unknown',mTag=mt==='local'?'tag-local':'tag-cloud';
-  let h='<div class="dispatch-card"><div class="dc-header" onclick="toggleCard(\''+data.request_id+'\')"><div class="dc-left">';
-  h+='<span class="dc-id">#'+(data.request_id||'?').slice(0,8)+'</span>';
+  const rid=data.request_id||'?';
+  let h='<div class="dispatch-card"><div class="dc-header" onclick="toggleCard(\''+rid+'\')"><div class="dc-left">';
+  h+='<span class="dc-id">#'+rid.slice(0,8)+'</span>';
   h+='<span class="dc-strategy '+sc+'">'+strat.name.replace('adaptive_','')+'</span>';
   h+='<span class="tag '+mTag+'">'+mt+'</span>';
   if(data.is_hermes&&data.hermes_routing){
     const hr=data.hermes_routing;
-    const pi=hr.route_path==='agent_chain'?'\u{1F916}':hr.route_path==='gateway'?'\u{1F309}':hr.route_path==='direct_local'?'\u{1F3E0}':'\u2601';
-    const scoreDisplay=hr.complexity_score!=null?hr.complexity_score:'Bridge';
+    const pi=hr.route_path==='agent_chain'?'\u{1F916}':hr.route_path==='gateway'?'\u{1F309}':hr.route_path==='direct_local'?'\u{1F3E0}':hr.route_path==='multimodal'?'\u{1F4F7}':hr.route_path==='local_inference'?'\u{1F512}':'\u2601';
+    const scoreDisplay=hr.complexity_score!=null?hr.complexity_score:'N/A';
     h+='<span class="tag" style="background:#0c2d48;color:var(--cyan)">\u{1F9E0} '+scoreDisplay+'/'+(hr.threshold||40)+' \u2192 '+pi+' '+hr.route_path+'</span>';
   }
   if(result.routed_via_gateway)h+='<span class="tag" style="background:#312e81;color:var(--purple)">\u{1F309} GW</span>';
   if(data.is_agent_chain)h+='<span class="tag" style="background:#4c1d95;color:var(--purple)">\u{1F916} Agent</span>';
+  // OfficialGW link for gateway-routed requests
+  if(data.hermes_routing&&data.hermes_routing.route_path==='gateway'){
+    h+='<a href="'+OGW+'/" target="_blank" class="tag" style="background:#1e3a5f;color:var(--blue);cursor:pointer;text-decoration:none" title="打开OpenClaw官方Gateway查看请求详情">\u{1F517} OfficialGW</a>';
+  }
   h+='<span class="dc-model">'+(result.model_name||'-')+'</span></div><div class="dc-right">';
   if(data.total_latency_ms)h+='<span class="dc-latency">'+data.total_latency_ms+'ms</span>';
   h+='<span class="dc-status '+(isOk?'success':'failed')+'">'+(isOk?'\u2713 成功':'\u2717 失败')+'</span></div></div>';
-  h+='<div class="dc-body" id="dc-body-'+data.request_id+'">';
-  h+='<div class="dc-input"><div class="di-label">\u{1F4E5} 输入</div><div class="di-text"><span class="tag '+mTag+'">'+data.appid+'</span> <span class="tag" style="background:var(--border2);color:var(--text2)">'+(data.type||'chat')+'</span> <span class="tag" style="background:var(--border2);color:var(--text2)">P'+(data.priority||3)+'</span><br>'+esc(data.prompt||'')+'</div></div>';
+  h+='<div class="dc-body" id="dc-body-'+rid+'">';
+  // Input JSON (full traceability)
+  h+='<div class="dc-input"><div class="di-label">\u{1F4E5} 输入 JSON</div><div class="di-text" style="font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:150px;overflow-y:auto">'+esc(JSON.stringify(data._input_json||{appid:data.appid,type:data.type,priority:data.priority,prompt:data.prompt},null,2))+'</div></div>';
   if(isOk&&result.output)h+='<div class="dc-output"><div class="do-label">\u{1F4E4} 输出 <span style="color:var(--text3);font-weight:400">('+(result.usage&&result.usage.total_tokens||'?')+' tokens, '+(result.latency_ms||'?')+'ms)</span></div><div class="do-text">'+esc(result.output)+'</div></div>';
+  // Output JSON (full traceability)
+  if(data._output_json){
+    h+='<div style="margin-top:6px"><div class="di-label">\u{1F4E4} 输出 JSON</div><div class="di-text" style="font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:150px;overflow-y:auto">'+esc(JSON.stringify(data._output_json,null,2))+'</div></div>';
+  }
   if(data.is_hermes&&data.hermes_routing){
     const hr=data.hermes_routing;
     const hasScore=hr.complexity_score!=null;
     const cc=hasScore&&hr.complexity_score>=(hr.threshold||40)?'var(--red)':'var(--green)';
-    const pn={gateway:'\u{1F309} Gateway',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理'};
-    const scoreLine=hasScore?'<b>复杂度:</b> <span style="color:'+cc+';font-weight:700">'+hr.complexity_score+'</span> / '+(hr.threshold||40):'<b>路由:</b> Bridge native';
-    h+='<div style="margin-top:8px"><div class="di-label">\u{1F9E0} 路由决策</div><div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #0e7490"><div style="margin-bottom:4px">'+scoreLine+' \u2192 <b>'+(pn[hr.route_path]||hr.route_path)+'</b></div><div style="margin-bottom:4px"><b>模型:</b> '+(hr.selected_model||'-')+'</div><div><b>原因:</b> '+esc(hr.reason||'')+'</div></div></div>';
+    const pn={gateway:'\u{1F309} OfficialGW',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理',multimodal:'\u{1F4F7} 多模态'};
+    const scoreLine=hasScore?'<b>复杂度:</b> <span style="color:'+cc+';font-weight:700">'+hr.complexity_score+'</span> / '+(hr.threshold||40):'<b>路由:</b> Hermes Agent';
+    h+='<div style="margin-top:8px"><div class="di-label">\u{1F9E0} 路由决策</div><div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #0e7490"><div style="margin-bottom:4px">'+scoreLine+' \u2192 <b>'+(pn[hr.route_path]||hr.route_path)+'</b></div><div style="margin-bottom:4px"><b>模型:</b> '+(hr.selected_model||'-')+'</div><div><b>原因:</b> '+esc(hr.reason||'')+'</div>';
+    // OfficialGW link button for gateway route
+    if(hr.route_path==='gateway'){
+      h+='<div style="margin-top:6px"><a href="'+OGW+'/" target="_blank" style="color:var(--blue);font-size:11px;text-decoration:none;padding:3px 8px;border:1px solid var(--blue);border-radius:4px">\u{1F517} 打开 OpenClaw 官方 Gateway</a>'+(data.ogw_request_id?' <span style="color:var(--cyan);font-size:10px;padding:3px 6px;border:1px solid var(--cyan);border-radius:4px;margin-left:4px">\u{1F4CB} '+data.ogw_request_id+'</span>':'')+'</div>';
+    }
+    h+='</div></div>';
   }
   if(data.agent_trace&&data.agent_trace.length>0){
     h+='<div style="margin-top:8px"><div class="di-label">\u{1F517} 调度链路</div><div class="trace-timeline">';
@@ -435,13 +482,20 @@ async function sendQueueRequest(body,label){
     log(isOk?'ok':'err','['+rid+'] '+(isOk?'\u2713':'\u2717')+' Queue: path='+(routing.route_path||'-')+', model='+(routing.selected_model||'-')+', latency='+(data.total_latency_ms||elapsed)+'ms','hermes');
     if(routing.route_path)RC[routing.route_path]=(RC[routing.route_path]||0)+1;
     LH.push({value:elapsed,label:'#'+dc});SH.push({rate:isOk?100:0});
+    // Extract OGW request_id from openclaw_metadata if gateway route
+    let ogwRequestId=null;
+    if(routing.route_path==='gateway'&&result.output){
+      try{const om=data.result&&data.result._raw_openclaw_metadata;if(om&&om.request_id)ogwRequestId=om.request_id}catch{}
+    }
     const cardData={
       request_id:data.request_id||rid,appid:body.appid||'q-test',status:isOk?'success':'failed',
       result:{model_name:result.model_name||'-',model_type:result.model_type||'unknown',output:result.output||'',latency_ms:result.latency_ms||elapsed,cost:result.cost,usage:result.usage,routed_via_gateway:result.routed_via_gateway||false,actual_model:result.actual_model||null,finish_reason:result.finish_reason||'stop'},
       agent_trace:data.agent_trace||[],prompt:body.prompt,type:body.type,priority:body.priority,
-      total_latency_ms:elapsed,strategy_name:routing.route_path||'-',is_bridge:true,
+      total_latency_ms:elapsed,strategy_name:routing.route_path||'-',is_bridge:false,
       is_agent_chain:routing.route_path==='agent_chain',is_hermes:true,
-      hermes_routing:{route_path:routing.route_path,complexity_score:routing.complexity_score,threshold:40,selected_model:routing.selected_model,reason:routing.reason}
+      hermes_routing:{route_path:routing.route_path,complexity_score:routing.complexity_score,threshold:40,selected_model:routing.selected_model,reason:routing.reason},
+      _input_json:body,_output_json:isOk?{model_name:result.model_name,model_type:result.model_type,output:result.output?.slice(0,200),latency_ms:result.latency_ms||elapsed,finish_reason:result.finish_reason||'stop',routed_via:result.routed_via_gateway?'gateway':'local'}:null,
+      ogw_request_id:ogwRequestId,
     };
     AR.push(cardData);ph.outerHTML=renderCard(cardData);
   }catch(e){
@@ -451,70 +505,39 @@ async function sendQueueRequest(body,label){
   refreshPipeline();updateCharts();
 }
 
-async function sendBridgeRequest(body,label){
-  dc++;const rid='br-'+dc;
-  log('info','['+rid+'] \u2192 Bridge: type='+body.type+', prompt="'+body.prompt.slice(0,50)+'..."','bridge');
-  const eh=document.getElementById('empty-hint');if(eh)eh.remove();
-  const area=document.getElementById('results-area');
-  const ph=document.createElement('div');ph.className='dispatch-card';ph.id=rid;
-  ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-strategy cloud">\u{1F309} '+label+'</span><span class="dc-model" style="color:var(--purple)"><span class="spinner"></span> Bridge调度中...</span></div><div class="dc-right"><span class="dc-status running">\u23F3 运行中</span></div></div>';
-  area.insertBefore(ph,area.firstChild);
-  const st=Date.now();
-  try{
-    const res=await fetch(H+'/proxy/bridge/dispatch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const data=await res.json();const elapsed=Date.now()-st;
-    const isOk=data.status==='success',result=data.result||{};
-    // Bridge response: hermes_routing (if Hermes-routed) or routing_decision (Bridge native)
-    const hermesR=data.hermes_routing||null;
-    const bridgeR=data.routing_decision||{};
-    const routePath=hermesR?hermesR.route_path:(bridgeR.agent_type==='local'?'direct_local':bridgeR.agent_type==='cloud'?'gateway':'unknown');
-    const strategyName=data.strategy_name||data.routing_source||'-';
-    log(isOk?'ok':'err','['+rid+'] '+(isOk?'\u2713':'\u2717')+' Bridge: path='+routePath+', model='+(result.model_name||'-')+', strategy='+strategyName+', latency='+elapsed+'ms','bridge');
-    if(routePath)RC[routePath]=(RC[routePath]||0)+1;
-    LH.push({value:elapsed,label:'#'+dc});SH.push({rate:isOk?100:0});
-    const cardData={
-      request_id:data.request_id||rid,appid:body.appid||'br-test',status:isOk?'success':'failed',
-      result:{model_name:result.model_name||'-',model_type:result.model_type||'unknown',output:result.output||'',latency_ms:result.latency_ms||elapsed,cost:result.cost,usage:result.usage,routed_via_gateway:result.routed_via_gateway||false,actual_model:result.actual_model||null,finish_reason:result.finish_reason||'stop'},
-      agent_trace:data.agent_trace||[],prompt:body.prompt,type:body.type,priority:body.priority,
-      total_latency_ms:elapsed,strategy_name:strategyName,is_bridge:true,
-      is_agent_chain:routePath==='agent_chain',is_hermes:!!hermesR,
-      hermes_routing:hermesR?{route_path:hermesR.route_path,complexity_score:hermesR.complexity_score,threshold:hermesR.threshold||40,selected_model:hermesR.selected_model,reason:hermesR.reason}:{route_path:routePath,complexity_score:null,threshold:40,selected_model:result.model_name,reason:'Bridge native: '+strategyName}
-    };
-    AR.push(cardData);ph.outerHTML=renderCard(cardData);
-  }catch(e){
-    log('err','['+rid+'] \u2717 Bridge失败: '+e.message,'bridge');
-    ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-model" style="color:var(--red)">失败: '+e.message+'</span></div><div class="dc-right"><span class="dc-status failed">\u2717 失败</span></div></div>';
-  }
-  refreshPipeline();updateCharts();
-}
-
 function sendRequest(){
   const body={appid:document.getElementById('req-appid').value,type:document.getElementById('req-type').value,priority:parseInt(document.getElementById('req-priority').value),prompt:document.getElementById('req-prompt').value,model:document.getElementById('req-model').value||undefined};
   const mode=document.getElementById('req-mode').value;
-  if(mode==='queue')sendQueueRequest(body,'Queue调度');else sendBridgeRequest(body,'Bridge调度');
+  if(mode==='queue')sendQueueRequest(body,'Queue调度');else sendQueueRequest(body,'Queue调度');
 }
 
 function sendBatch(scenario){
   const SCENARIOS={
     simple:[
-      {prompt:'你好，今天天气怎么样？',label:'💬 简单问候',expect:'direct_local'},
-      {prompt:'1+1等于几？',label:'💬 简单计算',expect:'direct_local'},
-      {prompt:'翻译：hello world',label:'💬 翻译请求',expect:'direct_local'},
-      {prompt:'什么是AI？',label:'💬 简单问答',expect:'direct_local'},
+      {prompt:'你好，今天天气怎么样？',label:'💬 单步问答-问候',expect:'direct_local'},
+      {prompt:'1+1等于几？',label:'💬 单步问答-计算',expect:'direct_local'},
+      {prompt:'翻译：hello world',label:'💬 单步问答-翻译',expect:'direct_local'},
+      {prompt:'什么是AI？',label:'💬 单步问答-知识',expect:'direct_local'},
+      {prompt:'请解释量子计算的基本原理',label:'💬 单步问答-解释',expect:'direct_local'},
     ],
     code:[
-      {prompt:'执行Python脚本计算斐波那契数列',label:'💻 代码执行',expect:'gateway',type:'code'},
-      {prompt:'写一个JavaScript函数实现快速排序',label:'💻 代码生成',expect:'gateway',type:'code'},
-      {prompt:'调试这段SQL查询语句的性能问题',label:'💻 SQL调试',expect:'gateway',type:'code'},
+      {prompt:'执行Python脚本计算斐波那契数列',label:'🔧 多步批处理-代码执行',expect:'gateway',type:'code'},
+      {prompt:'写一个JavaScript函数实现快速排序',label:'🔧 多步批处理-代码生成',expect:'gateway',type:'code'},
+      {prompt:'调试这段SQL查询语句的性能问题',label:'🔧 多步批处理-SQL调试',expect:'gateway',type:'code'},
+      {prompt:'请规划一个CI/CD部署流程',label:'🔧 多步批处理-部署规划',expect:'gateway'},
+      {prompt:'使用Volcano调度分布式训练任务',label:'🔧 多步批处理-Volcano',expect:'gateway'},
     ],
-    agent:[
-      {prompt:'请设计一个完整的用户认证系统架构方案',label:'🤖 架构设计',expect:'gateway'},
-      {prompt:'设计一个分布式微服务架构系统',label:'🤖 分布式设计',expect:'gateway'},
-      {prompt:'请制定一个市场调研方案并分析竞品',label:'🤖 多步规划',expect:'gateway'},
+    multimodal:[
+      {prompt:'请分析这张图片中的文字内容',label:'🖼️ 多模态-图片OCR',expect:'multimodal',attachments:[{type:'image_url',url:'https://example.com/ocr-test.png'}]},
+      {prompt:'描述这张照片中的场景',label:'🖼️ 多模态-图片描述',expect:'multimodal',attachments:[{type:'image_url',url:'https://example.com/scene.jpg'}]},
+      {prompt:'识别图片中的物体并分类',label:'🖼️ 多模态-视觉识别',expect:'multimodal',attachments:[{type:'image_url',url:'https://example.com/objects.jpg'}]},
+      {prompt:'将这段音频转换为文字',label:'🖼️ 多模态-语音识别',expect:'multimodal',attachments:[{type:'audio_url',url:'https://example.com/audio.mp3'}]},
+      {prompt:'分析视频中的关键帧',label:'🖼️ 多模态-视频分析',expect:'multimodal',attachments:[{type:'video_url',url:'https://example.com/video.mp4'}]},
     ],
     privacy:[
-      {prompt:'分析这份内部财务数据',label:'🔒 隐私数据',expect:'local_inference',constraints:{require_local:true}},
-      {prompt:'处理用户个人信息并脱敏',label:'🔒 脱敏处理',expect:'local_inference',constraints:{require_local:true}},
+      {prompt:'分析这份内部财务数据',label:'🔒 隐私-财务数据',expect:'local_inference',constraints:{require_local:true}},
+      {prompt:'处理用户个人信息并脱敏',label:'🔒 隐私-脱敏处理',expect:'local_inference',constraints:{require_local:true}},
+      {prompt:'分析医疗影像诊断报告',label:'🔒 隐私-医疗数据',expect:'local_inference',constraints:{require_local:true}},
     ],
   };
   let items=[];
@@ -529,6 +552,7 @@ function sendBatch(scenario){
     setTimeout(()=>{
       const body={appid:'batch-test',type:item.type||'chat',priority:3,prompt:item.prompt};
       if(item.constraints)body.constraints=item.constraints;
+      if(item.attachments)body.attachments=item.attachments;
       sendQueueRequest(body,item.label);
     },i*2000);
   });
@@ -554,12 +578,10 @@ function clearResults(){
 async function refreshPipeline(){
   try{const r=await fetch(H+'/queue/status');const d=await r.json();const q=d.queue_backend||{},w=d.worker||{};setBadge('pf-q','ok');setMetric('pf-q',q.size||0);document.getElementById('pf-q-backend').textContent=q.backend||'-';document.getElementById('pf-q-worker').textContent=w.running?'运行中':'停止';document.getElementById('pf-q-req').textContent=q.requests_size||q.size||0;document.getElementById('pf-q-res').textContent=q.results_size||0;document.getElementById('pf-q-proc').textContent=w.total_processed||0}catch{setBadge('pf-q','err');setMetric('pf-q','-')}
   try{const r=await fetch(H+'/health');const d=await r.json();setBadge('pf-hm','ok');setMetric('pf-hm',d.skills_count||d.learning_iterations||0);document.getElementById('pf-hm-mode').textContent=d.learning_iterations>0?'Agent模式':'规则模式';document.getElementById('pf-hm-threshold').textContent=d.complexity_threshold||'-';document.getElementById('pf-hm-exploration').textContent=d.exploration_rate?(d.exploration_rate*100).toFixed(1)+'%':'-';document.getElementById('pf-hm-memory').textContent=d.memory_records||0;document.getElementById('pf-hm-skills').textContent=d.skills_count||0}catch{setBadge('pf-hm','err');setMetric('pf-hm','-')}
-  try{const r=await fetch(H+'/proxy/bridge/health');const d=await r.json();setBadge('pf-br','ok');setMetric('pf-br',d.total_endpoints||0);document.getElementById('pf-br-strategy').textContent=d.default_route_mode||d.route_mode||'-';document.getElementById('pf-br-local').textContent=d.local_models||'-';document.getElementById('pf-br-cloud').textContent=d.cloud_models||'-';document.getElementById('pf-br-gwr').textContent=d.gateway_routing?'启用':'禁用'}catch{setBadge('pf-br','err');setMetric('pf-br','-')}
-  let gwOk=false,ogwOk=false,ollOk=false;
-  try{const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});const d=await r.json();gwOk=d.gateway&&d.gateway.healthy||false;ogwOk=d.officialGateway&&d.officialGateway.healthy||false;ollOk=d.ollama&&d.ollama.healthy||false}catch{}
-  setBadge('pf-ex',gwOk||ogwOk||ollOk?'ok':'err');
-  setMetric('pf-ex',[gwOk?'GW':'',ogwOk?'OGW':'',ollOk?'Oll':''].filter(Boolean).join('/')||'-');
-  document.getElementById('pf-ex-gw').textContent=gwOk?'\u2713 运行':'\u2717 停止';
+  let ogwOk=false,ollOk=false;
+  try{const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});const d=await r.json();ogwOk=d.officialGateway&&d.officialGateway.healthy||false;ollOk=d.ollama&&d.ollama.healthy||false}catch{}
+  setBadge('pf-ex',ogwOk||ollOk?'ok':'err');
+  setMetric('pf-ex',[ogwOk?'OGW':'',ollOk?'Oll':''].filter(Boolean).join('/')||'-');
   document.getElementById('pf-ex-ogw').textContent=ogwOk?'\u2713 运行':'\u2717 停止';
   document.getElementById('pf-ex-ollama').textContent=ollOk?'\u2713 运行':'\u2717 停止';
   try{const r=await fetch(H+'/stats');const d=await r.json();const req=d.requests||{};setBadge('pf-rt',req.total>0?'ok':'idle');setMetric('pf-rt',req.success_rate?Math.round(req.success_rate*100)+'%':'-');document.getElementById('pf-rt-srate').textContent=req.success_rate?Math.round(req.success_rate*10000)/100+'%':'-'}catch{setBadge('pf-rt','err');setMetric('pf-rt','-')}
@@ -572,10 +594,8 @@ function setMetric(prefix,val){const m=document.getElementById(prefix+'-metric')
 
 const SVC_DEFS=[
   {id:'hermes',name:'Hermes 路由器',icon:'\u{1F9E0}',url:H+'/health',port:8082,startSvc:null,stopSvc:null},
-  {id:'bridge',name:'Bridge 调度器',icon:'\u{1F309}',url:B+'/health',port:3001,startSvc:'bridge',stopSvc:'bridge'},
-  {id:'gateway',name:'OpenClaw Gateway',icon:'\u26A1',url:GW+'/health',port:3000,startSvc:'gateway',stopSvc:'gateway'},
   {id:'official',name:'Official Gateway',icon:'\u{1F3E2}',url:OGW+'/health',port:3005,startSvc:'officialGateway',stopSvc:'officialGateway'},
-  {id:'ollama',name:'Ollama 本地推理',icon:'\u{1F999}',url:OLL+'/api/tags',port:11434,startSvc:null,stopSvc:null},
+  {id:'ollama',name:'Ollama 本地推理',icon:'\u{1F999}',url:OLL+'/api/tags',port:11434,startSvc:'ollama',stopSvc:'ollama'},
 ];
 
 async function refreshServices(){
@@ -607,16 +627,11 @@ async function refreshServices(){
       html+='<div class="svc-row"><span class="svc-key">探索率</span><span class="svc-val">'+(info.exploration_rate?(info.exploration_rate*100).toFixed(1)+'%':'-')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">记忆记录</span><span class="svc-val">'+(info.memory_records||0)+'</span></div>';
     }
-    if(svc.id==='bridge'&&healthy){
-      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.default_route_mode||info.route_mode||'-')+'</span></div>';
+    if(svc.id==='official'&&healthy){      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.default_route_mode||info.route_mode||'-')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">本地模型</span><span class="svc-val">'+(info.local_models||0)+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">云端模型</span><span class="svc-val">'+(info.cloud_models||0)+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">Agent灵魂</span><span class="svc-val">'+(info.agent_souls||0)+'</span></div>';
-    }
-    if(svc.id==='gateway'&&healthy){
-      html+='<div class="svc-row"><span class="svc-key">模型数</span><span class="svc-val">'+(info.models_registered||0)+'</span></div>';
-      html+='<div class="svc-row"><span class="svc-key">Agent数</span><span class="svc-val">'+(info.agents_registered||0)+'</span></div>';
-      html+='<div class="svc-row"><span class="svc-key">总请求</span><span class="svc-val">'+(info.stats&&info.stats.total||0)+'</span></div>';
+      html+='<div class="svc-row"><span class="svc-key">请求历史</span><span class="svc-val"><a href="'+OGW+'/" target="_blank" style="color:var(--blue);text-decoration:none">\u{1F517} 打开 OpenClaw Gateway</a></span></div>';
     }
     if(svc.id==='ollama'&&healthy){
       const models=info.models||[];
@@ -689,8 +704,8 @@ async function refreshMemory(){
     const fbEl=document.getElementById('mem-feedback-history');
     if(feedbacks.length===0){fbEl.innerHTML='<div style="color:var(--text3)">暂无反馈记录</div>'}
     else{
-      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)'};
-      const routeIcons={direct_local:'🏠',gateway:'🌉',agent_chain:'🤖',local_inference:'🔒'};
+      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)',multimodal:'var(--orange)'};
+      const routeIcons={direct_local:'🏠',gateway:'🌉',agent_chain:'🤖',local_inference:'🔒',multimodal:'🖼️'};
       fbEl.innerHTML=feedbacks.map(fb=>{
         const path=fb.route_path||'?';
         const ok=fb.success!==false;
@@ -724,7 +739,7 @@ async function refreshMemory(){
       sections.patterns=lines;
       document.getElementById('mem-rule-count').textContent=lines.length;
       const rulesEl=document.getElementById('mem-routing-rules');
-      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)'};
+      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)',multimodal:'var(--orange)'};
       rulesEl.innerHTML=lines.map(l=>{
         const m=l.match(/^- (.+?)\s*\[(.+?)\]\s*→\s*(\w+)/);
         if(m){
@@ -758,7 +773,7 @@ async function refreshMemory(){
     if(latencyMatch){
       const lines=latencyMatch[1].trim().split('\n').filter(l=>l.startsWith('-'));
       const latEl=document.getElementById('mem-latency-stats');
-      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)'};
+      const routeColors={direct_local:'var(--green)',gateway:'var(--blue)',agent_chain:'var(--purple)',local_inference:'var(--cyan)',multimodal:'var(--orange)'};
       latEl.innerHTML=lines.map(l=>{
         const m=l.match(/^- (\w+): avg=(\d+)ms, p95=(\d+)ms, samples=(\d+)/);
         if(m){
@@ -789,6 +804,16 @@ async function refreshMemory(){
     const evolveCount=feedbacks.filter(f=>f.success===false).length;
     document.getElementById('mem-evolve-count').textContent=evolveCount;
 
+    // Native self-learning metrics (from MEMORY.md)
+    document.getElementById('learn-feedback-count').textContent=feedbacks.length;
+    document.getElementById('learn-rule-count').textContent=sections.patterns.length;
+    // Pattern discoveries = feedback successes (each success may discover a new pattern)
+    const patternCount=feedbacks.filter(f=>f.success!==false).length;
+    document.getElementById('learn-pattern-discoveries').textContent=patternCount;
+    // Rule prunes = key rules mentioning latency gap
+    const pruneCount=(sections.keyRules||[]).filter(l=>l.includes('延迟')&&l.includes('优先')).length;
+    document.getElementById('learn-rule-prunes').textContent=pruneCount;
+
   }catch(e){
     document.getElementById('mem-latency-stats').innerHTML='<div style="color:var(--red)">加载失败: '+e.message+'</div>';
     document.getElementById('mem-routing-rules').innerHTML='<div style="color:var(--red)">加载失败</div>';
@@ -804,8 +829,8 @@ async function refreshMetrics(){
 function renderRouteDist(){
   const total=Object.values(RC).reduce((s,v)=>s+v,0);const el=document.getElementById('route-dist');
   if(!el||total===0)return;
-  const colors={gateway:'var(--blue)',agent_chain:'var(--purple)',direct_local:'var(--green)',local_inference:'var(--cyan)'};
-  const labels={gateway:'\u{1F309} Gateway',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理'};
+  const colors={gateway:'var(--blue)',agent_chain:'var(--purple)',direct_local:'var(--green)',local_inference:'var(--cyan)',multimodal:'var(--orange)'};
+  const labels={gateway:'\u{1F309} OfficialGW',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理',multimodal:'\u{1F4F7} 多模态'};
   let html='';
   for(const[k,v]of Object.entries(RC)){const pct=Math.round(v/total*100);html+='<div class="route-bar"><span class="rb-label">'+(labels[k]||k)+'</span><div class="rb-track"><div class="rb-fill" style="width:'+pct+'%;background:'+(colors[k]||'var(--border2)')+'">'+pct+'%</div></div><span style="font-size:11px;color:var(--text3)">'+v+'</span></div>'}
   el.innerHTML=html;
@@ -854,23 +879,88 @@ function refilterLogs(){
 async function init(){
   updateClock();setInterval(updateClock,1000);
   log('info','OpenClaw 调度监控中心已启动','system');
-  async function checkAllViaProxy(){
+
+  // Watchdog state
+  let watchdogEnabled=false;
+
+  // Fetch and update watchdog status from backend
+  async function updateWatchdogUI(){
+    try{
+      const r=await fetch(H+'/watchdog/status',{signal:AbortSignal.timeout(3000)});
+      const d=await r.json();
+      watchdogEnabled=d.running;
+      const ind=document.getElementById('watchdog-indicator');
+      const btn=document.getElementById('btn-watchdog');
+      if(watchdogEnabled){
+        ind.textContent='\u{1F415} Watchdog: \u2713 运行中 ('+d.config.interval_seconds+'s)';
+        ind.style.borderColor='var(--green)';ind.style.color='var(--green)';
+        btn.textContent='停止';
+      }else{
+        ind.textContent='\u{1F415} Watchdog: \u2717 已停止';
+        ind.style.borderColor='var(--red)';ind.style.color='var(--red)';
+        btn.textContent='启动';
+      }
+      // Show restart history if any
+      const hist=d.restart_history||{};
+      for(const [svc,h] of Object.entries(hist)){
+        if(h.attempts>0)log('warn','Watchdog: '+svc+' 已自动重启 '+h.attempts+' 次','system');
+      }
+    }catch{
+      const ind=document.getElementById('watchdog-indicator');
+      if(ind){ind.textContent='\u{1F415} Watchdog: 未知';ind.style.borderColor='var(--yellow)';ind.style.color='var(--yellow)'}
+    }
+  }
+
+  // Toggle watchdog on/off
+  window.toggleWatchdog=async function(){
+    try{
+      const endpoint=watchdogEnabled?'/watchdog/stop':'/watchdog/start';
+      const r=await fetch(H+endpoint,{method:'POST',signal:AbortSignal.timeout(3000)});
+      const d=await r.json();
+      log('info','Watchdog: '+(watchdogEnabled?'已停止':'已启动'),'system');
+      await updateWatchdogUI();
+    }catch(e){
+      log('err','Watchdog 操作失败: '+e.message,'system');
+    }
+  };
+
+  // Frontend auto-restart: detect down services and restart them
+  let autoRestartEnabled=true;
+  let lastRestartAttempt={};
+
+  async function checkAndAutoRestart(){
     try{
       const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});
       const data=await r.json();
       svcStatus['hermes']=data.hermes&&data.hermes.healthy;
-      svcStatus['bridge']=data.bridge&&data.bridge.healthy;
-      svcStatus['gateway']=data.gateway&&data.gateway.healthy;
       svcStatus['official']=data.officialGateway&&data.officialGateway.healthy;
       svcStatus['ollama']=data.ollama&&data.ollama.healthy;
+
+      // Frontend auto-restart for down services (complements backend watchdog)
+      if(autoRestartEnabled){
+        const now=Date.now();
+        const cooldown=60000; // 60s between restart attempts
+        if(!svcStatus['official']&&(now-(lastRestartAttempt['official']||0))>cooldown){
+          log('warn','\u{1F415} OfficialGW 已停止，尝试自动重启...','system');
+          lastRestartAttempt['official']=now;
+          await startService('officialGateway');
+        }
+        if(!svcStatus['ollama']&&(now-(lastRestartAttempt['ollama']||0))>cooldown){
+          log('warn','\u{1F415} Ollama 已停止，尝试自动重启...','system');
+          lastRestartAttempt['ollama']=now;
+          await startService('ollama');
+        }
+      }
     }catch{
-      svcStatus['hermes']=true;svcStatus['bridge']=false;svcStatus['gateway']=false;svcStatus['official']=false;svcStatus['ollama']=false;
+      svcStatus['hermes']=true;svcStatus['official']=false;svcStatus['ollama']=false;
     }
     updateTopbarDots();
   }
-  await checkAllViaProxy();refreshPipeline();
-  setInterval(checkAllViaProxy,10000);
+
+  await checkAndAutoRestart();refreshPipeline();updateWatchdogUI();
+  setInterval(checkAndAutoRestart,15000);
   setInterval(refreshPipeline,5000);
+  setInterval(updateWatchdogUI,30000);
 }
 init();
 </script>

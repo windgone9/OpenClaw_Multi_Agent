@@ -1,37 +1,34 @@
 """
-Hermes Dispatch Worker — Queue-driven model scheduling with Hermes Agent routing.
+Hermes Dispatch Worker — Queue-driven request dispatch with Hermes Agent routing.
 
-Architecture:
-  Frontend → [Request Queue] → DispatchWorker → Hermes Router → Gateway/Agent Chain → [Result Queue] → Frontend
-                                       ↓                                                              ↓
-                                  Feedback Queue ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
+Architecture (simplified, no Bridge/Gateway middle layer):
+  [Request Queue] → DispatchWorker → Hermes Agent 路由决策
+                                      ├─ direct_local    → Ollama/vLLM 直连 (单步问答, 低延迟)
+                                      ├─ gateway         → OfficialGW 直连 (多步批处理/Volcano/Agent)
+                                      ├─ multimodal      → 本地多模态模型直连 (图片/音频/视频)
+                                      └─ local_inference → Ollama/vLLM 直连 (隐私敏感, 本地执行)
+                   ← [Result Queue] ← 结果写入
+                   ← [Feedback Queue] ← 反馈 → MEMORY.md 自学习闭环
 
-The worker:
-1. Consumes JSON requests from the request queue
-2. Routes each request through Hermes Agent (Memory-driven intelligent routing)
-3. Dispatches to the appropriate downstream service:
-   - direct_local: Local Ollama model
-   - gateway: Bridge → Gateway → Model provider
-   - agent_chain: Bridge → Agent Chain → OpenClaw Official GW → Volcano
-   - local_inference: Local Ollama model (privacy-enforced)
-4. Pushes results to the result queue
-5. Records feedback for Memory evolution (closed-loop learning)
+调用路径清晰，结果可追溯:
+  - direct_local:    Hermes → Ollama(11434)
+  - gateway:         Hermes → OfficialGW(3005) → Agent → Volcano
+  - multimodal:      Hermes → 本地多模态模型(11434)
+  - local_inference: Hermes → Ollama(11434) (隐私约束)
 """
 
-import json
 import logging
 import os
 import threading
 import time
 import uuid
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict
 
 import httpx
 
 from hermes.message_queue import (
     MessageQueue,
-    InProcessQueue,
     QUEUE_REQUESTS,
     QUEUE_RESULTS,
     QUEUE_FEEDBACK,
@@ -40,20 +37,21 @@ from hermes.official_agent_adapter import OfficialHermesAdapter
 
 logger = logging.getLogger(__name__)
 
-# Downstream service configuration
-BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:3001")
-GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:3000")
+# Downstream service configuration (direct connection, no Bridge/Gateway middle layer)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OFFICIAL_GW_URL = os.getenv("OPENCLAW_OFFICIAL_GATEWAY_URL", "http://127.0.0.1:3005")
 
 # Timeouts
-BRIDGE_TIMEOUT = float(os.getenv("BRIDGE_TIMEOUT", "120.0"))
-GATEWAY_TIMEOUT = float(os.getenv("GATEWAY_TIMEOUT", "60.0"))
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60.0"))
+OFFICIAL_GW_TIMEOUT = float(os.getenv("OFFICIAL_GW_TIMEOUT", "120.0"))
+
+# Multimodal model configuration
+MULTIMODAL_MODEL = os.getenv("MULTIMODAL_MODEL", "llava:7b")
+LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5:3b")
 
 
 class DispatchWorker:
-    """Consumes requests from queue, routes via Hermes, dispatches, returns results."""
+    """Consumes requests from queue, routes via Hermes Agent, dispatches directly to downstream."""
 
     def __init__(
         self,
@@ -83,7 +81,6 @@ class DispatchWorker:
     # ── Lifecycle ────────────────────────────────────────────────────
 
     def start(self):
-        """Start worker threads."""
         if self._running:
             return
         self._running = True
@@ -98,7 +95,6 @@ class DispatchWorker:
         logger.info(f"DispatchWorker started with {self.max_workers} workers")
 
     def stop(self):
-        """Stop worker threads."""
         self._running = False
         for t in self._workers:
             t.join(timeout=5)
@@ -142,7 +138,7 @@ class DispatchWorker:
         }
 
         try:
-            # Step 1: Route via Hermes Agent
+            # Step 1: Route via Hermes Agent (Memory-driven intelligent routing)
             routing = self.adapter.route_via_agent(request)
             result["routing"] = {
                 "route_path": routing.get("route_path", "gateway"),
@@ -156,12 +152,12 @@ class DispatchWorker:
 
             route_path = routing["route_path"]
 
-            # Step 2: Dispatch to downstream service
+            # Step 2: Dispatch to downstream service (direct connection)
             dispatch_result = self._dispatch(request, routing)
             result["result"] = dispatch_result
             result["status"] = "success"
 
-            # Step 3: Record feedback (success)
+            # Step 3: Record feedback (success) → Memory self-learning
             latency_ms = int((time.time() - start_time) * 1000)
             self._record_feedback(
                 request_id, route_path, True, latency_ms,
@@ -199,46 +195,42 @@ class DispatchWorker:
         logger.info(f"[{request_id}] Done: status={result['status']}, "
                      f"route={route_path}, latency={result['total_latency_ms']}ms")
 
-    # ── Dispatch ─────────────────────────────────────────────────────
+    # ── Dispatch (Direct Connection) ─────────────────────────────────
 
     def _dispatch(self, request: Dict, routing: Dict) -> Dict:
-        """Dispatch request based on simplified routing.
+        """Dispatch request directly to downstream service based on routing decision.
 
-        Route mapping:
-          - direct_local / local_inference → Ollama/vLLM directly (low latency)
-          - gateway → Bridge → Gateway → OfficialGW (cloud/agent models)
-          - agent_chain → Bridge → Agent Chain → Official OpenClaw GW
-        Fallback: If Bridge is unavailable, gateway/agent_chain fall back to local model.
+        4-category routing (no Bridge/Gateway middle layer):
+          - direct_local    → Ollama/vLLM 直连 (单步问答, 低延迟)
+          - gateway         → OfficialGW 直连 (多步批处理/Volcano/Agent)
+          - multimodal      → 本地多模态模型直连 (图片/音频/视频)
+          - local_inference → Ollama/vLLM 直连 (隐私敏感, 本地执行)
         """
         route_path = routing["route_path"]
 
-        if route_path in ("direct_local", "local_inference"):
-            # Simple requests → local model directly
+        if route_path == "direct_local":
             return self._dispatch_to_local(request, routing)
-        elif route_path in ("gateway", "agent_chain"):
-            # Agent-related requests → Gateway → OfficialGW (cloud)
-            # Fallback to local model if Bridge is unavailable
-            try:
-                mode = "agent" if route_path == "agent_chain" else "gateway"
-                return self._dispatch_to_bridge(request, routing, mode=mode)
-            except Exception as e:
-                logger.warning(f"Bridge dispatch failed for {route_path}, falling back to local: {e}")
-                routing["route_path"] = "direct_local"
-                routing["reason"] = f"Fallback: Bridge unavailable ({str(e)[:50]})"
-                return self._dispatch_to_local(request, routing)
+        elif route_path == "gateway":
+            return self._dispatch_to_official_gw(request, routing)
+        elif route_path == "multimodal":
+            return self._dispatch_to_multimodal(request, routing)
+        elif route_path == "local_inference":
+            return self._dispatch_to_local(request, routing, privacy=True)
         else:
-            # Default: try bridge, fallback to local
-            try:
-                return self._dispatch_to_bridge(request, routing, mode="smart")
-            except Exception as e:
-                logger.warning(f"Bridge dispatch failed, falling back to local: {e}")
-                routing["route_path"] = "direct_local"
-                return self._dispatch_to_local(request, routing)
+            # Unknown route → fallback to local model
+            logger.warning(f"Unknown route_path '{route_path}', falling back to local")
+            routing["route_path"] = "direct_local"
+            return self._dispatch_to_local(request, routing)
 
-    def _dispatch_to_local(self, request: Dict, routing: Dict) -> Dict:
-        """Dispatch directly to local Ollama/vLLM (bypasses Bridge/Gateway for low latency)."""
+    def _dispatch_to_local(self, request: Dict, routing: Dict,
+                            privacy: bool = False) -> Dict:
+        """Dispatch directly to local Ollama/vLLM.
+
+        Args:
+            privacy: If True, this is a local_inference route (privacy-enforced).
+        """
         prompt = request.get("prompt", "")
-        model = os.getenv("LOCAL_MODEL", "qwen2.5:3b")
+        model = LOCAL_MODEL
 
         payload = {
             "model": model,
@@ -257,6 +249,7 @@ class DispatchWorker:
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         usage = data.get("usage", {})
 
+        route_tag = "hermes_local_inference" if privacy else "hermes_direct_local"
         return {
             "model_name": model,
             "model_type": "local",
@@ -264,49 +257,159 @@ class DispatchWorker:
             "latency_ms": elapsed_ms,
             "usage": usage,
             "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
-            "routed_via": "hermes_direct_local",
+            "routed_via": route_tag,
             "dispatch_latency_ms": elapsed_ms,
         }
 
-    def _dispatch_to_bridge(self, request: Dict, routing: Dict, mode: str = "smart") -> Dict:
-        """Dispatch to Bridge for Gateway/Agent Chain routing.
+    def _dispatch_to_official_gw(self, request: Dict, routing: Dict) -> Dict:
+        """Dispatch directly to OpenClaw Official Gateway.
 
-        Bridge handles:
-        - Gateway path: model resolution → provider API call
-        - Agent Chain path: Agent Soul → OpenClaw Official GW → Volcano scheduling
+        OfficialGW handles:
+        - Multi-step batch processing (Agent → Volcano scheduling)
+        - Code execution tasks
+        - Tool call / Agent chain tasks
         """
-        payload = dict(request)
-        payload["hermes_routing"] = {
-            "route_path": routing["route_path"],
-            "complexity_score": routing.get("complexity_score", 0),
-            "selected_model": routing.get("selected_model"),
-            "reason": routing.get("reason", ""),
+        prompt = request.get("prompt", "")
+        context = request.get("context", [])
+        messages = []
+        if context:
+            messages.extend(context)
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": "openclaw/default",
+            "messages": messages,
+            "max_tokens": 512,
         }
-        payload["route_mode"] = mode
+        if request.get("tools"):
+            payload["tools"] = request["tools"]
+            payload["tool_choice"] = request.get("tool_choice", "auto")
+
+        headers = {"Content-Type": "application/json"}
+        gw_token = os.getenv("OPENCLAW_TOKEN", "")
+        if gw_token:
+            headers["Authorization"] = f"Bearer {gw_token}"
 
         start = time.time()
-        with httpx.Client(timeout=BRIDGE_TIMEOUT) as client:
-            resp = client.post(f"{BRIDGE_URL}/dispatch", json=payload)
+        with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
+            resp = client.post(
+                f"{OFFICIAL_GW_URL}/v1/chat/completions",
+                headers=headers,
+                json=payload,
+            )
             resp.raise_for_status()
         elapsed_ms = int((time.time() - start) * 1000)
 
         data = resp.json()
+        choice = data.get("choices", [{}])[0]
+        content = choice.get("message", {}).get("content", "")
+        tool_calls = choice.get("message", {}).get("tool_calls")
+        usage = data.get("usage", {})
 
-        if data.get("status") == "success" and data.get("result"):
-            result = data["result"]
-            result["routed_via"] = f"hermes_bridge_{mode}"
-            result["dispatch_latency_ms"] = elapsed_ms
-            return result
-        else:
-            error_msg = data.get("error", {}).get("message", "Bridge dispatch failed") if data.get("error") else "Bridge dispatch failed"
-            raise RuntimeError(f"Bridge error: {error_msg}")
+        return {
+            "model_name": data.get("model", "openclaw/default"),
+            "model_type": "openclaw-agent",
+            "provider": "openclaw",
+            "output": content,
+            "tool_calls": tool_calls,
+            "latency_ms": elapsed_ms,
+            "usage": usage,
+            "finish_reason": choice.get("finish_reason", "stop"),
+            "routed_via": "hermes_official_gw",
+            "dispatch_latency_ms": elapsed_ms,
+        }
 
-    # ── Feedback ─────────────────────────────────────────────────────
+    def _dispatch_to_multimodal(self, request: Dict, routing: Dict) -> Dict:
+        """Dispatch to local multimodal model (image/audio/video processing).
+
+        Uses Ollama with a multimodal-capable model (e.g., llava).
+        Falls back to standard local model if multimodal model is unavailable.
+        """
+        prompt = request.get("prompt", "")
+        model = MULTIMODAL_MODEL
+
+        # Build messages with optional image content
+        messages = [{"role": "user", "content": prompt}]
+        # If request has attachments (images), add them to the message
+        attachments = request.get("attachments", [])
+        if attachments:
+            # Ollama multimodal format: content is an array of text + image parts
+            content_parts = [{"type": "text", "text": prompt}]
+            for att in attachments:
+                if att.get("type") == "image_url" or att.get("url"):
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": att.get("url", "")},
+                    })
+            messages = [{"role": "user", "content": content_parts}]
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"num_ctx": 4096, "temperature": 0.7},
+        }
+
+        start = time.time()
+        try:
+            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+                resp.raise_for_status()
+            elapsed_ms = int((time.time() - start) * 1000)
+
+            data = resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = data.get("usage", {})
+
+            return {
+                "model_name": model,
+                "model_type": "multimodal",
+                "output": content,
+                "latency_ms": elapsed_ms,
+                "usage": usage,
+                "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+                "routed_via": "hermes_multimodal",
+                "dispatch_latency_ms": elapsed_ms,
+            }
+        except Exception as e:
+            # Fallback: if multimodal model unavailable, use standard local model
+            logger.warning(f"Multimodal model '{model}' unavailable, "
+                           f"falling back to local model: {e}")
+            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                fallback_payload = {
+                    "model": LOCAL_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "options": {"num_ctx": 4096, "temperature": 0.7},
+                }
+                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=fallback_payload)
+                resp.raise_for_status()
+            elapsed_ms = int((time.time() - start) * 1000)
+
+            data = resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            return {
+                "model_name": LOCAL_MODEL,
+                "model_type": "local",
+                "output": content,
+                "latency_ms": elapsed_ms,
+                "usage": data.get("usage", {}),
+                "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+                "routed_via": "hermes_multimodal_fallback_local",
+                "dispatch_latency_ms": elapsed_ms,
+                "fallback_reason": f"Multimodal model '{model}' unavailable: {str(e)[:80]}",
+            }
+
+    # ── Feedback → Memory Self-Learning ──────────────────────────────
 
     def _record_feedback(self, request_id: str, route_path: str,
                          success: bool, latency_ms: int,
                          request_summary: str):
-        """Record feedback to both the feedback queue and Hermes Memory."""
+        """Record feedback to feedback queue and Hermes Memory (self-learning closed-loop).
+
+        Feedback flow: request → routing → execution → feedback → MEMORY.md → next routing optimization
+        """
         feedback = {
             "request_id": request_id,
             "route_path": route_path,
@@ -316,10 +419,11 @@ class DispatchWorker:
             "timestamp": datetime.now().isoformat(),
         }
 
-        # Push to feedback queue (for monitoring)
+        # Push to feedback queue (for monitoring/Dashboard)
         self.queue.push(QUEUE_FEEDBACK, feedback)
 
-        # Record via Hermes Memory (for evolution)
+        # Record via Hermes Memory (for self-learning evolution)
+        # This triggers: feedback write → latency stats update → rule evolution → pattern discovery → rule pruning
         try:
             self.adapter.record_feedback_via_memory(
                 skill_name="routing-decision",

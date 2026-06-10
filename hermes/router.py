@@ -26,6 +26,7 @@ class RoutePath(Enum):
     DIRECT_LOCAL = "direct_local"
     DIRECT_CLOUD = "direct_cloud"
     LOCAL_INFERENCE = "local_inference"
+    MULTIMODAL = "multimodal"
 
 
 class ComplexityLevel(Enum):
@@ -412,6 +413,7 @@ class HermesRouter:
             RoutePath.DIRECT_LOCAL: PathPerformance(path=RoutePath.DIRECT_LOCAL),
             RoutePath.DIRECT_CLOUD: PathPerformance(path=RoutePath.DIRECT_CLOUD),
             RoutePath.LOCAL_INFERENCE: PathPerformance(path=RoutePath.LOCAL_INFERENCE),
+            RoutePath.MULTIMODAL: PathPerformance(path=RoutePath.MULTIMODAL),
         }
         self.learning = LearningState()
         self.complexity_threshold: float = 40.0
@@ -568,11 +570,26 @@ class HermesRouter:
         has_tools = bool(request.get("tools"))
         constraints = request.get("constraints") or {}
         require_local = constraints.get("require_local", False)
+        prompt = request.get("prompt", "")
 
         if require_local:
             return RoutePath.LOCAL_INFERENCE
 
-        # Agent-related requests: tools, code, multi-step → OfficialGW (cloud)
+        # Multimodal detection: image/audio/video → multimodal model
+        multimodal_keywords = [
+            "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+            "音频", "语音", "录音", "视频", "画面", "摄像头",
+            "image", "photo", "picture", "screenshot", "vision", "ocr",
+            "audio", "voice", "video", "camera", "multimodal",
+            "分析图片", "描述图片", "图片中", "图中", "截图中的",
+        ]
+        if any(kw in prompt for kw in multimodal_keywords):
+            return RoutePath.MULTIMODAL
+        attachments = request.get("attachments", [])
+        if attachments:
+            return RoutePath.MULTIMODAL
+
+        # Multi-step batch / Volcano / Agent-related → OfficialGW
         if has_tools:
             return RoutePath.GATEWAY
 
@@ -583,13 +600,15 @@ class HermesRouter:
         if score >= self.complexity_threshold:
             return RoutePath.GATEWAY
 
-        # High-complexity keywords indicate agent-related tasks regardless of score
-        prompt = request.get("prompt", "")
-        high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-        if any(kw in prompt for kw in high_complexity_keywords):
+        multi_step_keywords = [
+            "多步骤", "多步", "批处理", "批量", "自主", "设计", "规划", "执行计划",
+            "自主执行", "架构", "方案", "调研", "流程", "编排", "工作流", "pipeline",
+            "Volcano", "volcano", "分布式", "微服务", "部署", "发布",
+        ]
+        if any(kw in prompt for kw in multi_step_keywords):
             return RoutePath.GATEWAY
 
-        # Everything else: local model (Ollama/vLLM)
+        # Simple single-step Q&A → local model (Ollama/vLLM)
         return RoutePath.DIRECT_LOCAL
 
     def _recalc_level(self, total: float) -> ComplexityLevel:
@@ -735,27 +754,45 @@ class HermesRouter:
         # This ensures consistent routing regardless of LLM/skill/memory decisions
         constraints_final = request.get("constraints") or {}
         require_local_final = constraints_final.get("require_local", False)
+        prompt_final = request.get("prompt", "")
 
         if require_local_final:
             path = RoutePath.LOCAL_INFERENCE
         else:
-            req_type_final = request.get("type", "chat")
-            has_tools_final = bool(request.get("tools"))
-            prompt_final = request.get("prompt", "")
-            high_complexity_keywords_final = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-            has_hck_final = any(kw in prompt_final for kw in high_complexity_keywords_final)
+            # Multimodal detection (absolute priority after privacy)
+            multimodal_keywords_final = [
+                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+                "音频", "语音", "录音", "视频", "画面", "摄像头",
+                "image", "photo", "picture", "screenshot", "vision", "ocr",
+                "audio", "voice", "video", "camera", "multimodal",
+                "分析图片", "描述图片", "图片中", "图中", "截图中的",
+            ]
+            has_multimodal_final = any(kw in prompt_final for kw in multimodal_keywords_final)
+            attachments_final = request.get("attachments") or []
+            if attachments_final:
+                has_multimodal_final = True
 
-            is_agent_related_final = (
-                has_tools_final
-                or req_type_final in ("code", "code_execution", "tool_call")
-                or score.total >= self.complexity_threshold
-                or has_hck_final
-            )
-            correct_path_final = RoutePath.GATEWAY if is_agent_related_final else RoutePath.DIRECT_LOCAL
+            if has_multimodal_final:
+                correct_path_final = RoutePath.MULTIMODAL
+            else:
+                # Multi-step batch / Volcano / Agent-related → gateway
+                req_type_final = request.get("type", "chat")
+                has_tools_final = bool(request.get("tools"))
+                high_complexity_keywords_final = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+                has_hck_final = any(kw in prompt_final for kw in high_complexity_keywords_final)
+
+                is_agent_related_final = (
+                    has_tools_final
+                    or req_type_final in ("code", "code_execution", "tool_call")
+                    or score.total >= self.complexity_threshold
+                    or has_hck_final
+                )
+                correct_path_final = RoutePath.GATEWAY if is_agent_related_final else RoutePath.DIRECT_LOCAL
 
             if path != correct_path_final:
+                route_reason = 'multimodal' if correct_path_final == RoutePath.MULTIMODAL else ('agent-related' if is_agent_related_final else 'simple')
                 logger.info(f"Simplified routing override: {path.value} → {correct_path_final.value} "
-                            f"({'agent-related' if is_agent_related_final else 'simple'}, score={score.total})")
+                            f"({route_reason}, score={score.total})")
                 path = correct_path_final
 
         selected_model = self._select_model(request, path)
@@ -793,29 +830,46 @@ class HermesRouter:
         # Apply simplified routing override (same logic as _post_validate_route)
         constraints = request.get("constraints") or {}
         require_local = constraints.get("require_local", False)
+        prompt = request.get("prompt", "")
 
         if require_local:
             path = RoutePath.LOCAL_INFERENCE
             agent_result["reason"] = f"Override: require_local (was {path.value})"
         else:
-            req_type = request.get("type", "chat")
-            has_tools = bool(request.get("tools"))
-            prompt = request.get("prompt", "")
-            high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-            has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+            # Multimodal detection (absolute priority after privacy)
+            multimodal_keywords_oa = [
+                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+                "音频", "语音", "录音", "视频", "画面", "摄像头",
+                "image", "photo", "picture", "screenshot", "vision", "ocr",
+                "audio", "voice", "video", "camera", "multimodal",
+                "分析图片", "描述图片", "图片中", "图中", "截图中的",
+            ]
+            has_multimodal_oa = any(kw in prompt for kw in multimodal_keywords_oa)
+            attachments_oa = request.get("attachments") or []
+            if attachments_oa:
+                has_multimodal_oa = True
 
-            is_agent_related = (
-                has_tools
-                or req_type in ("code", "code_execution", "tool_call")
-                or score.total >= self.complexity_threshold
-                or has_high_complexity_keywords
-            )
-            correct_path = RoutePath.GATEWAY if is_agent_related else RoutePath.DIRECT_LOCAL
+            if has_multimodal_oa:
+                correct_path = RoutePath.MULTIMODAL
+            else:
+                req_type = request.get("type", "chat")
+                has_tools = bool(request.get("tools"))
+                high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+                has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+
+                is_agent_related = (
+                    has_tools
+                    or req_type in ("code", "code_execution", "tool_call")
+                    or score.total >= self.complexity_threshold
+                    or has_high_complexity_keywords
+                )
+                correct_path = RoutePath.GATEWAY if is_agent_related else RoutePath.DIRECT_LOCAL
 
             if path != correct_path:
                 original = path.value
                 path = correct_path
-                agent_result["reason"] = f"Override: {'agent-related' if is_agent_related else 'simple'} (was {original}, score={score.total})"
+                route_reason = 'multimodal' if correct_path == RoutePath.MULTIMODAL else ('agent-related' if is_agent_related else 'simple')
+                agent_result["reason"] = f"Override: {route_reason} (was {original}, score={score.total})"
 
         selected_model = agent_result.get("selected_model") or self._select_model(request, path)
 
@@ -861,29 +915,46 @@ class HermesRouter:
         # Apply simplified routing override (same logic as _route_via_official_agent)
         constraints = request.get("constraints") or {}
         require_local = constraints.get("require_local", False)
+        prompt = request.get("prompt", "")
 
         if require_local:
             path = RoutePath.LOCAL_INFERENCE
             agent_decision["reasoning"] = f"Override: require_local"
         else:
-            req_type = request.get("type", "chat")
-            has_tools = bool(request.get("tools"))
-            prompt = request.get("prompt", "")
-            high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-            has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+            # Multimodal detection (absolute priority after privacy)
+            multimodal_keywords_a = [
+                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+                "音频", "语音", "录音", "视频", "画面", "摄像头",
+                "image", "photo", "picture", "screenshot", "vision", "ocr",
+                "audio", "voice", "video", "camera", "multimodal",
+                "分析图片", "描述图片", "图片中", "图中", "截图中的",
+            ]
+            has_multimodal_a = any(kw in prompt for kw in multimodal_keywords_a)
+            attachments_a = request.get("attachments") or []
+            if attachments_a:
+                has_multimodal_a = True
 
-            is_agent_related = (
-                has_tools
-                or req_type in ("code", "code_execution", "tool_call")
-                or score.total >= self.complexity_threshold
-                or has_high_complexity_keywords
-            )
-            correct_path = RoutePath.GATEWAY if is_agent_related else RoutePath.DIRECT_LOCAL
+            if has_multimodal_a:
+                correct_path = RoutePath.MULTIMODAL
+            else:
+                req_type = request.get("type", "chat")
+                has_tools = bool(request.get("tools"))
+                high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
+                has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+
+                is_agent_related = (
+                    has_tools
+                    or req_type in ("code", "code_execution", "tool_call")
+                    or score.total >= self.complexity_threshold
+                    or has_high_complexity_keywords
+                )
+                correct_path = RoutePath.GATEWAY if is_agent_related else RoutePath.DIRECT_LOCAL
 
             if path != correct_path:
                 original = path.value
                 path = correct_path
-                agent_decision["reasoning"] = f"Override: {'agent-related' if is_agent_related else 'simple'} (was {original}, score={score.total})"
+                route_reason = 'multimodal' if correct_path == RoutePath.MULTIMODAL else ('agent-related' if is_agent_related else 'simple')
+                agent_decision["reasoning"] = f"Override: {route_reason} (was {original}, score={score.total})"
 
         selected_model = agent_decision.get("model_hint") or self._select_model(request, path)
 
@@ -1274,11 +1345,12 @@ class HermesRouter:
             reasons.append(f"含复杂关键词(+{score.breakdown['keywords']})")
 
         path_names = {
-            RoutePath.GATEWAY: "Gateway→云端模型",
-            RoutePath.AGENT_CHAIN: "Gateway→Official OpenClaw→Volcano",
-            RoutePath.DIRECT_LOCAL: "Gateway→本地常驻模型",
-            RoutePath.DIRECT_CLOUD: "Gateway→云端模型",
-            RoutePath.LOCAL_INFERENCE: "Gateway→本地常驻模型(隐私)",
+            RoutePath.GATEWAY: "OfficialGW→Agent→Volcano(多步批处理)",
+            RoutePath.AGENT_CHAIN: "OfficialGW→Agent Chain→Volcano",
+            RoutePath.DIRECT_LOCAL: "本地常驻模型(单步问答)",
+            RoutePath.DIRECT_CLOUD: "云端模型",
+            RoutePath.LOCAL_INFERENCE: "本地常驻模型(隐私保护)",
+            RoutePath.MULTIMODAL: "多模态专用模型",
         }
         reasons.append(f"→{path_names.get(path, path.value)}")
 

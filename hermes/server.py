@@ -6,6 +6,7 @@ import os
 import subprocess
 import threading
 import time
+import asyncio
 import psutil
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
@@ -31,8 +32,8 @@ from hermes.dispatch_worker import DispatchWorker
 logger = logging.getLogger(__name__)
 
 HERMES_PORT = int(os.getenv("HERMES_PORT", "8082"))
-BRIDGE_URL = os.getenv("BRIDGE_URL", "http://localhost:3001")
-SCHEDULER_URL = os.getenv("SCHEDULER_URL", "http://localhost:8000")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OFFICIAL_GW_URL = os.getenv("OPENCLAW_OFFICIAL_GATEWAY_URL", "http://127.0.0.1:3005")
 
 llm_enhancer = LLMEnhancer()
 hermes_agent = HermesAgent()
@@ -44,9 +45,9 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 USE_DIRECT_OLLAMA = os.getenv("USE_DIRECT_OLLAMA", "false").lower() == "true"
 
-# Downstream service timeouts (fail fast when unavailable)
-BRIDGE_TIMEOUT = float(os.getenv("BRIDGE_TIMEOUT", "3.0"))
-SCHEDULER_TIMEOUT = float(os.getenv("SCHEDULER_TIMEOUT", "3.0"))
+# Downstream service timeouts
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60.0"))
+OFFICIAL_GW_TIMEOUT = float(os.getenv("OFFICIAL_GW_TIMEOUT", "120.0"))
 
 official_agent = OfficialHermesAdapter(
     api_url=OFFICIAL_AGENT_URL,
@@ -104,19 +105,26 @@ class HermesDispatchRequest(BaseModel):
     timeout_ms: Opt[int] = None
     route_mode: Opt[str] = None
     agent_id: Opt[str] = None
+    attachments: Opt[list] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _watchdog_running, _watchdog_task
     logger.info("Hermes Intelligent Router starting...")
-    logger.info(f"  Bridge URL: {BRIDGE_URL}")
-    logger.info(f"  Scheduler URL: {SCHEDULER_URL}")
+    logger.info(f"  Ollama URL: {OLLAMA_URL}")
+    logger.info(f"  OfficialGW URL: {OFFICIAL_GW_URL}")
     logger.info(f"  Port: {HERMES_PORT}")
     logger.info(f"  Queue backend: {QUEUE_BACKEND}")
     _register_known_models()
     dispatch_worker.start()
     logger.info(f"  Dispatch worker started ({DISPATCH_WORKERS} threads)")
+    # Auto-start watchdog
+    _watchdog_running = True
+    _watchdog_task = asyncio.create_task(_watchdog_loop())
+    logger.info("  Service watchdog started (interval=%ds)", _watchdog_config["interval_seconds"])
     yield
+    _watchdog_running = False
     dispatch_worker.stop()
     logger.info("Hermes Intelligent Router shutdown")
 
@@ -220,104 +228,147 @@ async def route_request(request: HermesDispatchRequest):
 
 
 async def _execute_routing(request: HermesDispatchRequest, routing: dict):
+    """Execute routing by dispatching directly to downstream service.
+
+    Direct connection (no Bridge/Gateway middle layer):
+      - direct_local / local_inference → Ollama(11434)
+      - gateway → OfficialGW(3005)
+      - multimodal → Ollama(11434) multimodal model
+    """
     import httpx
 
     trace = []
     path = routing["route_path"]
-    selected_model = routing.get("selected_model")
+    LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5:3b")
+    MULTIMODAL_MODEL = os.getenv("MULTIMODAL_MODEL", "llava:7b")
 
-    hermes_routing_info = {
-        "route_path": path,
-        "complexity_score": routing.get("complexity_score", 0),
-        "complexity_level": routing.get("complexity_level", "unknown"),
-        "selected_model": selected_model,
-        "skill_matched": routing.get("skill_matched"),
-        "memory_match": routing.get("memory_match", False),
-        "reason": routing.get("reason", ""),
-        "exploration": routing.get("exploration", False),
-        "threshold": routing.get("threshold", 40),
-    }
+    if path in ("direct_local", "local_inference"):
+        # Direct to local Ollama/vLLM
+        payload = {
+            "model": LOCAL_MODEL,
+            "messages": [{"role": "user", "content": request.prompt}],
+            "stream": False,
+            "options": {"num_ctx": 4096, "temperature": 0.7},
+        }
+        trace.append({"agent": "hermes_dispatch", "message": f"Direct to Ollama: path={path}"})
 
-    if path in (RoutePath.GATEWAY.value, RoutePath.AGENT_CHAIN.value):
-        payload = request.dict()
-        payload["hermes_routing"] = hermes_routing_info
-        if path == RoutePath.AGENT_CHAIN.value:
-            payload["route_mode"] = "agent"
-        elif path == RoutePath.GATEWAY.value:
-            payload["route_mode"] = "gateway"
-        else:
-            payload["route_mode"] = "smart"
+        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+            resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+            resp.raise_for_status()
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        result = {
+            "model_name": LOCAL_MODEL,
+            "model_type": "local",
+            "output": content,
+            "latency_ms": 0,
+            "usage": data.get("usage", {}),
+            "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+            "routed_via": f"hermes_{path}",
+        }
+        trace.append({"agent": "hermes_dispatch", "message": f"Ollama success: model={LOCAL_MODEL}"})
+        return result, None, trace
 
-        trace.append({"agent": "hermes_bridge", "message": f"Forwarding to Bridge: route_mode={payload['route_mode']}, hermes_path={path}"})
+    elif path == "gateway":
+        # Direct to OfficialGW
+        messages = []
+        if request.context:
+            messages.extend(request.context)
+        messages.append({"role": "user", "content": request.prompt})
 
-        async with httpx.AsyncClient(timeout=BRIDGE_TIMEOUT) as client:
-            resp = await client.post(f"{BRIDGE_URL}/dispatch", json=payload)
+        payload = {"model": "openclaw/default", "messages": messages, "max_tokens": 512}
+        if request.tools:
+            payload["tools"] = request.tools
+            payload["tool_choice"] = request.tool_choice or "auto"
+
+        headers = {"Content-Type": "application/json"}
+        gw_token = os.getenv("OPENCLAW_TOKEN", "")
+        if gw_token:
+            headers["Authorization"] = f"Bearer {gw_token}"
+
+        trace.append({"agent": "hermes_dispatch", "message": f"Direct to OfficialGW: {OFFICIAL_GW_URL}"})
+
+        async with httpx.AsyncClient(timeout=OFFICIAL_GW_TIMEOUT) as client:
+            resp = await client.post(f"{OFFICIAL_GW_URL}/v1/chat/completions", headers=headers, json=payload)
+            resp.raise_for_status()
+        data = resp.json()
+        choice = data.get("choices", [{}])[0]
+        result = {
+            "model_name": data.get("model", "openclaw/default"),
+            "model_type": "openclaw-agent",
+            "provider": "openclaw",
+            "output": choice.get("message", {}).get("content", ""),
+            "tool_calls": choice.get("message", {}).get("tool_calls"),
+            "latency_ms": 0,
+            "usage": data.get("usage", {}),
+            "finish_reason": choice.get("finish_reason", "stop"),
+            "routed_via": "hermes_official_gw",
+        }
+        # Include openclaw_metadata for traceability (request_id, volcano_job, etc.)
+        if data.get("openclaw_metadata"):
+            result["_raw_openclaw_metadata"] = data["openclaw_metadata"]
+        # Extract OpenClaw response ID for traceability (real OpenClaw returns id like chatcmpl_xxx)
+        if data.get("id"):
+            result["_raw_openclaw_metadata"] = result.get("_raw_openclaw_metadata", {})
+            result["_raw_openclaw_metadata"]["request_id"] = data["id"]
+            result["_raw_openclaw_metadata"]["routing_trace"] = ["hermes", "gateway", "openclaw-official-gw"]
+        trace.append({"agent": "hermes_dispatch", "message": f"OfficialGW success: model={result['model_name']}"})
+        return result, None, trace
+
+    elif path == "multimodal":
+        # Direct to local multimodal model
+        payload = {
+            "model": MULTIMODAL_MODEL,
+            "messages": [{"role": "user", "content": request.prompt}],
+            "stream": False,
+            "options": {"num_ctx": 4096, "temperature": 0.7},
+        }
+        trace.append({"agent": "hermes_dispatch", "message": f"Direct to multimodal model: {MULTIMODAL_MODEL}"})
+
+        try:
+            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+                resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+                resp.raise_for_status()
             data = resp.json()
-
-        if data.get("status") == "success" and data.get("result"):
-            trace.append({"agent": "hermes_bridge", "message": f"Bridge success: model={data['result'].get('model_name')}, latency={data['result'].get('latency_ms')}ms"})
-            return data["result"], data.get("fallback_results"), trace
-        else:
-            error_msg = data.get("error", {}).get("message", "Bridge dispatch failed") if data.get("error") else "Bridge dispatch failed"
-            trace.append({"agent": "hermes_bridge", "message": f"Bridge failed: {error_msg}, trying scheduler fallback"})
-            return await _fallback_to_scheduler(request, trace)
-
-    elif path in (RoutePath.DIRECT_LOCAL.value, RoutePath.DIRECT_CLOUD.value):
-        payload = request.dict()
-
-        trace.append({"agent": "hermes_scheduler", "message": f"Direct dispatch via Scheduler: path={path}"})
-
-        async with httpx.AsyncClient(timeout=SCHEDULER_TIMEOUT) as client:
-            resp = await client.post(f"{SCHEDULER_URL}/dispatch", json=payload)
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            result = {
+                "model_name": MULTIMODAL_MODEL,
+                "model_type": "multimodal",
+                "output": content,
+                "latency_ms": 0,
+                "usage": data.get("usage", {}),
+                "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+                "routed_via": "hermes_multimodal",
+            }
+            trace.append({"agent": "hermes_dispatch", "message": f"Multimodal success: model={MULTIMODAL_MODEL}"})
+            return result, None, trace
+        except Exception as e:
+            # Fallback to standard local model
+            trace.append({"agent": "hermes_dispatch", "message": f"Multimodal model unavailable, fallback to local: {e}"})
+            fallback_payload = {
+                "model": LOCAL_MODEL,
+                "messages": [{"role": "user", "content": request.prompt}],
+                "stream": False,
+                "options": {"num_ctx": 4096, "temperature": 0.7},
+            }
+            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
+                resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=fallback_payload)
+                resp.raise_for_status()
             data = resp.json()
-
-        if data.get("status") == "success" and data.get("result"):
-            trace.append({"agent": "hermes_scheduler", "message": f"Scheduler success: model={data['result'].get('model_name')}, latency={data['result'].get('latency_ms')}ms"})
-            return data["result"], data.get("fallback_results"), trace
-        else:
-            trace.append({"agent": "hermes_scheduler", "message": f"Scheduler failed, trying Bridge fallback"})
-            return await _fallback_to_bridge(request, trace)
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            result = {
+                "model_name": LOCAL_MODEL,
+                "model_type": "local",
+                "output": content,
+                "latency_ms": 0,
+                "usage": data.get("usage", {}),
+                "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+                "routed_via": "hermes_multimodal_fallback_local",
+            }
+            return result, None, trace
 
     else:
-        trace.append({"agent": "hermes_router", "message": f"Unknown path {path}, defaulting to Bridge"})
-        return await _fallback_to_bridge(request, trace)
-
-
-async def _fallback_to_scheduler(request: HermesDispatchRequest, trace: list):
-    import httpx
-
-    payload = request.dict()
-
-    trace.append({"agent": "hermes_fallback", "message": "Falling back to Python Scheduler"})
-
-    async with httpx.AsyncClient(timeout=SCHEDULER_TIMEOUT) as client:
-        resp = await client.post(f"{SCHEDULER_URL}/dispatch", json=payload)
-        data = resp.json()
-
-    if data.get("status") == "success" and data.get("result"):
-        trace.append({"agent": "hermes_fallback", "message": f"Scheduler fallback success: model={data['result'].get('model_name')}"})
-        return data["result"], data.get("fallback_results"), trace
-
-    raise RuntimeError(f"All downstream paths failed for request {request.appid}")
-
-
-async def _fallback_to_bridge(request: HermesDispatchRequest, trace: list):
-    import httpx
-
-    payload = request.dict()
-    payload["route_mode"] = "smart"
-
-    trace.append({"agent": "hermes_fallback", "message": "Falling back to Bridge Smart Router"})
-
-    async with httpx.AsyncClient(timeout=BRIDGE_TIMEOUT) as client:
-        resp = await client.post(f"{BRIDGE_URL}/dispatch", json=payload)
-        data = resp.json()
-
-    if data.get("status") == "success" and data.get("result"):
-        trace.append({"agent": "hermes_fallback", "message": f"Bridge fallback success: model={data['result'].get('model_name')}"})
-        return data["result"], data.get("fallback_results"), trace
-
-    raise RuntimeError(f"All downstream paths failed for request {request.appid}")
+        raise RuntimeError(f"Unknown route path: {path}")
 
 
 @app.get("/health", summary="Hermes health check")
@@ -325,12 +376,12 @@ async def health():
     return {
         "status": "healthy",
         "service": "hermes-router",
-        "version": "2.1.0",
+        "version": "3.0.0",
         "learning_iterations": hermes.learning.learning_iterations,
         "complexity_threshold": hermes.complexity_threshold,
         "exploration_rate": hermes.learning.exploration_rate,
-        "bridge_url": BRIDGE_URL,
-        "scheduler_url": SCHEDULER_URL,
+        "ollama_url": OLLAMA_URL,
+        "official_gw_url": OFFICIAL_GW_URL,
         "memory_records": hermes.memory.get_total_count(),
         "skills_count": len(hermes.memory.get_all_skills()),
         "llm_enhancer_enabled": llm_enhancer.enabled,
@@ -382,41 +433,68 @@ async def analyze_request(request: HermesDispatchRequest):
         request_with_score["_rule_complexity_score"] = score.total
         agent_decision = hermes.hermes_agent.decide(request_with_score)
 
-        # Apply simplified routing with privacy override
+        # Apply 4-category routing strategy
         req_type = request.type or "chat"
         has_tools = bool(request.tools)
         constraints = request.constraints or {}
         require_local = constraints.get("require_local", False)
+        prompt_text = request.prompt or ""
 
         # Rule 1: Privacy override (absolute priority)
         if require_local:
             correct_path = "local_inference"
         else:
-            # Rule 2: Agent-related → gateway, else → direct_local
-            # High-complexity keywords indicate agent-related tasks regardless of score
-            prompt_text = request.prompt or ""
-            high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-            has_high_complexity_keywords = any(kw in prompt_text for kw in high_complexity_keywords)
-            is_agent_related = (
-                has_tools
-                or req_type in ("code", "code_execution", "tool_call")
-                or score.total >= hermes.complexity_threshold
-                or has_high_complexity_keywords
-            )
-            correct_path = "gateway" if is_agent_related else "direct_local"
+            # Rule 2: Multimodal detection
+            multimodal_keywords = [
+                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+                "音频", "语音", "录音", "视频", "画面", "摄像头",
+                "image", "photo", "picture", "screenshot", "vision", "ocr",
+                "audio", "voice", "video", "camera", "multimodal",
+                "分析图片", "描述图片", "图片中", "图中", "截图中的",
+            ]
+            has_multimodal = any(kw in prompt_text for kw in multimodal_keywords)
+            attachments = request.attachments or []
+            if attachments:
+                has_multimodal = True
+
+            if has_multimodal:
+                correct_path = "multimodal"
+            else:
+                # Rule 3: Multi-step batch / Volcano / Agent-related → gateway
+                multi_step_keywords = [
+                    "多步骤", "多步", "批处理", "批量", "自主", "设计", "规划", "执行计划",
+                    "自主执行", "架构", "方案", "调研", "流程", "编排", "工作流", "pipeline",
+                    "Volcano", "volcano", "分布式", "微服务", "部署", "发布",
+                ]
+                has_multi_step = any(kw in prompt_text for kw in multi_step_keywords)
+
+                is_gateway_route = (
+                    has_tools
+                    or req_type in ("code", "code_execution", "tool_call")
+                    or score.total >= hermes.complexity_threshold
+                    or has_multi_step
+                )
+                correct_path = "gateway" if is_gateway_route else "direct_local"
 
         try:
             final_path = RoutePath(agent_decision.get("route_path", score.recommended_path.value))
         except ValueError:
             final_path = score.recommended_path
 
-        # Override if LLM decision doesn't match simplified routing
+        # Override if LLM decision doesn't match 4-category routing
         if final_path.value != correct_path:
             original_path = final_path.value
             final_path = RoutePath(correct_path)
-            reason_detail = 'require_local' if require_local else ('agent-related' if correct_path == 'gateway' else 'simple')
+            if require_local:
+                reason_detail = 'require_local'
+            elif correct_path == 'multimodal':
+                reason_detail = 'multimodal'
+            elif correct_path == 'gateway':
+                reason_detail = 'multi-step/agent'
+            else:
+                reason_detail = 'single-step Q&A'
             agent_decision["route_path"] = correct_path
-            agent_decision["reason"] = f"Simplified routing: {reason_detail} (was {original_path}, score={score.total})"
+            agent_decision["reason"] = f"4-category routing: {reason_detail} (was {original_path}, score={score.total})"
 
         result = {
             "complexity_score": score.total,
@@ -461,29 +539,50 @@ async def analyze_request(request: HermesDispatchRequest):
 
     final_path = score.recommended_path
 
-    # Apply simplified routing with privacy override (same logic as agent path)
+    # Apply 4-category routing strategy (same logic as agent path)
     req_type_fallback = request.type or "chat"
     has_tools_fallback = bool(request.tools)
     constraints_fallback = request.constraints or {}
     require_local_fallback = constraints_fallback.get("require_local", False)
     prompt_fallback = request.prompt or ""
-    high_complexity_keywords_fb = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-    has_high_complexity_keywords_fb = any(kw in prompt_fallback for kw in high_complexity_keywords_fb)
 
     if require_local_fallback:
         final_path = RoutePath.LOCAL_INFERENCE
     else:
-        is_agent_related_fallback = (
-            has_tools_fallback
-            or req_type_fallback in ("code", "code_execution", "tool_call")
-            or score.total >= hermes.complexity_threshold
-            or has_high_complexity_keywords_fb
-        )
-        correct_path_fallback = "gateway" if is_agent_related_fallback else "direct_local"
-        try:
-            final_path = RoutePath(correct_path_fallback)
-        except ValueError:
-            pass
+        # Multimodal detection
+        multimodal_keywords_fb = [
+            "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+            "音频", "语音", "录音", "视频", "画面", "摄像头",
+            "image", "photo", "picture", "screenshot", "vision", "ocr",
+            "audio", "voice", "video", "camera", "multimodal",
+            "分析图片", "描述图片", "图片中", "图中", "截图中的",
+        ]
+        has_multimodal_fb = any(kw in prompt_fallback for kw in multimodal_keywords_fb)
+        attachments_fb = request.attachments or []
+        if attachments_fb:
+            has_multimodal_fb = True
+
+        if has_multimodal_fb:
+            final_path = RoutePath.MULTIMODAL
+        else:
+            # Multi-step batch / Volcano / Agent-related
+            multi_step_keywords_fb = [
+                "多步骤", "多步", "批处理", "批量", "自主", "设计", "规划", "执行计划",
+                "自主执行", "架构", "方案", "调研", "流程", "编排", "工作流", "pipeline",
+                "Volcano", "volcano", "分布式", "微服务", "部署", "发布",
+            ]
+            has_multi_step_fb = any(kw in prompt_fallback for kw in multi_step_keywords_fb)
+            is_gateway_fb = (
+                has_tools_fallback
+                or req_type_fallback in ("code", "code_execution", "tool_call")
+                or score.total >= hermes.complexity_threshold
+                or has_multi_step_fb
+            )
+            correct_path_fallback = "gateway" if is_gateway_fb else "direct_local"
+            try:
+                final_path = RoutePath(correct_path_fallback)
+            except ValueError:
+                pass
 
     result = {
         "complexity_score": score.total,
@@ -587,6 +686,7 @@ async def get_evolution(limit: int = 20):
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 @app.post("/reset", summary="Reset Hermes learning state")
 async def reset_hermes():
     hermes.reset()
@@ -1000,72 +1100,191 @@ def _find_openclaw_bin():
 
 
 class ServiceStartRequest(BaseModel):
-    service: str  # bridge | gateway | officialGateway
+    service: str  # officialGateway | ollama
 
 
 class ServiceStopRequest(BaseModel):
     service: str
 
 
+# ── Service Watchdog ──────────────────────────────────────────────
+_watchdog_running = False
+_watchdog_task = None
+_watchdog_config = {
+    "enabled": True,
+    "interval_seconds": 30,
+    "max_restart_attempts": 3,
+    "restart_cooldown_seconds": 60,
+}
+_restart_history = {}  # service -> {"attempts": int, "last_attempt": float}
+
+
+def _get_openclaw_cmd():
+    """Find the OpenClaw gateway executable."""
+    openclaw_dir = os.path.expanduser("~/MyWork/OpenClaw/openclaw")
+    openclaw_mjs = os.path.join(openclaw_dir, "openclaw.mjs")
+    if os.path.isfile(openclaw_mjs):
+        return ["node", openclaw_mjs, "gateway", "--port", "3005", "--force", "--allow-unconfigured"], openclaw_dir
+    # Fallback to mock
+    mock_mjs = os.path.join(PROJECT_ROOT, "openclaw-gw-mock.mjs")
+    if os.path.isfile(mock_mjs):
+        return ["node", mock_mjs], PROJECT_ROOT
+    return None, None
+
+
+SERVICE_CONFIGS = {}  # Populated lazily
+
+
+def _get_service_configs():
+    """Get service start configurations (lazy to allow env discovery at runtime)."""
+    if SERVICE_CONFIGS:
+        return SERVICE_CONFIGS
+    openclaw_cmd, openclaw_cwd = _get_openclaw_cmd()
+    SERVICE_CONFIGS["officialGateway"] = {
+        "cmd": openclaw_cmd or ["node", os.path.join(PROJECT_ROOT, "openclaw-gw-mock.mjs")],
+        "cwd": openclaw_cwd or PROJECT_ROOT,
+        "port": 3005,
+        "health_url": "http://127.0.0.1:3005/health",
+    }
+    SERVICE_CONFIGS["ollama"] = {
+        "cmd": ["ollama", "serve"],
+        "cwd": PROJECT_ROOT,
+        "port": 11434,
+        "health_url": "http://127.0.0.1:11434/api/tags",
+    }
+    return SERVICE_CONFIGS
+
+
+async def _check_service_health(name: str) -> bool:
+    """Check if a service is healthy by hitting its health endpoint."""
+    configs = _get_service_configs()
+    cfg = configs.get(name)
+    if not cfg:
+        return False
+    health_url = cfg.get("health_url")
+    if not health_url:
+        return False
+    try:
+        import urllib.request
+        req = urllib.request.Request(health_url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+async def _watchdog_loop():
+    """Background watchdog that periodically checks services and auto-restarts."""
+    global _watchdog_running
+    logger.info("[Watchdog] Starting service watchdog (interval=%ds)", _watchdog_config["interval_seconds"])
+    while _watchdog_running:
+        await asyncio.sleep(_watchdog_config["interval_seconds"])
+        if not _watchdog_running:
+            break
+        configs = _get_service_configs()
+        for name, cfg in configs.items():
+            healthy = await _check_service_health(name)
+            if healthy:
+                # Reset restart attempts on healthy check
+                if name in _restart_history:
+                    _restart_history[name]["attempts"] = 0
+                continue
+
+            # Service is down — check if we should restart
+            now = time.time()
+            hist = _restart_history.get(name, {"attempts": 0, "last_attempt": 0})
+
+            if hist["attempts"] >= _watchdog_config["max_restart_attempts"]:
+                logger.warning("[Watchdog] %s: max restart attempts (%d) reached, skipping",
+                               name, _watchdog_config["max_restart_attempts"])
+                continue
+
+            if (now - hist["last_attempt"]) < _watchdog_config["restart_cooldown_seconds"]:
+                continue  # Too soon to retry
+
+            logger.info("[Watchdog] %s: service down, attempting restart (attempt %d/%d)",
+                        name, hist["attempts"] + 1, _watchdog_config["max_restart_attempts"])
+            hist["attempts"] += 1
+            hist["last_attempt"] = now
+            _restart_history[name] = hist
+
+            # Stop existing managed process if any
+            with _proc_lock:
+                existing = _managed_procs.get(name)
+                if existing and existing.get("process"):
+                    try:
+                        existing["process"].kill()  # Use SIGKILL for faster cleanup
+                    except Exception:
+                        pass
+                    # Close log file handles
+                    for log_key in ("stdout_log", "stderr_log"):
+                        fh = existing.get(log_key)
+                        if fh and not fh.closed:
+                            fh.close()
+                    existing["process"] = None
+                    existing["status"] = "stopped"
+
+            # Also kill any leftover process on the port
+            port = cfg.get("port")
+            if port:
+                try:
+                    import signal
+                    for pid_str in os.popen(f"lsof -ti:{port} 2>/dev/null").read().strip().split():
+                        if pid_str and int(pid_str) != os.getpid():
+                            os.kill(int(pid_str), signal.SIGKILL)
+                            logger.info("[Watchdog] Killed leftover pid %s on port %d", pid_str, port)
+                except Exception:
+                    pass
+
+            # Wait for port to be freed
+            await asyncio.sleep(2)
+
+            # Attempt to start the service
+            try:
+                req = ServiceStartRequest(service=name)
+                await api_start_service(req)
+                logger.info("[Watchdog] %s: restart initiated", name)
+            except Exception as e:
+                logger.error("[Watchdog] %s: restart failed: %s", name, e)
+
+
 @app.post("/services/start", summary="Start a managed service")
 async def api_start_service(req: ServiceStartRequest):
     name = req.service
+    configs = _get_service_configs()
     with _proc_lock:
         if name in _managed_procs and _managed_procs[name].get("process"):
             return {"started": False, "message": f"{name} already running (pid={_managed_procs[name].get('pid')})"}
-
-    configs = {
-        "bridge": {
-            "cmd": ["node", os.path.join(PROJECT_ROOT, "bridge", "orchestrator.mjs")],
-            "cwd": PROJECT_ROOT,
-            "port": 3001,
-        },
-        "gateway": {
-            "cmd": ["node", os.path.join(PROJECT_ROOT, "gateway", "gateway.mjs")],
-            "cwd": PROJECT_ROOT,
-            "port": 3000,
-        },
-        "officialGateway": {
-            "cmd": ["npx", "openclaw", "gateway", "run", "--port", "3005", "--auth", "none", "--force"],
-            "cwd": PROJECT_ROOT,
-            "port": 3005,
-        },
-    }
 
     if name not in configs:
         raise HTTPException(status_code=400, detail=f"Unknown service: {name}. Use: {list(configs.keys())}")
 
     cfg = configs[name]
     try:
+        # Redirect stdout/stderr to log files instead of PIPE to avoid buffer deadlock
+        log_dir = os.path.join(PROJECT_ROOT, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        stdout_log = open(os.path.join(log_dir, f"{name}.stdout.log"), "a")
+        stderr_log = open(os.path.join(log_dir, f"{name}.stderr.log"), "a")
+
         proc = subprocess.Popen(
             cfg["cmd"],
             cwd=cfg["cwd"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=stdout_log,
+            stderr=stderr_log,
             env={**os.environ},
         )
         with _proc_lock:
-            _managed_procs[name] = {"process": proc, "pid": proc.pid, "status": "starting", "port": cfg["port"]}
+            _managed_procs[name] = {
+                "process": proc,
+                "pid": proc.pid,
+                "status": "starting",
+                "port": cfg["port"],
+                "stdout_log": stdout_log,
+                "stderr_log": stderr_log,
+            }
 
         def _watch():
-            # Read subprocess output to prevent buffer deadlock and capture logs
-            import selectors
-            sel = selectors.DefaultSelector()
-            if proc.stdout:
-                sel.register(proc.stdout, selectors.EVENT_READ, 'stdout')
-            if proc.stderr:
-                sel.register(proc.stderr, selectors.EVENT_READ, 'stderr')
-            while sel.get_map():
-                events = sel.select(timeout=1.0)
-                for key, _ in events:
-                    data = key.fileobj.readline()
-                    if data:
-                        line = data.decode(errors='replace').rstrip()
-                        tag = key.data
-                        logger.info(f"[{name}:{tag}] {line}")
-                    else:
-                        sel.unregister(key.fileobj)
-                        key.fileobj.close()
             proc.wait()
             rc = proc.returncode
             with _proc_lock:
@@ -1073,7 +1292,12 @@ async def api_start_service(req: ServiceStartRequest):
                     _managed_procs[name]["status"] = "stopped"
                     _managed_procs[name]["process"] = None
                     _managed_procs[name]["exit_code"] = rc
-            logger.info(f"{name} exited with code {rc}")
+                    # Close log file handles
+                    for log_key in ("stdout_log", "stderr_log"):
+                        fh = _managed_procs[name].get(log_key)
+                        if fh and not fh.closed:
+                            fh.close()
+            logger.info(f"[Watchdog] {name} exited with code {rc}")
 
         threading.Thread(target=_watch, daemon=True).start()
         logger.info(f"Started {name}: pid={proc.pid}, port={cfg['port']}")
@@ -1096,8 +1320,13 @@ async def api_stop_service(req: ServiceStopRequest):
         pid = info.get("pid")
         proc.terminate()
         info["status"] = "stopping"
+        # Close log file handles
+        for log_key in ("stdout_log", "stderr_log"):
+            fh = info.get(log_key)
+            if fh and not fh.closed:
+                fh.close()
 
-    logger.info(f"Stopped {name}: pid={pid}")
+    logger.info(f"[Watchdog] Stopped {name}: pid={pid}")
     return {"stopped": True, "pid": pid, "message": f"{name} stopping..."}
 
 
@@ -1113,56 +1342,92 @@ async def api_services_status():
                 "port": info.get("port"),
                 "exit_code": info.get("exit_code") if not alive else None,
             }
+    # Include watchdog status
+    result["_watchdog"] = {
+        "enabled": _watchdog_running,
+        "interval_seconds": _watchdog_config["interval_seconds"],
+        "max_restart_attempts": _watchdog_config["max_restart_attempts"],
+        "restart_history": {k: v for k, v in _restart_history.items() if v["attempts"] > 0},
+    }
     return result
+
+
+@app.post("/watchdog/start", summary="Start the service watchdog")
+async def api_watchdog_start():
+    global _watchdog_running, _watchdog_task
+    if _watchdog_running:
+        return {"started": False, "message": "Watchdog already running"}
+    _watchdog_running = True
+    _watchdog_task = asyncio.create_task(_watchdog_loop())
+    logger.info("[Watchdog] Started by API request")
+    return {"started": True, "message": "Watchdog started"}
+
+
+@app.post("/watchdog/stop", summary="Stop the service watchdog")
+async def api_watchdog_stop():
+    global _watchdog_running
+    if not _watchdog_running:
+        return {"stopped": False, "message": "Watchdog not running"}
+    _watchdog_running = False
+    logger.info("[Watchdog] Stopped by API request")
+    return {"stopped": True, "message": "Watchdog stopped"}
+
+
+@app.get("/watchdog/status", summary="Get watchdog status and configuration")
+async def api_watchdog_status():
+    return {
+        "running": _watchdog_running,
+        "config": _watchdog_config,
+        "restart_history": _restart_history,
+        "monitored_services": list(_get_service_configs().keys()),
+    }
+
+
+@app.post("/watchdog/config", summary="Update watchdog configuration")
+async def api_watchdog_config_update(enabled: bool = True, interval_seconds: int = 30,
+                                      max_restart_attempts: int = 3, restart_cooldown_seconds: int = 60):
+    _watchdog_config["enabled"] = enabled
+    _watchdog_config["interval_seconds"] = max(10, interval_seconds)
+    _watchdog_config["max_restart_attempts"] = max(1, max_restart_attempts)
+    _watchdog_config["restart_cooldown_seconds"] = max(10, restart_cooldown_seconds)
+    return {"updated": True, "config": _watchdog_config}
 
 
 @app.get("/proxy/health", summary="Proxy health check for all services (bypasses CORS)")
 async def api_proxy_health():
-    import httpx
+    import urllib.request
+    import json as _json
     services = {
-        "hermes": "http://localhost:8082/health",
-        "bridge": "http://localhost:3001/health",
-        "gateway": "http://localhost:3000/health",
-        "officialGateway": "http://localhost:3005/health",
-        "ollama": "http://localhost:11434/api/tags",
+        "hermes": "http://127.0.0.1:8082/health",
+        "officialGateway": "http://127.0.0.1:3005/health",
+        "ollama": "http://127.0.0.1:11434/api/tags",
     }
     result = {}
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for name, url in services.items():
-            try:
-                r = await client.get(url)
-                result[name] = {"healthy": r.status_code == 200, "status_code": r.status_code, "data": r.json()}
-            except Exception as e:
-                result[name] = {"healthy": False, "error": str(e)}
+    # Hermes self-check: we're running if this handler executes
+    result["hermes"] = {"healthy": True, "status_code": 200, "data": {"status": "healthy"}}
+    for name, url in services.items():
+        if name == "hermes":
+            continue  # Already checked above
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = _json.loads(resp.read())
+                result[name] = {"healthy": resp.status == 200, "status_code": resp.status, "data": data}
+        except Exception as e:
+            result[name] = {"healthy": False, "error": str(e)}
     return result
 
 
 @app.get("/proxy/ollama-ps", summary="Proxy Ollama /api/ps (bypasses CORS)")
 async def api_proxy_ollama_ps():
-    import httpx
+    import urllib.request
+    import json as _json
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get("http://localhost:11434/api/ps")
-            return r.json()
+        req = urllib.request.Request("http://127.0.0.1:11434/api/ps")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return _json.loads(resp.read())
     except Exception as e:
         return {"models": [], "error": str(e)}
-
-
-@app.api_route("/proxy/bridge/{path:path}", methods=["GET", "POST", "PUT", "DELETE"], summary="Proxy Bridge API (bypasses CORS)")
-async def api_proxy_bridge(path: str, request: Request):
-    import httpx
-    target_url = f"http://localhost:3001/{path}"
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.request(
-                method=request.method,
-                url=target_url,
-                headers={k: v for k, v in request.headers.items() if k.lower() not in ("host",)},
-                content=await request.body(),
-            )
-            return Response(content=r.content, status_code=r.status_code, media_type=r.headers.get("content-type"))
-    except Exception as e:
-        return {"error": str(e)}
 
 
 if __name__ == "__main__":

@@ -47,15 +47,16 @@ ROUTING_PROMPT_TEMPLATE = """你是路由决策助手。根据请求内容选择
 重要：不要调用任何工具！直接输出JSON结果。
 
 路由选项(必须选其一):
-1. direct_local - 简单闲聊、打招呼、翻译 → Gateway→本地常驻模型(Ollama/vLLM)
-2. gateway - 一般对话、信息查询、分析比较 → Gateway→云端模型
-3. agent_chain - 复杂多步规划、代码生成、编程实现、自主执行 → Gateway→Official OpenClaw→Volcano资源调度
-4. local_inference - 隐私敏感、必须本地执行 → Gateway→本地常驻模型(Ollama/vLLM,隐私保护)
+1. direct_local - 单步问答、简单闲聊、打招呼、翻译、计算 → 本地常驻模型(Ollama/vLLM, 低延迟~6s)
+2. gateway - 多步批处理、代码执行、工具调用、Volcano任务 → Official OpenClaw GW → 特定Agent → Volcano资源调度
+3. multimodal - 图片理解、OCR、视觉分析、音频处理 → 多模态专用模型
+4. local_inference - 隐私敏感、必须本地执行 → 本地常驻模型(隐私保护)
 
-注意：所有路由均通过Gateway统一管理，区别在于：
-- direct_local/local_inference → Gateway选择已注册的本地常驻模型(Ollama/vLLM)
-- gateway → Gateway选择云端模型(Moonshot/DeepSeek等)
-- agent_chain → Gateway转发到Official OpenClaw服务，可监控，支持Volcano资源调度
+路由决策规则:
+- 单步问答(一问一答，无需多步推理) → direct_local
+- 多步批处理(需要规划/执行多步骤，需要调用Volcano资源) → gateway (OfficialGW→Agent→Volcano)
+- 多模态(涉及图片/音频/视频/文件分析) → multimodal
+- 隐私敏感(个人信息/医疗/财务数据) → local_inference
 
 {routing_rules}
 
@@ -750,6 +751,13 @@ class OfficialHermesAdapter:
             if success and latency_ms > 30000 and route_path == "gateway":
                 self._reinforce_latency_awareness(route_path, latency_ms, request_summary)
 
+            # Pattern discovery: on success, check if new keywords should be added to rules
+            if success and request_summary:
+                self._discover_and_add_pattern(route_path, request_summary, new_content)
+
+            # Rule pruning: check latency gap and reinforce simple→local rules
+            self._prune_latency_gap(new_content)
+
             return True
         except Exception as e:
             logger.error(f"Failed to write MEMORY.md: {e}")
@@ -784,7 +792,7 @@ class OfficialHermesAdapter:
 
         # Build output lines
         lines = []
-        for rp in ["direct_local", "gateway", "local_inference", "agent_chain"]:
+        for rp in ["direct_local", "gateway", "local_inference", "multimodal", "agent_chain"]:
             if rp in stats:
                 s = stats[rp]
                 lines.append(f"- {rp}: avg={s['avg']}ms, p95={s['p95']}ms, samples={s['samples']}")
@@ -838,6 +846,188 @@ class OfficialHermesAdapter:
             f.write(new_content)
 
         logger.info(f"Latency awareness reinforced in MEMORY.md: gateway avg~{latency_ms}ms")
+
+    def _discover_and_add_pattern(self, route_path: str, request_summary: str,
+                                   content: str) -> None:
+        """Discover new routing patterns from successful feedback.
+
+        When a request succeeds, check if the request_summary contains keywords
+        that are NOT yet covered by existing routing rules. If the same keyword
+        appears in multiple successful requests for the same route, add it to
+        the corresponding rule's keyword list in MEMORY.md.
+        """
+        # Keyword groups for each route — candidates to add if not covered
+        route_keywords = {
+            "direct_local": ["你好", "天气", "计算", "翻译", "什么是", "解释", "闲聊", "问候"],
+            "gateway": ["执行", "代码", "Volcano", "部署", "架构", "方案", "规划", "编排", "工作流"],
+            "multimodal": ["图片", "OCR", "视觉", "音频", "视频", "识别", "截图", "摄像头"],
+            "local_inference": ["隐私", "敏感", "个人信息", "医疗", "财务", "脱敏", "机密"],
+        }
+
+        keywords = route_keywords.get(route_path)
+        if not keywords:
+            return
+
+        # Check existing rules
+        existing_rules = self._parse_routing_rules_from_memory()
+        summary_lower = request_summary.lower()
+
+        # Find which keyword in the summary matches this route's group
+        matched_kw = None
+        for kw in keywords:
+            if kw in summary_lower:
+                # Check if already covered by existing rules
+                already_covered = False
+                for rule in existing_rules:
+                    if kw in rule.get("keywords", []):
+                        already_covered = True
+                        break
+                if not already_covered:
+                    matched_kw = kw
+                    break
+
+        if not matched_kw:
+            return
+
+        # Add the keyword to the matching rule in MEMORY.md
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                mem_content = f.read()
+        except Exception:
+            return
+
+        patterns_header = "## Routing Patterns Learned"
+        if patterns_header not in mem_content:
+            return
+
+        # Find the rule line for this route that most closely matches
+        parts = mem_content.split(patterns_header, 1)
+        before = parts[0]
+        after = parts[1] if len(parts) > 1 else ""
+
+        next_section = after.find("\n## ")
+        if next_section >= 0:
+            patterns_section = after[:next_section]
+            rest = after[next_section:]
+        else:
+            patterns_section = after
+            rest = ""
+
+        # Find the best matching rule line for this route_path
+        best_line_idx = -1
+        best_match_count = 0
+        lines = patterns_section.split("\n")
+        for i, line in enumerate(lines):
+            if not line.strip().startswith("-"):
+                continue
+            if f"→ {route_path}" not in line:
+                continue
+            # Count how many existing keywords match the summary
+            kw_match = re.search(r'\[(.+?)\]', line)
+            if kw_match:
+                existing_kws = [k.strip() for k in kw_match.group(1).split(",")]
+                match_count = sum(1 for k in existing_kws if k in summary_lower)
+                if match_count > best_match_count:
+                    best_match_count = match_count
+                    best_line_idx = i
+
+        if best_line_idx < 0:
+            return
+
+        # Add the new keyword to the existing keyword list
+        old_line = lines[best_line_idx]
+        kw_match = re.search(r'\[(.+?)\]', old_line)
+        if not kw_match:
+            return
+
+        existing_kws = [k.strip() for k in kw_match.group(1).split(",")]
+        if matched_kw in existing_kws:
+            return  # Already there
+
+        existing_kws.append(matched_kw)
+        # Keep keyword list manageable (max 20)
+        if len(existing_kws) > 20:
+            existing_kws = existing_kws[-20:]
+
+        new_kw_str = ", ".join(existing_kws)
+        new_line = old_line[:kw_match.start()] + "[" + new_kw_str + "]" + old_line[kw_match.end():]
+        lines[best_line_idx] = new_line
+
+        new_patterns = "\n".join(lines)
+        new_content = before + patterns_header + new_patterns + rest
+
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        # Invalidate cache
+        self._memory_context_cached_at = 0
+        logger.info(f"Pattern discovered: keyword '{matched_kw}' added to {route_path} rule in MEMORY.md")
+
+    def _prune_latency_gap(self, content: str) -> None:
+        """Check latency gap between routes and reinforce simple→local rules.
+
+        If gateway is significantly slower than direct_local, add a reminder
+        to Key Rules to ensure simple requests avoid gateway.
+        """
+        # Parse latency stats
+        stats = {}
+        stats_pattern = r"- (\w+): avg=(\d+)ms, p95=(\d+)ms, samples=(\d+)"
+        for match in re.finditer(stats_pattern, content):
+            rp, avg, p95, samples = match.group(1), int(match.group(2)), int(match.group(3)), int(match.group(4))
+            stats[rp] = {"avg": avg, "p95": p95, "samples": samples}
+
+        if "gateway" not in stats or "direct_local" not in stats:
+            return
+        if stats["gateway"]["samples"] < 5:
+            return
+
+        gw_avg = stats["gateway"]["avg"]
+        dl_avg = stats["direct_local"]["avg"]
+        if dl_avg == 0 or gw_avg <= dl_avg * 10:
+            return
+
+        # Gateway is 10x+ slower — ensure Key Rules has a latency gap note
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                mem_content = f.read()
+        except Exception:
+            return
+
+        key_rules_header = "## Key Rules"
+        if key_rules_header not in mem_content:
+            return
+
+        # Check if latency gap note already exists with current data
+        gap_note = f"gateway延迟avg~{gw_avg // 1000}s, 简单请求优先用direct_local(avg~{dl_avg // 1000}s)"
+        if gap_note in mem_content:
+            return  # Already up to date
+
+        # Remove old gap note if exists
+        old_gap_pattern = r"- gateway延迟avg~\d+s, 简单请求优先用direct_local\(avg~\d+s\)\n?"
+        mem_content = re.sub(old_gap_pattern, "", mem_content)
+
+        # Add updated gap note
+        parts = mem_content.split(key_rules_header, 1)
+        before = parts[0]
+        after = parts[1] if len(parts) > 1 else ""
+
+        next_section = after.find("\n## ")
+        if next_section >= 0:
+            rules_section = after[:next_section]
+            rest = after[next_section:]
+        else:
+            rules_section = after
+            rest = ""
+
+        new_rules = rules_section.rstrip() + f"\n- {gap_note}\n"
+        new_content = before + key_rules_header + new_rules + rest
+
+        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        self._memory_context_cached_at = 0
+        logger.info(f"Latency gap pruned: gateway={gw_avg}ms vs direct_local={dl_avg}ms "
+                     f"({gw_avg / dl_avg:.0f}x slower)")
 
     def _evolve_rule_from_feedback(self, failed_route: str, request_summary: str) -> None:
         """Extract a new routing rule from failed feedback and add to Memory.
@@ -1087,12 +1277,11 @@ class OfficialHermesAdapter:
     def _post_validate_route(self, routing: Dict, request: Dict) -> Dict:
         """Post-validate routing decision.
 
-        Simplified routing logic:
-        - Agent-related (tools, code, tool_call, high complexity) → gateway (OfficialGW)
-        - Everything else → direct_local (Ollama/vLLM)
-        - Privacy override: require_local → local_inference
-
-        This prevents LLM from making wrong routing decisions (e.g. score=3 → agent_chain).
+        New 4-category routing strategy:
+        - 单步问答 (simple Q&A) → direct_local (Ollama/vLLM)
+        - 多步批处理 (multi-step, code, Volcano) → gateway (OfficialGW→Agent→Volcano)
+        - 多模态 (image/audio/video) → multimodal (多模态专用模型)
+        - 隐私敏感 → local_inference (本地模型, 隐私保护)
         """
         route = routing.get("route_path", "")
         prompt = request.get("prompt", "")
@@ -1116,23 +1305,50 @@ class OfficialHermesAdapter:
             routing["post_validated"] = True
             return routing
 
-        # Rule 2: Determine correct route based on request characteristics
-        # High-complexity keywords indicate agent-related tasks regardless of score
-        high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-        has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+        # Rule 2: Multimodal detection
+        multimodal_keywords = [
+            "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+            "音频", "语音", "录音", "视频", "画面", "摄像头",
+            "image", "photo", "picture", "screenshot", "vision", "ocr",
+            "audio", "voice", "video", "camera", "multimodal",
+            "分析图片", "描述图片", "图片中", "图中", "截图中的",
+        ]
+        has_multimodal = any(kw in prompt for kw in multimodal_keywords)
+        # Also check if request has image/audio attachments
+        attachments = request.get("attachments", [])
+        if attachments:
+            has_multimodal = True
 
-        is_agent_related = (
+        if has_multimodal:
+            routing["route_path"] = "multimodal"
+            routing["reason"] = f"Override: multimodal request (was {route})"
+            routing["post_validated"] = True
+            return routing
+
+        # Rule 3: Multi-step batch / Volcano / Agent-related detection
+        multi_step_keywords = [
+            "多步骤", "多步", "批处理", "批量", "自主", "设计", "规划", "执行计划",
+            "自主执行", "架构", "方案", "调研", "流程", "编排", "工作流", "pipeline",
+            "Volcano", "volcano", "分布式", "微服务", "部署", "发布",
+        ]
+        has_multi_step = any(kw in prompt for kw in multi_step_keywords)
+
+        is_gateway_route = (
             has_tools
             or req_type in ("code", "code_execution", "tool_call")
             or complexity >= 40
-            or has_high_complexity_keywords
+            or has_multi_step
         )
 
-        correct_route = "gateway" if is_agent_related else "direct_local"
+        # Rule 4: Simple single-step Q&A → direct_local
+        if is_gateway_route:
+            correct_route = "gateway"
+        else:
+            correct_route = "direct_local"
 
         if route != correct_route:
             routing["route_path"] = correct_route
-            routing["reason"] = f"Override: {'agent-related' if is_agent_related else 'simple'} request (was {route}, complexity={complexity})"
+            routing["reason"] = f"Override: {'multi-step/agent' if is_gateway_route else 'single-step Q&A'} request (was {route}, complexity={complexity})"
             routing["post_validated"] = True
             return routing
 

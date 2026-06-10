@@ -26,6 +26,36 @@ const volcanoState = {
   jobIdCounter: 1000,
 };
 
+// ── Request History ────────────────────────────────────────────────
+const requestHistory = [];
+const MAX_HISTORY = 200;
+
+function recordRequest(reqBody, resBody, taskType, volcanoJob, processingTime) {
+  const entry = {
+    id: `ogw-req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+    request: {
+      model: reqBody.model || "openclaw/default",
+      messages: reqBody.messages || [],
+      stream: reqBody.stream || false,
+    },
+    response: {
+      id: resBody.id,
+      model: resBody.model,
+      task_type: taskType,
+      content: resBody.choices?.[0]?.message?.content?.slice(0, 500) || "",
+      finish_reason: resBody.choices?.[0]?.finish_reason || "stop",
+      usage: resBody.usage || {},
+    },
+    volcano_job: volcanoJob || null,
+    processing_time_ms: Math.round(processingTime),
+    routing_trace: ["hermes", "gateway", "openclaw-official-gw", "volcano"],
+  };
+  requestHistory.unshift(entry);
+  if (requestHistory.length > MAX_HISTORY) requestHistory.length = MAX_HISTORY;
+  return entry;
+}
+
 function submitVolcanoJob(taskName, queue, resources) {
   const jobId = `volcano-job-${volcanoState.jobIdCounter++}`;
   const job = {
@@ -213,12 +243,42 @@ const server = http.createServer(async (req, res) => {
       },
     };
 
+    // Record request history
+    const historyEntry = recordRequest(body, response, taskType, volcanoJob, processingTime);
+    // Include request ID in response for traceability
+    response.openclaw_metadata.request_id = historyEntry.id;
+
     console.log(
-      `[OpenClaw GW] ✓ ${model} | task=${taskType} | volcano=${volcanoJob.job_id} | queue=${queue} | ${Math.round(processingTime)}ms`
+      `[OpenClaw GW] ✓ ${model} | task=${taskType} | volcano=${volcanoJob.job_id} | queue=${queue} | ${Math.round(processingTime)}ms | req=${historyEntry.id}`
     );
 
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(response));
+    return;
+  }
+
+  // Request history — list recent requests
+  if (url.pathname === "/requests" && method === "GET") {
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), MAX_HISTORY);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      total: requestHistory.length,
+      requests: requestHistory.slice(0, limit),
+    }));
+    return;
+  }
+
+  // Request history — single request detail
+  if (url.pathname.startsWith("/requests/") && method === "GET") {
+    const reqId = url.pathname.slice("/requests/".length);
+    const entry = requestHistory.find((e) => e.id === reqId);
+    if (!entry) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Request not found", id: reqId }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(entry));
     return;
   }
 

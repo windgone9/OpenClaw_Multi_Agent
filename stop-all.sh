@@ -91,7 +91,7 @@ stop_service() {
 
 clean_temp_files() {
   local cleaned=0
-  for f in /tmp/openclaw-gw.log /tmp/openclaw-bridge.log /tmp/openclaw-official.log /tmp/openclaw-scheduler.log /tmp/openclaw-hermes.log; do
+  for f in /tmp/openclaw-official.log /tmp/openclaw-hermes.log; do
     if [ -f "$f" ]; then
       rm -f "$f"
       cleaned=$((cleaned + 1))
@@ -103,8 +103,8 @@ clean_temp_files() {
 }
 
 echo ""
-echo "🦞 OpenClaw Multi-Agent 服务停止脚本"
-echo "======================================"
+echo "🦞 OpenClaw Multi-Agent 服务停止脚本 (v3.0 - 简化架构)"
+echo "========================================================"
 echo ""
 
 if [ "$1" = "force" ]; then
@@ -118,12 +118,10 @@ STOPPED=0
 FAILED=0
 SKIPPED=0
 
+# Simplified service list (no Bridge/Custom Gateway/Python Scheduler)
 SERVICES=(
-  "8082:/health:Hermes 智能路由"
-  "8000:/health:Python 调度器"
+  "8082:/health:Hermes Agent"
   "3005:/health:Official Gateway"
-  "3001:/health:Bridge"
-  "3000:/health:Custom Gateway"
 )
 
 echo "按依赖顺序停止服务（从上层到下层）:"
@@ -191,7 +189,7 @@ else
 fi
 
 echo ""
-echo "======================================"
+echo "========================================================"
 if [ $FAILED -eq 0 ]; then
   echo -e "🛑 服务已全部停止 (停止: ${STOPPED}个, 跳过: ${SKIPPED}个)"
 else

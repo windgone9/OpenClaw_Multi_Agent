@@ -90,17 +90,15 @@ ensure_service() {
 }
 
 echo ""
-echo "🦞 OpenClaw Multi-Agent 一键启动脚本"
-echo "======================================"
+echo "🦞 OpenClaw Multi-Agent 一键启动脚本 (v3.0 - 简化架构)"
+echo "========================================================"
 echo ""
 
 if [ "$1" = "stop" ]; then
   log_info "停止所有服务..."
-  kill_port 8082; log_ok "Hermes (:8082) 已停止"
-  kill_port 3001; log_ok "Bridge (:3001) 已停止"
-  kill_port 3000; log_ok "Custom Gateway (:3000) 已停止"
+  kill_port 8082; log_ok "Hermes Agent (:8082) 已停止"
   kill_port 3005; log_ok "Official Gateway (:3005) 已停止"
-  kill_port 8000; log_ok "Python Scheduler (:8000) 已停止"
+  kill_port 11434; log_ok "Ollama (:11434) 已停止"
   echo ""
   log_ok "所有服务已停止"
   exit 0
@@ -108,7 +106,7 @@ fi
 
 if [ "$1" = "status" ]; then
   echo "服务状态:"
-  for svc in "8082:/health:Hermes" "3000:/health:Custom Gateway" "3001:/health:Bridge" "3005:/health:Official Gateway" "8000:/health:Python Scheduler" "11434::Ollama"; do
+  for svc in "8082:/health:Hermes Agent" "3005:/health:Official Gateway" "11434::Ollama"; do
     port="${svc%%:*}"
     rest="${svc#*:}"
     health_path="${rest%%:*}"
@@ -127,7 +125,8 @@ fi
 STARTED=0
 FAILED=0
 
-log_info "1/6 检查 Ollama..."
+# ── Step 1: Ollama (本地大模型) ──────────────────────────────────
+log_info "1/3 检查 Ollama (本地大模型)..."
 if check_port 11434; then
   log_ok "Ollama (:11434) 已运行"
 else
@@ -142,34 +141,27 @@ else
   fi
 fi
 
-log_info "2/6 启动 Custom Gateway (:3000)..."
-if ensure_service "Custom Gateway" 3000 "/health" \
-  "nohup node gateway/gateway.mjs &>/tmp/openclaw-gw.log &" \
-  "/tmp/openclaw-gw.log" 8; then
-  STARTED=$((STARTED + 1))
-else
-  FAILED=$((FAILED + 1))
-fi
-
-log_info "3/6 启动 Bridge (:3001)..."
-if ensure_service "Bridge" 3001 "/health" \
-  "nohup node bridge/orchestrator.mjs &>/tmp/openclaw-bridge.log &" \
-  "/tmp/openclaw-bridge.log" 8; then
-  STARTED=$((STARTED + 1))
-else
-  FAILED=$((FAILED + 1))
-fi
-
-log_info "4/6 启动 OpenClaw 官方 Gateway (:3005)..."
+# ── Step 2: Official Gateway (OpenClaw 官方网关) ─────────────────
+log_info "2/3 启动 OpenClaw 官方 Gateway (:3005)..."
 OPENCLAW_BIN=""
-if [ -f "$HOME/MyWork/OpenClaw/openclaw/openclaw.mjs" ]; then
+if [ -f "$SCRIPT_DIR/openclaw-gw-mock.mjs" ]; then
+  OPENCLAW_BIN="$SCRIPT_DIR/openclaw-gw-mock.mjs"
+  OPENCLAW_ARGS=""
+elif [ -f "$HOME/MyWork/OpenClaw/openclaw/openclaw.mjs" ]; then
   OPENCLAW_BIN="$HOME/MyWork/OpenClaw/openclaw/openclaw.mjs"
+  OPENCLAW_ARGS="gateway run --port 3005 --auth none --force"
 elif command -v openclaw &>/dev/null; then
   OPENCLAW_BIN="$(which openclaw)"
+  OPENCLAW_ARGS="gateway run --port 3005 --auth none --force"
 fi
 if [ -n "$OPENCLAW_BIN" ]; then
+  if [ -n "$OPENCLAW_ARGS" ]; then
+    START_CMD="nohup node \"$OPENCLAW_BIN\" $OPENCLAW_ARGS &>/tmp/openclaw-official.log &"
+  else
+    START_CMD="nohup node \"$OPENCLAW_BIN\" &>/tmp/openclaw-official.log &"
+  fi
   if ensure_service "Official Gateway" 3005 "/health" \
-    "nohup node \"$OPENCLAW_BIN\" gateway run --port 3005 --auth none --force &>/tmp/openclaw-official.log &" \
+    "$START_CMD" \
     "/tmp/openclaw-official.log" 15; then
     STARTED=$((STARTED + 1))
   else
@@ -179,21 +171,13 @@ else
   log_warn "未找到 OpenClaw，跳过 Official Gateway (可通过 Dashboard 按钮启动)"
 fi
 
-log_info "5/6 启动 Python 调度器 (:8000)..."
-if ensure_service "Python Scheduler" 8000 "/health" \
-  "nohup ./venv/bin/python run.py &>/tmp/openclaw-scheduler.log &" \
-  "/tmp/openclaw-scheduler.log" 10; then
-  STARTED=$((STARTED + 1))
-else
-  FAILED=$((FAILED + 1))
-fi
-
-log_info "6/6 启动 Hermes 智能路由 (:8082)..."
+# ── Step 3: Hermes Agent 智能路由 ────────────────────────────────
+log_info "3/3 启动 Hermes Agent 智能路由 (:8082)..."
 HERMES_PYTHON="${HERMES_PYTHON:-./venv/bin/python}"
 if [ ! -x "$HERMES_PYTHON" ]; then
   HERMES_PYTHON="$(which python3 2>/dev/null || which python 2>/dev/null)"
 fi
-if ensure_service "Hermes 智能路由" 8082 "/health" \
+if ensure_service "Hermes Agent" 8082 "/health" \
   "nohup $HERMES_PYTHON -m hermes.server &>/tmp/openclaw-hermes.log &" \
   "/tmp/openclaw-hermes.log" 10; then
   STARTED=$((STARTED + 1))
@@ -202,19 +186,19 @@ else
 fi
 
 echo ""
-echo "======================================"
+echo "========================================================"
 if [ $FAILED -eq 0 ]; then
   echo -e "🚀 服务启动完成！(新启动: ${STARTED}个)"
 else
   echo -e "⚠️  服务启动完成，${FAILED}个服务失败 (新启动: ${STARTED}个)"
 fi
 echo ""
-echo "  Dashboard:    http://localhost:3001/static/dashboard.html"
-echo "  Hermes:       http://localhost:8082/health"
-echo "  Bridge API:   http://localhost:3001/health"
-echo "  Gateway:      http://localhost:3000/health"
-echo "  Official GW:  http://localhost:3005"
-echo "  Scheduler:    http://localhost:8000"
+echo "  架构: [请求队列] → Hermes Agent 路由 → { Ollama | OfficialGW | 多模态模型 }"
+echo ""
+echo "  Hermes Agent:  http://localhost:8082/health"
+echo "  Dashboard:     http://localhost:8082/static/dashboard.html"
+echo "  Official GW:   http://localhost:3005"
+echo "  Ollama:        http://localhost:11434"
 echo ""
 echo "  停止所有服务: $0 stop"
 echo "  查看服务状态: $0 status"

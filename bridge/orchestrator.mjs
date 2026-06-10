@@ -1351,6 +1351,49 @@ const server = createServer(async (req, res) => {
           body.constraints.require_local = true;
           result = await dispatchViaOpenClaw(body);
           result.routing_note = "Hermes direct_local: routed via Gateway to registered local model (Ollama/vLLM)";
+        } else if (hermesPath === "multimodal") {
+          // Multimodal requests → Gateway with multimodal model preference
+          // Route to a model that supports vision/audio capabilities
+          if (!body.constraints) body.constraints = {};
+          body.constraints.prefer_multimodal = true;
+          body.constraints.require_local = true; // Prefer local multimodal model first
+          result = await dispatchViaOpenClaw(body);
+          // If local model doesn't support multimodal, fallback to Official GW
+          if (result.status !== "success" || result.fallback_used) {
+            try {
+              const agentId = resolveAgentId(body);
+              const mmResult = await callOpenClawOfficialGateway(body, agentId);
+              result = {
+                request_id: body.request_id,
+                appid: body.appid,
+                status: "success",
+                result: mmResult,
+                fallback_results: null,
+                agent_trace: [
+                  { step: "hermes_multimodal", action: "Multimodal request → Official OpenClaw GW (local multimodal unavailable)", agent: agentId, ts: Date.now() },
+                ],
+                execution_context: {
+                  agent_id: agentId,
+                  status: "completed",
+                  total_duration_ms: mmResult.latency_ms || 0,
+                  mode: "hermes_multimodal_official",
+                },
+                strategy_name: "hermes_multimodal",
+                routing_decision: {
+                  agent_type: "multimodal",
+                  selected_endpoint: mmResult.model_name || "multimodal-model",
+                  strategy_name: "hermes_multimodal_official",
+                  reason: "Hermes multimodal route → Official OpenClaw GW (multimodal model)",
+                  openclaw_gateway: OPENCLAW_OFFICIAL_GATEWAY_URL,
+                },
+              };
+            } catch (mmError) {
+              console.error(`[Bridge] Official GW multimodal fallback failed: ${mmError.message}`);
+              result.routing_note = `Multimodal: Official GW unavailable (${mmError.message}), using local model`;
+            }
+          } else {
+            result.routing_note = "Hermes multimodal: routed via Gateway to local multimodal model";
+          }
         } else if (hermesPath === "gateway") {
           // Agent-related requests → Official OpenClaw GW directly
           // Bypasses local Gateway (3000) and goes straight to Official GW (3005)
@@ -1649,16 +1692,27 @@ const server = createServer(async (req, res) => {
         );
         sendJson(res, 200, result);
       } else if (service === "officialGateway") {
+        // Priority: 1) project mock  2) OpenClaw installation  3) global openclaw
+        const mockPath = join(PROJECT_ROOT, "openclaw-gw-mock.mjs");
         const openclawPath = join(PROJECT_ROOT, "..", "OpenClaw", "openclaw", "openclaw.mjs");
         const altPath = join(process.env.HOME || "/root", ".openclaw", "openclaw.mjs");
-        const cmdPath = existsSync(openclawPath) ? openclawPath : altPath;
-        if (!existsSync(cmdPath)) {
+        let cmdArgs, cmdCwd;
+        if (existsSync(mockPath)) {
+          cmdArgs = [mockPath];
+          cmdCwd = PROJECT_ROOT;
+          console.log(`[Bridge] Using OfficialGW mock: ${mockPath}`);
+        } else if (existsSync(openclawPath)) {
+          cmdArgs = [openclawPath, "gateway", "run", "--port", "3005", "--auth", "none", "--force"];
+          cmdCwd = dirname(openclawPath);
+        } else if (existsSync(altPath)) {
+          cmdArgs = [altPath, "gateway", "run", "--port", "3005", "--auth", "none", "--force"];
+          cmdCwd = dirname(altPath);
+        } else {
           sendJson(res, 404, { started: false, message: "OpenClaw not found. Install: npm i -g openclaw" });
           return;
         }
         const result = startManagedService(
-          "officialGateway", "node", [cmdPath, "gateway", "run", "--port", "3005", "--auth", "none", "--force"],
-          dirname(cmdPath), 3005
+          "officialGateway", "node", cmdArgs, cmdCwd, 3005
         );
         sendJson(res, 200, result);
       } else {
