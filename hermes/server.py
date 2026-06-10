@@ -119,10 +119,15 @@ async def lifespan(app: FastAPI):
     _register_known_models()
     dispatch_worker.start()
     logger.info(f"  Dispatch worker started ({DISPATCH_WORKERS} threads)")
-    # Auto-start watchdog
+    # Auto-start watchdog (load config from file first)
+    global _watchdog_config
+    _watchdog_config = _load_watchdog_config()
     _watchdog_running = True
     _watchdog_task = asyncio.create_task(_watchdog_loop())
-    logger.info("  Service watchdog started (interval=%ds)", _watchdog_config["interval_seconds"])
+    logger.info("  Service watchdog started (interval=%ds, grace=%ds, shutdown_timeout=%ds)",
+                _watchdog_config["interval_seconds"],
+                _watchdog_config.get("startup_grace_seconds", 45),
+                _watchdog_config.get("shutdown_timeout_seconds", 5))
     yield
     _watchdog_running = False
     dispatch_worker.stop()
@@ -1110,13 +1115,42 @@ class ServiceStopRequest(BaseModel):
 # ── Service Watchdog ──────────────────────────────────────────────
 _watchdog_running = False
 _watchdog_task = None
-_watchdog_config = {
+
+# Default config — overridden by watchdog_config.json if present
+_DEFAULT_WATCHDOG_CONFIG = {
     "enabled": True,
     "interval_seconds": 30,
     "max_restart_attempts": 3,
     "restart_cooldown_seconds": 60,
+    "startup_grace_seconds": 45,
+    "shutdown_timeout_seconds": 5,
+    "port_cleanup_wait_seconds": 3,
 }
-_restart_history = {}  # service -> {"attempts": int, "last_attempt": float}
+_watchdog_config = dict(_DEFAULT_WATCHDOG_CONFIG)
+_restart_history = {}  # service -> {"attempts": int, "last_attempt": float, "last_restart_time": float}
+_service_start_times = {}  # service -> float (timestamp when last started/restarted)
+
+
+def _load_watchdog_config():
+    """Load watchdog configuration from JSON file, falling back to defaults."""
+    config_path = os.path.join(os.path.dirname(__file__), "watchdog_config.json")
+    if not os.path.isfile(config_path):
+        logger.info("[Watchdog] No config file found at %s, using defaults", config_path)
+        return dict(_DEFAULT_WATCHDOG_CONFIG)
+    try:
+        import json as _json
+        with open(config_path, "r") as f:
+            file_cfg = _json.load(f)
+        wd_cfg = file_cfg.get("watchdog", {})
+        merged = dict(_DEFAULT_WATCHDOG_CONFIG)
+        for key in _DEFAULT_WATCHDOG_CONFIG:
+            if key in wd_cfg:
+                merged[key] = wd_cfg[key]
+        logger.info("[Watchdog] Loaded config from %s: %s", config_path, merged)
+        return merged
+    except Exception as e:
+        logger.warning("[Watchdog] Failed to load config from %s: %s, using defaults", config_path, e)
+        return dict(_DEFAULT_WATCHDOG_CONFIG)
 
 
 def _get_openclaw_cmd():
@@ -1152,6 +1186,29 @@ def _get_service_configs():
         "port": 11434,
         "health_url": "http://127.0.0.1:11434/api/tags",
     }
+    # Override from config file if present
+    config_path = os.path.join(os.path.dirname(__file__), "watchdog_config.json")
+    if os.path.isfile(config_path):
+        try:
+            import json as _json
+            with open(config_path, "r") as f:
+                file_cfg = _json.load(f)
+            svc_cfg = file_cfg.get("services", {})
+            for name, overrides in svc_cfg.items():
+                if name in SERVICE_CONFIGS:
+                    for k, v in overrides.items():
+                        if v is not None and k not in ("cmd", "cwd", "description"):
+                            SERVICE_CONFIGS[name][k] = v
+                elif overrides.get("cmd") and overrides.get("port"):
+                    # New service from config
+                    SERVICE_CONFIGS[name] = {
+                        "cmd": overrides["cmd"],
+                        "cwd": overrides.get("cwd") or PROJECT_ROOT,
+                        "port": overrides["port"],
+                        "health_url": overrides.get("health_url", f"http://127.0.0.1:{overrides['port']}/health"),
+                    }
+        except Exception as e:
+            logger.warning("[Watchdog] Failed to load service configs from %s: %s", config_path, e)
     return SERVICE_CONFIGS
 
 
@@ -1176,13 +1233,23 @@ async def _check_service_health(name: str) -> bool:
 async def _watchdog_loop():
     """Background watchdog that periodically checks services and auto-restarts."""
     global _watchdog_running
-    logger.info("[Watchdog] Starting service watchdog (interval=%ds)", _watchdog_config["interval_seconds"])
+    logger.info("[Watchdog] Starting service watchdog (interval=%ds, grace=%ds)",
+                _watchdog_config["interval_seconds"], _watchdog_config["startup_grace_seconds"])
     while _watchdog_running:
         await asyncio.sleep(_watchdog_config["interval_seconds"])
         if not _watchdog_running:
             break
         configs = _get_service_configs()
+        now = time.time()
         for name, cfg in configs.items():
+            # Skip health check if service was recently restarted (grace period)
+            start_time = _service_start_times.get(name, 0)
+            grace = _watchdog_config.get("startup_grace_seconds", 45)
+            if (now - start_time) < grace:
+                logger.debug("[Watchdog] %s: in startup grace period (%.0fs remaining), skipping",
+                             name, grace - (now - start_time))
+                continue
+
             healthy = await _check_service_health(name)
             if healthy:
                 # Reset restart attempts on healthy check
@@ -1191,7 +1258,6 @@ async def _watchdog_loop():
                 continue
 
             # Service is down — check if we should restart
-            now = time.time()
             hist = _restart_history.get(name, {"attempts": 0, "last_attempt": 0})
 
             if hist["attempts"] >= _watchdog_config["max_restart_attempts"]:
@@ -1208,14 +1274,27 @@ async def _watchdog_loop():
             hist["last_attempt"] = now
             _restart_history[name] = hist
 
-            # Stop existing managed process if any
+            # Stop existing managed process gracefully (SIGTERM first, then SIGKILL)
+            shutdown_timeout = _watchdog_config.get("shutdown_timeout_seconds", 5)
             with _proc_lock:
                 existing = _managed_procs.get(name)
                 if existing and existing.get("process"):
+                    proc = existing["process"]
                     try:
-                        existing["process"].kill()  # Use SIGKILL for faster cleanup
+                        proc.terminate()  # SIGTERM first — allow graceful shutdown
+                        logger.info("[Watchdog] %s: sent SIGTERM to pid %d (timeout=%ds)",
+                                    name, proc.pid, shutdown_timeout)
+                        try:
+                            proc.wait(timeout=shutdown_timeout)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()  # SIGKILL if still running
+                            logger.info("[Watchdog] %s: SIGTERM timeout (%ds), sent SIGKILL to pid %d",
+                                        name, shutdown_timeout, proc.pid)
                     except Exception:
-                        pass
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
                     # Close log file handles
                     for log_key in ("stdout_log", "stderr_log"):
                         fh = existing.get(log_key)
@@ -1224,26 +1303,45 @@ async def _watchdog_loop():
                     existing["process"] = None
                     existing["status"] = "stopped"
 
-            # Also kill any leftover process on the port
+            # Also kill any leftover process on the port (graceful first)
             port = cfg.get("port")
+            cleanup_wait = _watchdog_config.get("port_cleanup_wait_seconds", 3)
             if port:
                 try:
                     import signal
+                    pids_to_kill = []
                     for pid_str in os.popen(f"lsof -ti:{port} 2>/dev/null").read().strip().split():
                         if pid_str and int(pid_str) != os.getpid():
-                            os.kill(int(pid_str), signal.SIGKILL)
-                            logger.info("[Watchdog] Killed leftover pid %s on port %d", pid_str, port)
+                            pids_to_kill.append(int(pid_str))
+                    # SIGTERM first
+                    for pid in pids_to_kill:
+                        try:
+                            os.kill(pid, signal.SIGTERM)
+                            logger.info("[Watchdog] Sent SIGTERM to leftover pid %d on port %d", pid, port)
+                        except ProcessLookupError:
+                            pass
+                    # Wait for graceful shutdown
+                    await asyncio.sleep(cleanup_wait)
+                    # SIGKILL any survivors
+                    for pid in pids_to_kill:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                            logger.info("[Watchdog] Sent SIGKILL to surviving pid %d on port %d", pid, port)
+                        except ProcessLookupError:
+                            pass
                 except Exception:
                     pass
 
             # Wait for port to be freed
-            await asyncio.sleep(2)
+            await asyncio.sleep(cleanup_wait)
 
             # Attempt to start the service
             try:
                 req = ServiceStartRequest(service=name)
                 await api_start_service(req)
-                logger.info("[Watchdog] %s: restart initiated", name)
+                _service_start_times[name] = time.time()  # Record restart time for grace period
+                logger.info("[Watchdog] %s: restart initiated (grace period=%ds)",
+                            name, _watchdog_config.get("startup_grace_seconds", 45))
             except Exception as e:
                 logger.error("[Watchdog] %s: restart failed: %s", name, e)
 
@@ -1283,6 +1381,7 @@ async def api_start_service(req: ServiceStartRequest):
                 "stdout_log": stdout_log,
                 "stderr_log": stderr_log,
             }
+            _service_start_times[name] = time.time()  # Record start time for grace period
 
         def _watch():
             proc.wait()
@@ -1347,7 +1446,14 @@ async def api_services_status():
         "enabled": _watchdog_running,
         "interval_seconds": _watchdog_config["interval_seconds"],
         "max_restart_attempts": _watchdog_config["max_restart_attempts"],
+        "startup_grace_seconds": _watchdog_config.get("startup_grace_seconds", 45),
+        "shutdown_timeout_seconds": _watchdog_config.get("shutdown_timeout_seconds", 5),
+        "port_cleanup_wait_seconds": _watchdog_config.get("port_cleanup_wait_seconds", 3),
         "restart_history": {k: v for k, v in _restart_history.items() if v["attempts"] > 0},
+        "service_start_times": {k: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(v))
+                                for k, v in _service_start_times.items()},
+        "config_source": "watchdog_config.json" if os.path.isfile(
+            os.path.join(os.path.dirname(__file__), "watchdog_config.json")) else "defaults",
     }
     return result
 
@@ -1379,17 +1485,38 @@ async def api_watchdog_status():
         "running": _watchdog_running,
         "config": _watchdog_config,
         "restart_history": _restart_history,
+        "service_start_times": {k: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(v))
+                                for k, v in _service_start_times.items()},
         "monitored_services": list(_get_service_configs().keys()),
     }
 
 
 @app.post("/watchdog/config", summary="Update watchdog configuration")
 async def api_watchdog_config_update(enabled: bool = True, interval_seconds: int = 30,
-                                      max_restart_attempts: int = 3, restart_cooldown_seconds: int = 60):
+                                      max_restart_attempts: int = 3, restart_cooldown_seconds: int = 60,
+                                      startup_grace_seconds: int = 45, shutdown_timeout_seconds: int = 5,
+                                      port_cleanup_wait_seconds: int = 3):
     _watchdog_config["enabled"] = enabled
     _watchdog_config["interval_seconds"] = max(10, interval_seconds)
     _watchdog_config["max_restart_attempts"] = max(1, max_restart_attempts)
     _watchdog_config["restart_cooldown_seconds"] = max(10, restart_cooldown_seconds)
+    _watchdog_config["startup_grace_seconds"] = max(15, startup_grace_seconds)
+    _watchdog_config["shutdown_timeout_seconds"] = max(1, shutdown_timeout_seconds)
+    _watchdog_config["port_cleanup_wait_seconds"] = max(1, port_cleanup_wait_seconds)
+    # Persist to config file
+    try:
+        import json as _json
+        config_path = os.path.join(os.path.dirname(__file__), "watchdog_config.json")
+        file_cfg = {}
+        if os.path.isfile(config_path):
+            with open(config_path, "r") as f:
+                file_cfg = _json.load(f)
+        file_cfg["watchdog"] = dict(_watchdog_config)
+        with open(config_path, "w") as f:
+            _json.dump(file_cfg, f, indent=2)
+        logger.info("[Watchdog] Config updated and saved to %s", config_path)
+    except Exception as e:
+        logger.warning("[Watchdog] Failed to persist config: %s", e)
     return {"updated": True, "config": _watchdog_config}
 
 

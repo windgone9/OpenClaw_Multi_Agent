@@ -1,0 +1,32 @@
+{
+  "watchdog": {
+    "enabled": true,
+    "interval_seconds": 30,
+    "max_restart_attempts": 3,
+    "restart_cooldown_seconds": 60,
+    "startup_grace_seconds": 45,
+    "shutdown_timeout_seconds": 5,
+    "port_cleanup_wait_seconds": 3
+  },
+  "services": {
+    "officialGateway": {
+      "cmd": null,
+      "cwd": null,
+      "port": 3005,
+      "health_url": "http://127.0.0.1:3005/health",
+      "startup_grace_override": null,
+      "description": "OpenClaw Official Gateway"
+    },
+    "ollama": {
+      "cmd": [
+        "ollama",
+        "serve"
+      ],
+      "cwd": null,
+      "port": 11434,
+      "health_url": "http://127.0.0.1:11434/api/tags",
+      "startup_grace_override": null,
+      "description": "Ollama local inference server"
+    }
+  }
+}
