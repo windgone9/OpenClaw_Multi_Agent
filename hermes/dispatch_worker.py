@@ -46,8 +46,19 @@ OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120.0"))
 OFFICIAL_GW_TIMEOUT = float(os.getenv("OFFICIAL_GW_TIMEOUT", "300.0"))
 
 # Semaphore to limit concurrent Ollama requests (GPU is the bottleneck)
+# This covers BOTH routing decisions AND request execution, since they share the same GPU
 _OLLAMA_MAX_CONCURRENT = int(os.getenv("OLLAMA_MAX_CONCURRENT", "2"))
 _ollama_semaphore = threading.Semaphore(_OLLAMA_MAX_CONCURRENT)
+
+# Semaphore to limit concurrent routing decisions (routing also uses Ollama GPU)
+# Total GPU slots = routing + execution, so routing must be limited to avoid starvation
+_ROUTING_MAX_CONCURRENT = int(os.getenv("ROUTING_MAX_CONCURRENT", "1"))
+_routing_semaphore = threading.Semaphore(_ROUTING_MAX_CONCURRENT)
+
+# Semaphore to limit concurrent OfficialGW requests
+# OfficialGW (Volcano) has limited capacity; too many concurrent requests cause queuing and timeouts
+_GW_MAX_CONCURRENT = int(os.getenv("GW_MAX_CONCURRENT", "3"))
+_gw_semaphore = threading.Semaphore(_GW_MAX_CONCURRENT)
 
 # Multimodal model configuration
 MULTIMODAL_MODEL = os.getenv("MULTIMODAL_MODEL", "llava:7b")
@@ -57,6 +68,31 @@ LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5:3b")
 _ollama_models_cache: list = []
 _ollama_models_cache_ts: float = 0.0
 _OLLAMA_MODELS_CACHE_TTL = 60.0  # refresh every 60s
+
+# Persistent httpx client for Ollama (reuse connections, avoid per-request overhead)
+# Using a single client with connection pooling reduces latency and avoids
+# the "stuck request" problem where new connections queue behind timed-out ones
+_ollama_http_client = httpx.Client(
+    base_url=OLLAMA_URL,
+    timeout=httpx.Timeout(connect=5.0, read=120.0, write=5.0, pool=5.0),
+    limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+)
+_ollama_client_lock = threading.Lock()
+
+
+def _reset_ollama_client():
+    """Reset the Ollama httpx client after a timeout to clear stale connections."""
+    global _ollama_http_client
+    with _ollama_client_lock:
+        try:
+            _ollama_http_client.close()
+        except Exception:
+            pass
+        _ollama_http_client = httpx.Client(
+            base_url=OLLAMA_URL,
+            timeout=httpx.Timeout(connect=5.0, read=120.0, write=5.0, pool=5.0),
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+        )
 
 
 def _get_ollama_models() -> list:
@@ -137,14 +173,18 @@ class DispatchWorker:
     # ── Worker Loop ──────────────────────────────────────────────────
 
     def _worker_loop(self):
+        worker_name = threading.current_thread().name
+        logger.info("[DispatchWorker] Worker thread started: %s", worker_name)
         while self._running:
             try:
                 msg = self.queue.pop(QUEUE_REQUESTS, timeout=self.poll_interval)
                 if msg is None:
                     continue
+                logger.info("[DispatchWorker] [%s] Picked up request: %s",
+                            worker_name, msg.get("request_id", "?")[:8])
                 self._process_request(msg)
             except Exception as e:
-                logger.error(f"Worker error: {e}", exc_info=True)
+                logger.error("[DispatchWorker] [%s] Worker error: %s", worker_name, e, exc_info=True)
                 time.sleep(1)
 
     def _process_request(self, request: Dict):
@@ -168,9 +208,14 @@ class DispatchWorker:
 
         try:
             # Step 1: Route via Hermes Agent (Memory-driven intelligent routing)
-            logger.info("[DispatchWorker] 开始路由决策: appid=%s prompt='%.60s'",
-                        request.get("appid", "default"), request.get("prompt", "")[:60])
-            routing = self.adapter.route_via_agent(request)
+            # Routing uses its own semaphore (limit=1) to avoid GPU overload from routing
+            # Execution uses separate Ollama semaphore (limit=2) — they don't block each other
+            logger.info("[RoutingSemaphore] [%s] Waiting to acquire (limit=%d)...",
+                        request_id, _ROUTING_MAX_CONCURRENT)
+            with _routing_semaphore:
+                logger.info("[RoutingSemaphore] [%s] Acquired, remaining=%d",
+                            request_id, _routing_semaphore._value)
+                routing = self.adapter.route_via_agent(request)
             logger.info("[DispatchWorker] 路由完成: route=%s complexity=%s post_validated=%s",
                         routing.get("route_path"), routing.get("complexity_score"), routing.get("post_validated"))
             result["routing"] = {
@@ -291,12 +336,19 @@ class DispatchWorker:
         }
 
         start = time.time()
+        logger.info("[OllamaSemaphore] [%s] Waiting to acquire (%s, limit=%d)...",
+                    request_id, route_tag, _OLLAMA_MAX_CONCURRENT)
         with _ollama_semaphore:
             logger.info("[OllamaSemaphore] [%s] Acquired (%s), remaining=%d",
                         request_id, route_tag, _ollama_semaphore._value)
-            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+            try:
+                resp = _ollama_http_client.post("/v1/chat/completions", json=payload)
                 resp.raise_for_status()
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                # Reset connection pool after timeout to avoid stale connections
+                logger.warning("[Ollama] [%s] 连接超时 (%s), 重置连接池", request_id, type(e).__name__)
+                _reset_ollama_client()
+                raise
         elapsed_ms = int((time.time() - start) * 1000)
         logger.info("[Ollama] [%s] ✓ 响应成功: route=%s model=%s elapsed=%dms",
                     request_id, route_tag, model, elapsed_ms)
@@ -352,37 +404,41 @@ class DispatchWorker:
                     OFFICIAL_GW_TIMEOUT, prompt[:50])
 
         start = time.time()
-        try:
-            with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
-                resp = client.post(
-                    f"{OFFICIAL_GW_URL}/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
-        except httpx.TimeoutException as e:
-            elapsed_ms = int((time.time() - start) * 1000)
-            logger.error("[OfficialGW] [%s] ✗ 超时: type=%s elapsed=%dms timeout=%.0fs prompt='%.50s'",
-                         request_id, type(e).__name__, elapsed_ms, OFFICIAL_GW_TIMEOUT, prompt[:50])
-            # Log connection state for diagnosis
-            self._log_gw_connection_state(request_id)
-            raise
-        except httpx.HTTPStatusError as e:
-            elapsed_ms = int((time.time() - start) * 1000)
-            logger.error("[OfficialGW] [%s] ✗ HTTP错误: status=%d elapsed=%dms prompt='%.50s'",
-                         request_id, e.response.status_code, elapsed_ms, prompt[:50])
-            raise
-        except httpx.ConnectError as e:
-            elapsed_ms = int((time.time() - start) * 1000)
-            logger.error("[OfficialGW] [%s] ✗ 连接失败: elapsed=%dms error=%s",
-                         request_id, elapsed_ms, str(e)[:100])
-            self._log_gw_connection_state(request_id)
-            raise
-        except Exception as e:
-            elapsed_ms = int((time.time() - start) * 1000)
-            logger.error("[OfficialGW] [%s] ✗ 异常: type=%s elapsed=%dms error=%s",
-                         request_id, type(e).__name__, elapsed_ms, str(e)[:100])
-            raise
+        logger.info("[GWSemaphore] [%s] Waiting to acquire (limit=%d)...",
+                    request_id, _GW_MAX_CONCURRENT)
+        with _gw_semaphore:
+            logger.info("[GWSemaphore] [%s] Acquired, remaining=%d",
+                        request_id, _gw_semaphore._value)
+            try:
+                with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
+                    resp = client.post(
+                        f"{OFFICIAL_GW_URL}/v1/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+            except httpx.TimeoutException as e:
+                elapsed_ms = int((time.time() - start) * 1000)
+                logger.error("[OfficialGW] [%s] ✗ 超时: type=%s elapsed=%dms timeout=%.0fs prompt='%.50s'",
+                             request_id, type(e).__name__, elapsed_ms, OFFICIAL_GW_TIMEOUT, prompt[:50])
+                self._log_gw_connection_state(request_id)
+                raise
+            except httpx.HTTPStatusError as e:
+                elapsed_ms = int((time.time() - start) * 1000)
+                logger.error("[OfficialGW] [%s] ✗ HTTP错误: status=%d elapsed=%dms prompt='%.50s'",
+                             request_id, e.response.status_code, elapsed_ms, prompt[:50])
+                raise
+            except httpx.ConnectError as e:
+                elapsed_ms = int((time.time() - start) * 1000)
+                logger.error("[OfficialGW] [%s] ✗ 连接失败: elapsed=%dms error=%s",
+                             request_id, elapsed_ms, str(e)[:100])
+                self._log_gw_connection_state(request_id)
+                raise
+            except Exception as e:
+                elapsed_ms = int((time.time() - start) * 1000)
+                logger.error("[OfficialGW] [%s] ✗ 异常: type=%s elapsed=%dms error=%s",
+                             request_id, type(e).__name__, elapsed_ms, str(e)[:100])
+                raise
 
         elapsed_ms = int((time.time() - start) * 1000)
         logger.info("[OfficialGW] [%s] ✓ 响应成功: elapsed=%dms status_code=%d",
@@ -495,9 +551,8 @@ class DispatchWorker:
             with _ollama_semaphore:
                 logger.info("[OllamaSemaphore] [%s] Acquired (multimodal), remaining=%d",
                             request_id, _ollama_semaphore._value)
-                with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                    resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
-                    resp.raise_for_status()
+                resp = _ollama_http_client.post("/v1/chat/completions", json=payload)
+                resp.raise_for_status()
             elapsed_ms = int((time.time() - start) * 1000)
             logger.info("[Multimodal] [%s] ✓ 响应成功: model=%s elapsed=%dms",
                         request_id, model, elapsed_ms)
@@ -533,15 +588,14 @@ class DispatchWorker:
         )
         start = time.time()
         with _ollama_semaphore:
-            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                payload = {
-                    "model": LOCAL_MODEL,
-                    "messages": [{"role": "user", "content": fallback_prompt}],
-                    "stream": False,
-                    "options": {"num_ctx": 4096, "temperature": 0.7},
-                }
-                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
-                resp.raise_for_status()
+            payload = {
+                "model": LOCAL_MODEL,
+                "messages": [{"role": "user", "content": fallback_prompt}],
+                "stream": False,
+                "options": {"num_ctx": 4096, "temperature": 0.7},
+            }
+            resp = _ollama_http_client.post("/v1/chat/completions", json=payload)
+            resp.raise_for_status()
         elapsed_ms = int((time.time() - start) * 1000)
 
         data = resp.json()

@@ -80,7 +80,7 @@ hermes = HermesRouter(
 QUEUE_BACKEND = os.getenv("QUEUE_BACKEND", "auto")  # auto | redis | inprocess
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 QUEUE_DATA_DIR = os.getenv("QUEUE_DATA_DIR", "")
-DISPATCH_WORKERS = int(os.getenv("DISPATCH_WORKERS", "8"))
+DISPATCH_WORKERS = int(os.getenv("DISPATCH_WORKERS", "4"))
 
 msg_queue = create_queue(backend=QUEUE_BACKEND, redis_url=REDIS_URL, data_dir=QUEUE_DATA_DIR)
 dispatch_worker = DispatchWorker(
@@ -1056,9 +1056,29 @@ async def queue_result_by_id(request_id: str):
 @app.get("/queue/status", summary="Queue status and dispatch worker stats")
 async def queue_status():
     """Get queue sizes, worker stats, and backend health."""
+    import threading
+    # Diagnostic: check worker thread state
+    worker_threads = []
+    for t in threading.enumerate():
+        if t.name.startswith("hermes-worker"):
+            worker_threads.append({
+                "name": t.name,
+                "alive": t.is_alive(),
+                "daemon": t.daemon,
+            })
+
+    # Diagnostic: check pending sync requests
+    with _pending_sync_lock:
+        pending_info = {
+            "count": len(_pending_sync),
+            "request_ids": list(_pending_sync.keys())[:10],
+        }
+
     return {
         "queue_backend": msg_queue.health(),
         "worker": dispatch_worker.get_stats(),
+        "worker_threads": worker_threads,
+        "pending_sync": pending_info,
         "routing_mode": "ollama_direct_with_memory" if official_agent.use_direct_ollama else "hermes_agent_system_message",
     }
 

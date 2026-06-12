@@ -120,23 +120,11 @@ class InProcessQueue(MessageQueue):
         if data_dir:
             self._data_dir = data_dir
         else:
-            # Try project-local path first (avoids macOS TCC restrictions)
+            # Always prefer project-local path to avoid macOS TCC restrictions
+            # (~/.hermes/ may pass write test but fail on subsequent writes due to TCC)
             _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             _project_queues = os.path.join(_project_root, ".hermes", "queues")
-            _home_queues = os.path.expanduser("~/.hermes/queues")
-            if os.path.exists(_home_queues):
-                try:
-                    os.makedirs(_home_queues, exist_ok=True)
-                    # Test write permission
-                    _test_file = os.path.join(_home_queues, ".write_test")
-                    with open(_test_file, "w") as f:
-                        f.write("test")
-                    os.remove(_test_file)
-                    self._data_dir = _home_queues
-                except (PermissionError, OSError):
-                    self._data_dir = _project_queues
-            else:
-                self._data_dir = _project_queues
+            self._data_dir = _project_queues
         os.makedirs(self._data_dir, exist_ok=True)
 
         self._queues: Dict[str, List[Dict]] = {}
@@ -168,12 +156,30 @@ class InProcessQueue(MessageQueue):
         except Exception as e:
             logger.warning(f"Failed to load queue {queue_name}: {e}")
 
+    # Track last persisted length to enable incremental appends
+    _persisted_len: Dict[str, int] = {}
+
     def _persist_to_file(self, queue_name: str):
+        """Persist queue to JSONL file. Uses incremental append for push,
+        full rewrite for pop (since items are removed from the front)."""
         path = self._file_path(queue_name)
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                for msg in self._queues[queue_name]:
-                    f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            current_len = len(self._queues[queue_name])
+            last_len = self._persisted_len.get(queue_name, 0)
+
+            if current_len > last_len and last_len > 0:
+                # Incremental append: only write new items at the end
+                new_items = self._queues[queue_name][last_len:]
+                with open(path, "a", encoding="utf-8") as f:
+                    for msg in new_items:
+                        f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+            else:
+                # Full rewrite needed (pop removed items, or first write)
+                with open(path, "w", encoding="utf-8") as f:
+                    for msg in self._queues[queue_name]:
+                        f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+
+            self._persisted_len[queue_name] = current_len
         except Exception as e:
             logger.warning(f"Failed to persist queue {queue_name}: {e}")
 
@@ -184,6 +190,10 @@ class InProcessQueue(MessageQueue):
 
         with self._conditions[queue_name]:
             self._queues[queue_name].append(message)
+            # Auto-trim results/feedback queues to prevent unbounded growth
+            # (old results are not useful and slow down file persistence)
+            if queue_name in (QUEUE_RESULTS, QUEUE_FEEDBACK) and len(self._queues[queue_name]) > 50:
+                self._queues[queue_name] = self._queues[queue_name][-50:]
             self._persist_to_file(queue_name)
             self._conditions[queue_name].notify()
 

@@ -18,3 +18,114 @@
 {"timestamp": "2026-06-12T13:38:15.718741", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 187820, "request_summary": "分析医疗影像诊断报告"}
 {"timestamp": "2026-06-12T13:45:45.479992", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 5168, "request_summary": "你好，今天天气怎么样？"}
 {"timestamp": "2026-06-12T14:07:32.704026", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 4635, "request_summary": "你好，今天天气怎么样？"}
+{"timestamp": "2026-06-12T14:58:45.882837", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150034, "request_summary": "你好，今天天气怎么样？ error:timed out"}
+{"timestamp": "2026-06-12T14:58:45.924353", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 140337, "request_summary": "执行Python脚本计算斐波那契数列 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T14:58:47.605540", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150034, "request_summary": "1+1等于几？ error:timed out"}
+{"timestamp": "2026-06-12T14:58:50.896051", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 151038, "request_summary": "翻译：hello world error:Server error '502 Bad Gateway"}
+{"timestamp": "2026-06-12T15:00:47.618652", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 265119, "request_summary": "什么是AI？ error:timed out"}
+{"timestamp": "2026-06-12T15:00:50.911675", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 266866, "request_summary": "请解释量子计算的基本原理 error:timed out"}
+{"timestamp": "2026-06-12T15:01:28.625916", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 162165, "request_summary": "写一个JavaScript函数实现快速排序 error:Server error '502 Bad "}
+{"timestamp": "2026-06-12T15:01:30.848132", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 162350, "request_summary": "请规划一个CI/CD部署流程 error:Server error '502 Bad Gateway"}
+{"timestamp": "2026-06-12T15:01:31.027478", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 40050, "request_summary": "描述这张照片中的场景 error:Server error '502 Bad Gateway'"}
+{"timestamp": "2026-06-12T15:01:31.105813", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 164644, "request_summary": "调试这段SQL查询语句的性能问题 error:Server error '502 Bad Gatew"}
+{"timestamp": "2026-06-12T15:01:33.784683", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 162854, "request_summary": "使用Volcano调度分布式训练任务 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T15:03:22.679726", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 155037, "request_summary": "请分析这张图片中的文字内容 error:timed out"}
+{"timestamp": "2026-06-12T15:04:02.202833", "skill": "routing-decision", "route_path": "local_inference", "success": false, "latency_ms": 150027, "request_summary": "分析这份内部财务数据 error:timed out"}
+{"timestamp": "2026-06-12T15:05:22.690703", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 233971, "request_summary": "识别图片中的物体并分类 error:timed out"}
+{"timestamp": "2026-06-12T15:06:02.220201", "skill": "routing-decision", "route_path": "local_inference", "success": false, "latency_ms": 268422, "request_summary": "处理用户个人信息并脱敏 error:timed out"}
+{"timestamp": "2026-06-12T15:07:22.701131", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 351756, "request_summary": "将这段音频转换为文字 error:timed out"}
+{"timestamp": "2026-06-12T15:08:02.237833", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 391190, "request_summary": "分析视频中的关键帧 error:timed out"}
+{"timestamp": "2026-06-12T15:09:22.719197", "skill": "routing-decision", "route_path": "local_inference", "success": false, "latency_ms": 360028, "request_summary": "分析医疗影像诊断报告 error:timed out"}
+{"timestamp": "2026-06-12T15:10:02.248558", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 274480, "request_summary": "你好，今天天气怎么样？ error:timed out"}
+{"timestamp": "2026-06-12T15:10:03.841326", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 161132, "request_summary": "执行Python脚本计算斐波那契数列 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T15:11:22.740738", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 354965, "request_summary": "1+1等于几？ error:timed out"}
+{"timestamp": "2026-06-12T15:12:02.261353", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 393982, "request_summary": "翻译：hello world error:timed out"}
+{"timestamp": "2026-06-12T15:13:22.764793", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 473971, "request_summary": "什么是AI？ error:timed out"}
+{"timestamp": "2026-06-12T15:14:02.278035", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 480051, "request_summary": "请解释量子计算的基本原理 error:timed out"}
+{"timestamp": "2026-06-12T15:14:42.352315", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 160085, "request_summary": "执行Python脚本计算斐波那契数列 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T15:15:22.790025", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 440545, "request_summary": "你好，今天天气怎么样？ error:timed out"}
+{"timestamp": "2026-06-12T15:16:02.292717", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 399563, "request_summary": "1+1等于几？ error:timed out"}
+{"timestamp": "2026-06-12T15:16:04.248779", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 161469, "request_summary": "写一个JavaScript函数实现快速排序 error:Server error '502 Bad "}
+{"timestamp": "2026-06-12T15:16:43.220615", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 160937, "request_summary": "调试这段SQL查询语句的性能问题 error:Server error '502 Bad Gatew"}
+{"timestamp": "2026-06-12T15:17:22.809505", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 440553, "request_summary": "翻译：hello world error:timed out"}
+{"timestamp": "2026-06-12T15:17:25.019882", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 162662, "request_summary": "请规划一个CI/CD部署流程 error:Server error '502 Bad Gateway"}
+{"timestamp": "2026-06-12T15:17:27.836413", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 365082, "request_summary": "请解释量子计算的基本原理 error:Server error '502 Bad Gateway'"}
+{"timestamp": "2026-06-12T15:18:02.311165", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 478465, "request_summary": "什么是AI？ error:timed out"}
+{"timestamp": "2026-06-12T15:18:05.092260", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 162296, "request_summary": "使用Volcano调度分布式训练任务 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T15:19:27.854129", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 205552, "request_summary": "请分析这张图片中的文字内容 error:timed out"}
+{"timestamp": "2026-06-12T15:20:02.329338", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 238072, "request_summary": "描述这张照片中的场景 error:timed out"}
+{"timestamp": "2026-06-12T15:30:38.198685", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150029, "request_summary": "hello error:timed out"}
+{"timestamp": "2026-06-12T15:37:09.856385", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150042, "request_summary": "你好，今天天气怎么样？ error:timed out"}
+{"timestamp": "2026-06-12T15:38:14.916530", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 212759, "request_summary": "1+1等于几？ error:timed out"}
+{"timestamp": "2026-06-12T15:39:09.872291", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 266062, "request_summary": "翻译：hello world error:timed out"}
+{"timestamp": "2026-06-12T15:40:14.939529", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 329129, "request_summary": "什么是AI？ error:timed out"}
+{"timestamp": "2026-06-12T15:42:02.758718", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 227831, "request_summary": "执行Python脚本计算斐波那契数列 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T15:42:14.931712", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 305068, "request_summary": "请解释量子计算的基本原理 error:timed out"}
+{"timestamp": "2026-06-12T15:42:27.350089", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 197472, "request_summary": "写一个JavaScript函数实现快速排序 error:Server error '502 Bad "}
+{"timestamp": "2026-06-12T15:42:56.048945", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 161102, "request_summary": "调试这段SQL查询语句的性能问题 error:Server error '502 Bad Gatew"}
+{"timestamp": "2026-06-12T15:44:44.618937", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 161853, "request_summary": "请规划一个CI/CD部署流程 error:Server error '502 Bad Gateway"}
+{"timestamp": "2026-06-12T15:45:15.321651", "skill": "routing-decision", "route_path": "gateway", "success": false, "latency_ms": 180384, "request_summary": "使用Volcano调度分布式训练任务 error:Server error '502 Bad Gat"}
+{"timestamp": "2026-06-12T15:45:37.864432", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 190504, "request_summary": "请分析这张图片中的文字内容 error:timed out"}
+{"timestamp": "2026-06-12T15:46:07.891245", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 191835, "request_summary": "描述这张照片中的场景 error:timed out"}
+{"timestamp": "2026-06-12T15:46:17.924335", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 93295, "request_summary": "识别图片中的物体并分类 error:Server error '502 Bad Gateway'"}
+{"timestamp": "2026-06-12T15:48:42.973183", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 207640, "request_summary": "将这段音频转换为文字 error:timed out"}
+{"timestamp": "2026-06-12T15:49:43.009941", "skill": "routing-decision", "route_path": "multimodal", "success": false, "latency_ms": 245133, "request_summary": "分析视频中的关键帧 error:timed out"}
+{"timestamp": "2026-06-12T15:50:43.031945", "skill": "routing-decision", "route_path": "local_inference", "success": false, "latency_ms": 275126, "request_summary": "分析这份内部财务数据 error:timed out"}
+{"timestamp": "2026-06-12T15:54:42.422194", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150034, "request_summary": "hello error:timed out"}
+{"timestamp": "2026-06-12T16:04:09.254396", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150027, "request_summary": "hello error:timed out"}
+{"timestamp": "2026-06-12T16:09:32.038592", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150029, "request_summary": "hello error:timed out"}
+{"timestamp": "2026-06-12T16:11:59.876099", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150027, "request_summary": "hello error:timed out"}
+{"timestamp": "2026-06-12T16:38:03.372154", "skill": "routing-decision", "route_path": "direct_local", "success": false, "latency_ms": 150027, "request_summary": "hello error:timed out"}
+{"timestamp": "2026-06-12T16:42:00.138162", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2436, "request_summary": "你好，今天天气怎么样？"}
+{"timestamp": "2026-06-12T16:42:02.082707", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2382, "request_summary": "1+1等于几？"}
+{"timestamp": "2026-06-12T16:42:03.865293", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2167, "request_summary": "翻译：hello world"}
+{"timestamp": "2026-06-12T16:42:07.966007", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 4265, "request_summary": "什么是AI？"}
+{"timestamp": "2026-06-12T16:42:18.781204", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 13082, "request_summary": "请解释量子计算的基本原理"}
+{"timestamp": "2026-06-12T16:43:14.350527", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 66653, "request_summary": "执行Python脚本计算斐波那契数列"}
+{"timestamp": "2026-06-12T16:44:11.667659", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 121969, "request_summary": "写一个JavaScript函数实现快速排序"}
+{"timestamp": "2026-06-12T16:44:38.015385", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 146318, "request_summary": "调试这段SQL查询语句的性能问题"}
+{"timestamp": "2026-06-12T16:45:07.338303", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 168554, "request_summary": "请规划一个CI/CD部署流程"}
+{"timestamp": "2026-06-12T16:45:17.116910", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 122765, "request_summary": "使用Volcano调度分布式训练任务"}
+{"timestamp": "2026-06-12T16:45:17.775958", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 66107, "request_summary": "请分析这张图片中的文字内容"}
+{"timestamp": "2026-06-12T16:45:20.842391", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 42826, "request_summary": "描述这张照片中的场景"}
+{"timestamp": "2026-06-12T16:45:23.583537", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 16244, "request_summary": "识别图片中的物体并分类"}
+{"timestamp": "2026-06-12T16:45:26.508308", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 9390, "request_summary": "将这段音频转换为文字"}
+{"timestamp": "2026-06-12T16:45:34.684090", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 16907, "request_summary": "分析视频中的关键帧"}
+{"timestamp": "2026-06-12T16:45:41.316626", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 20471, "request_summary": "分析这份内部财务数据"}
+{"timestamp": "2026-06-12T16:45:49.231142", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 25646, "request_summary": "处理用户个人信息并脱敏"}
+{"timestamp": "2026-06-12T16:45:55.864903", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 29355, "request_summary": "分析医疗影像诊断报告"}
+{"timestamp": "2026-06-12T16:54:58.920828", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 3511, "request_summary": "你好，今天天气怎么样？"}
+{"timestamp": "2026-06-12T16:55:01.494743", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 4091, "request_summary": "1+1等于几？"}
+{"timestamp": "2026-06-12T16:55:01.635802", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2128, "request_summary": "翻译：hello world"}
+{"timestamp": "2026-06-12T16:55:05.292255", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 3887, "request_summary": "什么是AI？"}
+{"timestamp": "2026-06-12T16:55:15.024980", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 11619, "request_summary": "请解释量子计算的基本原理"}
+{"timestamp": "2026-06-12T16:56:14.099773", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 68197, "request_summary": "执行Python脚本计算斐波那契数列"}
+{"timestamp": "2026-06-12T16:56:25.589588", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 78183, "request_summary": "写一个JavaScript函数实现快速排序"}
+{"timestamp": "2026-06-12T16:56:28.655957", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 79250, "request_summary": "调试这段SQL查询语句的性能问题"}
+{"timestamp": "2026-06-12T16:56:46.796877", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 91770, "request_summary": "请规划一个CI/CD部署流程"}
+{"timestamp": "2026-06-12T16:57:31.577456", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 65987, "request_summary": "请分析这张图片中的文字内容"}
+{"timestamp": "2026-06-12T16:58:48.395790", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 7903, "request_summary": "分析视频中的关键帧"}
+{"timestamp": "2026-06-12T16:58:50.783436", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 10290, "request_summary": "分析这份内部财务数据"}
+{"timestamp": "2026-06-12T16:59:02.644850", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2036, "request_summary": "hello"}
+{"timestamp": "2026-06-12T16:59:29.371778", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2663, "request_summary": "test request 3"}
+{"timestamp": "2026-06-12T16:59:31.813219", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 5107, "request_summary": "test request 4"}
+{"timestamp": "2026-06-12T16:59:35.272453", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 8566, "request_summary": "test request 2"}
+{"timestamp": "2026-06-12T16:59:37.680973", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 10974, "request_summary": "test request 1"}
+{"timestamp": "2026-06-12T16:59:47.225590", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 2818, "request_summary": "你好，今天天气怎么样？"}
+{"timestamp": "2026-06-12T16:59:49.640152", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 3677, "request_summary": "1+1等于几？"}
+{"timestamp": "2026-06-12T16:59:51.178517", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 3218, "request_summary": "翻译：hello world"}
+{"timestamp": "2026-06-12T16:59:56.409940", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 6444, "request_summary": "什么是AI？"}
+{"timestamp": "2026-06-12T17:00:02.552632", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 10576, "request_summary": "请解释量子计算的基本原理"}
+{"timestamp": "2026-06-12T17:00:57.324944", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 62927, "request_summary": "执行Python脚本计算斐波那契数列"}
+{"timestamp": "2026-06-12T17:01:15.001478", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 79017, "request_summary": "写一个JavaScript函数实现快速排序"}
+{"timestamp": "2026-06-12T17:01:17.217507", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 79228, "request_summary": "调试这段SQL查询语句的性能问题"}
+{"timestamp": "2026-06-12T17:01:32.419618", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 89865, "request_summary": "请规划一个CI/CD部署流程"}
+{"timestamp": "2026-06-12T17:01:50.048385", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 52722, "request_summary": "使用Volcano调度分布式训练任务"}
+{"timestamp": "2026-06-12T17:01:52.346292", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 37344, "request_summary": "请分析这张图片中的文字内容"}
+{"timestamp": "2026-06-12T17:01:54.211965", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 36993, "request_summary": "描述这张照片中的场景"}
+{"timestamp": "2026-06-12T17:01:59.199888", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 26779, "request_summary": "识别图片中的物体并分类"}
+{"timestamp": "2026-06-12T17:02:02.183753", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 12134, "request_summary": "将这段音频转换为文字"}
+{"timestamp": "2026-06-12T17:02:12.871667", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 20520, "request_summary": "分析视频中的关键帧"}
+{"timestamp": "2026-06-12T17:02:15.534273", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 21320, "request_summary": "分析这份内部财务数据"}
+{"timestamp": "2026-06-12T17:02:23.948621", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 24746, "request_summary": "处理用户个人信息并脱敏"}
+{"timestamp": "2026-06-12T17:02:32.048600", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 29863, "request_summary": "分析医疗影像诊断报告"}

@@ -79,7 +79,7 @@ for i, req in enumerate(BATCH):
     time.sleep(2)
 
 for t in threads:
-    t.join(timeout=300)
+    t.join(timeout=420)
 
 print("\n=== Health Check Log During Test ===")
 for h in health_checks:

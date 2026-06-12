@@ -141,6 +141,15 @@ class OfficialHermesAdapter:
         self.ollama_model = ollama_model
         self.use_direct_ollama = use_direct_ollama
 
+        # Persistent httpx client for Ollama (reuse connections, avoid per-request overhead)
+        # Using a single client with connection pooling reduces latency and avoids
+        # the "stuck request" problem where new connections queue behind timed-out ones
+        self._ollama_client = httpx.Client(
+            base_url=self.ollama_url,
+            timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+        )
+
         # Cached health state (avoid per-request HTTP call)
         self._health_cache: Dict = {"status": "unknown", "cached_at": 0}
         self._health_cache_ttl = 30  # seconds
@@ -161,12 +170,49 @@ class OfficialHermesAdapter:
 
         logger.info("[Memory] MEMORY_FILE path: %s (exists=%s)", MEMORY_FILE, os.path.exists(MEMORY_FILE))
 
+        # Warmup Ollama model to GPU in background thread (avoid blocking startup)
+        # Ollama may take 25-30s to load model from disk on cold start
+        self._warmup_thread = threading.Thread(target=self._warmup_ollama_model, daemon=True)
+        self._warmup_thread.start()
+
     @property
     def _headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
+
+    # ── Ollama Model Warmup ──────────────────────────────────────────
+
+    def _warmup_ollama_model(self) -> None:
+        """Pre-load Ollama model to GPU to avoid 25-30s cold start on first request.
+
+        Ollama unloads models from GPU after idle timeout (default 5min).
+        This sends a tiny request to force model loading at startup.
+        Uses urllib instead of httpx to avoid connection pool conflicts.
+        """
+        import urllib.request
+        try:
+            logger.info("[OllamaWarmup] Pre-loading model '%s' to GPU...", self.ollama_model)
+            start = time.time()
+            data = json.dumps({
+                "model": self.ollama_model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "max_tokens": 1,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self.ollama_url}/v1/chat/completions",
+                data=data,
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                resp.read()
+            elapsed = time.time() - start
+            logger.info("[OllamaWarmup] Model '%s' loaded to GPU in %.1fs", self.ollama_model, elapsed)
+        except Exception as e:
+            logger.warning("[OllamaWarmup] Failed to pre-load model '%s': %s (non-fatal, will load on first request)",
+                           self.ollama_model, e)
 
     # ── Health Check (Cached) ────────────────────────────────────────
 
@@ -331,11 +377,12 @@ class OfficialHermesAdapter:
 
         if rules:
             # Build human-readable routing rules from Memory
+            # Limit to top 10 rules to keep system prompt short for fast Ollama inference
             rule_lines = []
-            for r in rules:
-                kw_display = ", ".join(r["keywords"][:8]) if r["keywords"] else r["category"]
+            for r in rules[:10]:
+                kw_display = ", ".join(r["keywords"][:4]) if r["keywords"] else r["category"]
                 rule_lines.append(f"- {r['category']}({kw_display}) → {r['route']}")
-            routing_rules = "外部注入的路由规则(从本地MEMORY.md学习，按优先级):\n" + "\n".join(rule_lines)
+            routing_rules = "路由规则(从MEMORY.md学习):\n" + "\n".join(rule_lines)
         elif memory_ctx:
             # Fallback: use raw memory context
             routing_rules = f"外部注入的路由规则(从本地MEMORY.md学习):\n{memory_ctx}"
@@ -344,8 +391,20 @@ class OfficialHermesAdapter:
             routing_rules = "路由规则:\n- 简单闲聊 → direct_local\n- 代码/编程 → gateway\n- 隐私敏感 → local_inference\n- 其他 → direct_local"
 
         # Append latency awareness to help LLM make cost-aware decisions
+        # Keep it minimal — only avg latency per route, no p95/samples to reduce prompt size
         if latency_info:
-            routing_rules += f"\n\n延迟统计(从本地MEMORY.md自动采集):\n{latency_info}"
+            # Extract only avg latency from each line (format: "- route: avg=Xms, ...")
+            avg_lines = []
+            for line in latency_info.split("\n"):
+                line = line.strip()
+                if not line.startswith("-"):
+                    continue
+                avg_match = re.search(r'avg=(\d+ms)', line)
+                route_match = re.search(r'^-\s*(\w+)', line)
+                if avg_match and route_match:
+                    avg_lines.append(f"- {route_match.group(1)}: avg={avg_match.group(1)}")
+            if avg_lines:
+                routing_rules += "\n延迟统计:\n" + "\n".join(avg_lines)
 
         template = ROUTING_PROMPT_TEMPLATE_AGENT if for_agent else ROUTING_PROMPT_TEMPLATE
         return template.format(routing_rules=routing_rules)
@@ -644,12 +703,32 @@ class OfficialHermesAdapter:
 
         try:
             start = time.time()
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(
-                    f"{self.ollama_url}/v1/chat/completions",
+            # Use persistent client with short timeout for routing
+            # Routing should complete in 1-3s; if it takes longer, Ollama is stuck
+            # and we should fall back immediately rather than queue behind a stuck request
+            try:
+                resp = self._ollama_client.post(
+                    "/v1/chat/completions",
                     json=payload,
+                    timeout=httpx.Timeout(connect=5.0, read=15.0, write=5.0, pool=5.0),
                 )
                 resp.raise_for_status()
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                elapsed_ms = int((time.time() - start) * 1000)
+                logger.warning("[Routing] Ollama不可用 (%s, %dms), 使用post-validate fallback",
+                               type(e).__name__, elapsed_ms)
+                # Reset connection pool after timeout to avoid stale connections
+                # blocking subsequent requests (Ollama may still be processing the timed-out request)
+                try:
+                    self._ollama_client.close()
+                    self._ollama_client = httpx.Client(
+                        base_url=self.ollama_url,
+                        timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
+                        limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+                    )
+                except Exception:
+                    pass
+                return self._post_validate_route({"route_path": "gateway", "complexity_score": 0}, request)
             elapsed_ms = int((time.time() - start) * 1000)
 
             result = resp.json()

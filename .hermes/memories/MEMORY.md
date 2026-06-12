@@ -26,18 +26,19 @@
 - gateway → Bridge → OfficialGW → Agent → Volcano (avg~60-90s)
 - multimodal → Bridge → 多模态专用模型 (图片/音频/视频处理)
 - local_inference → 本地Ollama/vLLM直连 (隐私约束, bypass Bridge)
-- gateway延迟avg~84s, 简单请求优先用direct_local(avg~6s)
+- gateway延迟avg~84s, 简单请求优先用direct_local(avg~7s)
+- gateway延迟avg~70s, 简单请求优先用direct_local(avg~6s)
 
 ## Latency Stats (auto-updated)
-- direct_local: avg=6828ms, p95=20442ms, samples=158 (Hermes路由实测)
-- gateway: avg=84482ms, p95=277031ms, samples=168 (Hermes路由实测)
-- local_inference: avg=29499ms, p95=174718ms, samples=47 (Hermes路由实测)
-- multimodal: avg=25988ms, p95=139276ms, samples=62 (Hermes路由实测)
+- direct_local: avg=41314ms, p95=390320ms, samples=204 (Hermes路由实测)
+- gateway: avg=91855ms, p95=237519ms, samples=198 (Hermes路由实测)
+- local_inference: avg=44853ms, p95=290799ms, samples=58 (Hermes路由实测)
+- multimodal: avg=52481ms, p95=298884ms, samples=86 (Hermes路由实测)
 
 ## Feedback History
-- local_inference ✗ 215336ms '分析这份内部财务数据 error:timed out'
-- gateway ✓ 310099ms '使用Volcano调度分布式训练任务'
-- local_inference ✓ 182931ms '处理用户个人信息并脱敏'
-- local_inference ✓ 187820ms '分析医疗影像诊断报告'
-- direct_local ✓ 5168ms '你好，今天天气怎么样？'
-- direct_local ✓ 4635ms '你好，今天天气怎么样？'
+- multimodal ✓ 26779ms '识别图片中的物体并分类'
+- multimodal ✓ 12134ms '将这段音频转换为文字'
+- multimodal ✓ 20520ms '分析视频中的关键帧'
+- local_inference ✓ 21320ms '分析这份内部财务数据'
+- local_inference ✓ 24746ms '处理用户个人信息并脱敏'
+- local_inference ✓ 29863ms '分析医疗影像诊断报告'
