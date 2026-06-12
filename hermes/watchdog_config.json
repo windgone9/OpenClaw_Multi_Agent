@@ -6,9 +6,19 @@
     "restart_cooldown_seconds": 60,
     "startup_grace_seconds": 45,
     "shutdown_timeout_seconds": 5,
-    "port_cleanup_wait_seconds": 3
+    "port_cleanup_wait_seconds": 3,
+    "health_check_timeout_seconds": 5,
+    "consecutive_failures_before_restart": 2
   },
   "services": {
+    "hermesAgent": {
+      "cmd": null,
+      "cwd": null,
+      "port": 8642,
+      "health_url": "http://127.0.0.1:8642/health",
+      "startup_grace_override": 60,
+      "description": "Hermes Agent (Official) - OpenAI-compatible API server with intelligent routing"
+    },
     "officialGateway": {
       "cmd": null,
       "cwd": null,

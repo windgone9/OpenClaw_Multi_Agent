@@ -169,6 +169,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   <h1><span class="logo">🐾</span> <span>OpenClaw 调度监控中心</span></h1>
   <div class="meta">
     <span class="svc-dot"><span class="dot" id="dot-hermes"></span> Hermes</span>
+    <span class="svc-dot"><span class="dot" id="dot-agent"></span> Agent:8642</span>
     <span class="svc-dot"><span class="dot" id="dot-official"></span> OfficialGW</span>
     <span class="svc-dot"><span class="dot" id="dot-ollama"></span> Ollama</span>
     <span style="color:var(--purple)">v2026.6</span>
@@ -190,6 +191,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
       <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-hm')"><span class="pf-icon">🧠</span><div class="pf-info"><div class="pf-title">Hermes 智能路由</div><div class="pf-desc">复杂度评分 + Memory规则</div></div><span class="pf-badge idle" id="pf-hm-badge">待机</span><span class="pf-metric" id="pf-hm-metric">-</span></div><div class="pf-detail" id="pf-hm-detail"><div class="pf-detail-row"><span class="pf-detail-key">路由模式</span><span class="pf-detail-val" id="pf-hm-mode">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">复杂度阈值</span><span class="pf-detail-val" id="pf-hm-threshold">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">探索率</span><span class="pf-detail-val" id="pf-hm-exploration">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">记忆记录</span><span class="pf-detail-val" id="pf-hm-memory">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">已学技能</span><span class="pf-detail-val" id="pf-hm-skills">-</span></div></div></div>
       <div class="pf-arrow">▼</div>
+      <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-agent')"><span class="pf-icon">🤖</span><div class="pf-info"><div class="pf-title">Hermes Agent 进化</div><div class="pf-desc">Memory自学习 + 规则演化</div></div><span class="pf-badge idle" id="pf-agent-badge">待机</span><span class="pf-metric" id="pf-agent-metric">-</span></div><div class="pf-detail" id="pf-agent-detail"><div class="pf-detail-row"><span class="pf-detail-key">Agent状态</span><span class="pf-detail-val" id="pf-agent-status">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">路由模式</span><span class="pf-detail-val" id="pf-agent-mode">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">MEMORY.md</span><span class="pf-detail-val" id="pf-agent-memory">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">规则数</span><span class="pf-detail-val" id="pf-agent-rules">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">反馈队列</span><span class="pf-detail-val" id="pf-agent-fbq">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">插件</span><span class="pf-detail-val" id="pf-agent-plugin">-</span></div></div></div>
+      <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-ex')"><span class="pf-icon">⚡</span><div class="pf-info"><div class="pf-title">执行引擎</div><div class="pf-desc">direct_local / gateway / multimodal</div></div><span class="pf-badge idle" id="pf-ex-badge">待机</span><span class="pf-metric" id="pf-ex-metric">-</span></div><div class="pf-detail" id="pf-ex-detail"><div class="pf-detail-row"><span class="pf-detail-key">Official GW</span><span class="pf-detail-val" id="pf-ex-ogw">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">Ollama</span><span class="pf-detail-val" id="pf-ex-ollama">-</span></div></div></div>
       <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-rt')"><span class="pf-icon">📤</span><div class="pf-info"><div class="pf-title">结果返回</div><div class="pf-desc">结果入队 + 反馈学习</div></div><span class="pf-badge idle" id="pf-rt-badge">待机</span><span class="pf-metric" id="pf-rt-metric">-</span></div><div class="pf-detail" id="pf-rt-detail"><div class="pf-detail-row"><span class="pf-detail-key">结果队列</span><span class="pf-detail-val" id="pf-rt-resq">0</span></div><div class="pf-detail-row"><span class="pf-detail-key">反馈记录</span><span class="pf-detail-val" id="pf-rt-fb">0</span></div><div class="pf-detail-row"><span class="pf-detail-key">成功率</span><span class="pf-detail-val" id="pf-rt-srate">-</span></div></div></div>
@@ -210,6 +213,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
           <button class="btn btn-purple btn-sm" onclick="sendBatch('multimodal')" style="background:#7c3aed">🖼️ 多模态</button>
           <button class="btn btn-cyan btn-sm" onclick="sendBatch('privacy')" style="background:#0e7490">🔒 隐私请求</button>
           <button class="btn btn-purple" onclick="analyzeComplexity()">🧠 分析复杂度</button>
+          <button class="btn btn-cyan" onclick="testLoop()" style="background:#0e7490">🔄 测试闭环</button>
           <button class="btn btn-ghost" onclick="clearResults()">🗑 清空</button>
         </div>
       </div>
@@ -352,7 +356,39 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
 <script>
 const H='http://localhost:8082',OGW='http://localhost:3005',OLL='http://localhost:11434';
 let dc=0;const AR=[],RC={},LH=[],SH=[],LOGS=[];const MAX_LOGS=2000;
-let svcStatus={hermes:false,official:false,ollama:false};
+let svcStatus={hermes:false,agent:false,official:false,ollama:false};
+
+// Unified health cache — all pages read from this, updated by a single timer
+let _healthCache={hermes:{healthy:true},hermesAgent:{healthy:false},officialGateway:{healthy:false},ollama:{healthy:false}};
+let _agentHealthCache={agent:{healthy:false},plugin:{active:false},memory:{file_exists:false},evolution:{rules_parsed:0}};
+let _lastHealthFetch=0;
+const HEALTH_FETCH_INTERVAL=5000; // minimum 5s between /proxy/health calls
+
+async function fetchHealthOnce(){
+  const now=Date.now();
+  if(now-_lastHealthFetch<HEALTH_FETCH_INTERVAL)return; // throttle
+  _lastHealthFetch=now;
+  try{
+    const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(20000)});
+    _healthCache=await r.json();
+    svcStatus['hermes']=_healthCache.hermes&&_healthCache.hermes.healthy;
+    svcStatus['agent']=_healthCache.hermesAgent&&_healthCache.hermesAgent.healthy;
+    svcStatus['official']=_healthCache.officialGateway&&_healthCache.officialGateway.healthy;
+    svcStatus['ollama']=_healthCache.ollama&&_healthCache.ollama.healthy;
+    updateTopbarDots();
+  }catch{
+    // On fetch failure, keep previous cache status instead of marking all as unhealthy
+    // This prevents false "unavailable" warnings during brief network hiccups
+    updateTopbarDots();
+  }
+}
+
+async function fetchAgentHealthOnce(){
+  try{
+    const r=await fetch(H+'/proxy/agent-health',{signal:AbortSignal.timeout(5000)});
+    _agentHealthCache=await r.json();
+  }catch{}
+}
 
 function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function ts(){return new Date().toLocaleTimeString('zh-CN',{hour12:false})}
@@ -476,7 +512,7 @@ async function sendQueueRequest(body,label){
   area.insertBefore(ph,area.firstChild);
   const st=Date.now();
   try{
-    const res=await fetch(H+'/queue/submit-sync?timeout=120',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await fetch(H+'/queue/submit-sync?timeout=300',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json();const elapsed=Date.now()-st;
     const isOk=data.status==='success',result=data.result||{},routing=data.routing||{};
     log(isOk?'ok':'err','['+rid+'] '+(isOk?'\u2713':'\u2717')+' Queue: path='+(routing.route_path||'-')+', model='+(routing.selected_model||'-')+', latency='+(data.total_latency_ms||elapsed)+'ms','hermes');
@@ -570,20 +606,47 @@ async function analyzeComplexity(){
   }catch(e){log('err','复杂度分析失败: '+e.message,'hermes')}
 }
 
+async function testLoop(){
+  const prompt=document.getElementById('req-prompt').value;
+  if(!prompt){log('warn','请输入请求内容','system');return}
+  log('info','🔄 启动测试闭环: 队列 → 路由 → 执行 → 结果 → 反馈 → MEMORY.md','system');
+  try{
+    const res=await fetch(H+'/queue/test-loop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appid:'test-loop',type:'chat',priority:3,prompt,timeout_ms:30000})});
+    const data=await res.json();
+    if(data.status==='completed'){
+      const r=data.result||{};
+      const rt=r.routing||{};
+      log('ok','✓ 闭环完成: route='+rt.route_path+', latency='+r.total_latency_ms+'ms, model='+(r.result&&r.result.model_name||'-'),'hermes');
+      log('info','  路由决策: '+rt.agent_decision+', Memory='+(rt.memory_context_used?'✓':'✗')+', reason='+rt.reason,'hermes');
+      log('info','  队列状态: req='+data.queue_sizes.requests+', res='+data.queue_sizes.results+', fb='+data.queue_sizes.feedback,'system');
+    }else if(data.status==='timeout'){
+      log('warn','⏱ 闭环超时: '+data.message,'hermes');
+    }else{
+      log('err','闭环失败: '+JSON.stringify(data),'hermes');
+    }
+  }catch(e){log('err','测试闭环失败: '+e.message,'hermes')}
+}
+
 function clearResults(){
   document.getElementById('results-area').innerHTML='<div class="empty-state" id="empty-hint"><div class="es-icon">\u{1F43E}</div>发送请求以查看全链路追踪</div>';
   AR.length=0;
 }
 
 async function refreshPipeline(){
+  // Fetch fresh health data (throttled)
+  await fetchHealthOnce();
+  await fetchAgentHealthOnce();
+
   try{const r=await fetch(H+'/queue/status');const d=await r.json();const q=d.queue_backend||{},w=d.worker||{};setBadge('pf-q','ok');setMetric('pf-q',q.size||0);document.getElementById('pf-q-backend').textContent=q.backend||'-';document.getElementById('pf-q-worker').textContent=w.running?'运行中':'停止';document.getElementById('pf-q-req').textContent=q.requests_size||q.size||0;document.getElementById('pf-q-res').textContent=q.results_size||0;document.getElementById('pf-q-proc').textContent=w.total_processed||0}catch{setBadge('pf-q','err');setMetric('pf-q','-')}
   try{const r=await fetch(H+'/health');const d=await r.json();setBadge('pf-hm','ok');setMetric('pf-hm',d.skills_count||d.learning_iterations||0);document.getElementById('pf-hm-mode').textContent=d.learning_iterations>0?'Agent模式':'规则模式';document.getElementById('pf-hm-threshold').textContent=d.complexity_threshold||'-';document.getElementById('pf-hm-exploration').textContent=d.exploration_rate?(d.exploration_rate*100).toFixed(1)+'%':'-';document.getElementById('pf-hm-memory').textContent=d.memory_records||0;document.getElementById('pf-hm-skills').textContent=d.skills_count||0}catch{setBadge('pf-hm','err');setMetric('pf-hm','-')}
-  let ogwOk=false,ollOk=false;
-  try{const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});const d=await r.json();ogwOk=d.officialGateway&&d.officialGateway.healthy||false;ollOk=d.ollama&&d.ollama.healthy||false}catch{}
+  // Agent 8642 evolution stage — use unified cache
+  {const d=_agentHealthCache;const ag=d.agent||{},ev=d.evolution||{},mem=d.memory||{},pl=d.plugin||{};const agOk=ag.healthy||false;setBadge('pf-agent',agOk?'ok':'err');setMetric('pf-agent',ev.rules_parsed||0);document.getElementById('pf-agent-status').textContent=agOk?'✓ 运行':'✗ 停止';document.getElementById('pf-agent-mode').textContent=ag.routing_mode||'-';document.getElementById('pf-agent-memory').textContent=mem.file_exists?('✓ '+mem.file_size+'B'):'✗ 不存在';document.getElementById('pf-agent-rules').textContent=ev.rules_parsed||0;document.getElementById('pf-agent-fbq').textContent=ag.feedback_queue_size||0;document.getElementById('pf-agent-plugin').textContent=pl.active?'✓ '+pl.name:'✗ 未启用'}
+  // Executor stage — use unified cache
+  {const d=_healthCache;const ogwOk=d.officialGateway&&d.officialGateway.healthy||false;const ollOk=d.ollama&&d.ollama.healthy||false;
   setBadge('pf-ex',ogwOk||ollOk?'ok':'err');
   setMetric('pf-ex',[ogwOk?'OGW':'',ollOk?'Oll':''].filter(Boolean).join('/')||'-');
   document.getElementById('pf-ex-ogw').textContent=ogwOk?'\u2713 运行':'\u2717 停止';
-  document.getElementById('pf-ex-ollama').textContent=ollOk?'\u2713 运行':'\u2717 停止';
+  document.getElementById('pf-ex-ollama').textContent=ollOk?'\u2713 运行':'\u2717 停止';}
   try{const r=await fetch(H+'/stats');const d=await r.json();const req=d.requests||{};setBadge('pf-rt',req.total>0?'ok':'idle');setMetric('pf-rt',req.success_rate?Math.round(req.success_rate*100)+'%':'-');document.getElementById('pf-rt-srate').textContent=req.success_rate?Math.round(req.success_rate*10000)/100+'%':'-'}catch{setBadge('pf-rt','err');setMetric('pf-rt','-')}
   try{const r=await fetch(H+'/queue/feedback?limit=1');const d=await r.json();document.getElementById('pf-rt-fb').textContent=d.count||0}catch{}
   try{const r=await fetch(H+'/queue/results?limit=1&pop=false');const d=await r.json();document.getElementById('pf-rt-resq').textContent=d.remaining||0}catch{}
@@ -594,17 +657,23 @@ function setMetric(prefix,val){const m=document.getElementById(prefix+'-metric')
 
 const SVC_DEFS=[
   {id:'hermes',name:'Hermes 路由器',icon:'\u{1F9E0}',url:H+'/health',port:8082,startSvc:null,stopSvc:null},
+  {id:'agent',name:'Hermes Agent 进化',icon:'\u{1F916}',url:H+'/proxy/agent-health',port:8642,startSvc:null,stopSvc:null},
   {id:'official',name:'Official Gateway',icon:'\u{1F3E2}',url:OGW+'/health',port:3005,startSvc:'officialGateway',stopSvc:'officialGateway'},
   {id:'ollama',name:'Ollama 本地推理',icon:'\u{1F999}',url:OLL+'/api/tags',port:11434,startSvc:'ollama',stopSvc:'ollama'},
 ];
 
 async function refreshServices(){
   const layout=document.getElementById('svc-layout');let html='';
-  let managedStatus={},proxyHealth={};
+  let managedStatus={};
   try{const r=await fetch(H+'/services/status',{signal:AbortSignal.timeout(3000)});managedStatus=await r.json()}catch{}
-  try{const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});proxyHealth=await r.json()}catch{}
+  // Use unified cache — fetch fresh data
+  await fetchHealthOnce();
+  await fetchAgentHealthOnce();
+  const proxyHealth=_healthCache;
+  const agentHealth=_agentHealthCache;
   for(const svc of SVC_DEFS){
-    const ph=proxyHealth[svc.id==='official'?'officialGateway':svc.id]||{};
+    const phKey=svc.id==='official'?'officialGateway':svc.id==='agent'?'hermesAgent':svc.id;
+    const ph=proxyHealth[phKey]||{};
     const healthy=ph.healthy||false;
     const info=ph.data||{};
     const mInfo=managedStatus[svc.startSvc||''];
@@ -626,6 +695,19 @@ async function refreshServices(){
       html+='<div class="svc-row"><span class="svc-key">复杂度阈值</span><span class="svc-val">'+(info.complexity_threshold||'-')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">探索率</span><span class="svc-val">'+(info.exploration_rate?(info.exploration_rate*100).toFixed(1)+'%':'-')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">记忆记录</span><span class="svc-val">'+(info.memory_records||0)+'</span></div>';
+    }
+    if(svc.id==='agent'){
+      const ag=agentHealth.agent||{},ev=agentHealth.evolution||{},mem=agentHealth.memory||{},pl=agentHealth.plugin||{};
+      const agOk=ag.healthy||false;
+      if(agOk){
+        html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(ag.routing_mode||'-')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">MEMORY.md</span><span class="svc-val">'+(mem.file_exists?'✓ '+mem.file_size+'B':'✗ 不存在')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">规则数</span><span class="svc-val">'+(ev.rules_parsed||0)+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">反馈队列</span><span class="svc-val">'+(ag.feedback_queue_size||0)+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">插件</span><span class="svc-val">'+(pl.active?'✓ '+pl.name:'✗ 未启用')+'</span></div>';
+      }else{
+        html+='<div class="svc-row"><span class="svc-key">详情</span><span class="svc-val" style="color:var(--red)">Agent 不可用</span></div>';
+      }
     }
     if(svc.id==='official'&&healthy){      html+='<div class="svc-row"><span class="svc-key">路由模式</span><span class="svc-val">'+(info.default_route_mode||info.route_mode||'-')+'</span></div>';
       html+='<div class="svc-row"><span class="svc-key">本地模型</span><span class="svc-val">'+(info.local_models||0)+'</span></div>';
@@ -900,10 +982,17 @@ async function init(){
         ind.style.borderColor='var(--red)';ind.style.color='var(--red)';
         btn.textContent='启动';
       }
-      // Show restart history if any
+      // Show restart history if any (only log when attempts change)
       const hist=d.restart_history||{};
       for(const [svc,h] of Object.entries(hist)){
-        if(h.attempts>0)log('warn','Watchdog: '+svc+' 已自动重启 '+h.attempts+' 次','system');
+        if(h.attempts>0){
+          const key='wd_restart_'+svc;
+          const prev=window[key]||0;
+          if(h.attempts!==prev){
+            window[key]=h.attempts;
+            log('warn','Watchdog: '+svc+' 已自动重启 '+h.attempts+' 次','system');
+          }
+        }
       }
     }catch{
       const ind=document.getElementById('watchdog-indicator');
@@ -925,40 +1014,47 @@ async function init(){
   };
 
   // Frontend auto-restart: detect down services and restart them
+  // Only restarts services NOT managed by backend watchdog to avoid conflicts
   let autoRestartEnabled=true;
   let lastRestartAttempt={};
+  let _agentFailCount=0; // Track consecutive failures before warning
 
   async function checkAndAutoRestart(){
-    try{
-      const r=await fetch(H+'/proxy/health',{signal:AbortSignal.timeout(8000)});
-      const data=await r.json();
-      svcStatus['hermes']=data.hermes&&data.hermes.healthy;
-      svcStatus['official']=data.officialGateway&&data.officialGateway.healthy;
-      svcStatus['ollama']=data.ollama&&data.ollama.healthy;
+    await fetchHealthOnce(); // Uses throttled unified cache
+    await fetchAgentHealthOnce();
 
-      // Frontend auto-restart for down services (complements backend watchdog)
-      if(autoRestartEnabled){
-        const now=Date.now();
-        const cooldown=60000; // 60s between restart attempts
-        if(!svcStatus['official']&&(now-(lastRestartAttempt['official']||0))>cooldown){
-          log('warn','\u{1F415} OfficialGW 已停止，尝试自动重启...','system');
-          lastRestartAttempt['official']=now;
-          await startService('officialGateway');
-        }
-        if(!svcStatus['ollama']&&(now-(lastRestartAttempt['ollama']||0))>cooldown){
-          log('warn','\u{1F415} Ollama 已停止，尝试自动重启...','system');
-          lastRestartAttempt['ollama']=now;
-          await startService('ollama');
-        }
-      }
-    }catch{
-      svcStatus['hermes']=true;svcStatus['official']=false;svcStatus['ollama']=false;
+    if(!svcStatus['agent']){
+      _agentFailCount++;
+    }else{
+      _agentFailCount=0;
     }
-    updateTopbarDots();
+
+    // Frontend auto-restart: only for services NOT covered by backend watchdog
+    // Backend watchdog manages: officialGateway, ollama
+    // Frontend only restarts: hermesAgent (8642) since it's externally managed
+    // Require 3+ consecutive failures before warning (avoids false alarms during load spikes)
+    if(autoRestartEnabled && _agentFailCount>=3){
+      const now=Date.now();
+      const cooldown=120000; // 120s between restart attempts (longer than backend)
+      if((now-(lastRestartAttempt['agent']||0))>cooldown){
+        // Check if agent is "busy" (process alive but slow) vs truly dead
+        // Use _healthCache (from /proxy/health) which has the correct "busy" status
+        const agentHealthEntry = _healthCache.hermesAgent || {};
+        const agentData = agentHealthEntry.data || {};
+        if(agentData.status === 'busy'){
+          log('info','🐕 Hermes Agent (8642) 繁忙中 (pid='+agentData.pid+'), 健康检查超时但进程存活','system');
+          _agentFailCount=0; // Reset — busy is not a real failure
+        } else {
+          log('warn','🐕 Hermes Agent (8642) 不可用，等待后端 watchdog 或手动重启','system');
+        }
+        lastRestartAttempt['agent']=now;
+        // Don't auto-restart Agent — it's an external process
+      }
+    }
   }
 
   await checkAndAutoRestart();refreshPipeline();updateWatchdogUI();
-  setInterval(checkAndAutoRestart,15000);
+  setInterval(checkAndAutoRestart,10000);
   setInterval(refreshPipeline,5000);
   setInterval(updateWatchdogUI,30000);
 }

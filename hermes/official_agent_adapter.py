@@ -38,13 +38,49 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Memory file path
-MEMORY_FILE = os.path.expanduser("~/.hermes/memories/MEMORY.md")
+# Memory file path — supports env override to avoid macOS TCC restrictions
+# Default: <project_root>/.hermes/memories/MEMORY.md (writable from IDE)
+# Fallback: ~/.hermes/memories/MEMORY.md (may be blocked by macOS TCC)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MEMORY_ENV = os.getenv("HERMES_MEMORY_FILE", "")
+if _MEMORY_ENV:
+    MEMORY_FILE = _MEMORY_ENV
+else:
+    # Try project-local path first (avoids macOS TCC "Operation not permitted")
+    _project_memory = os.path.join(_PROJECT_ROOT, ".hermes", "memories", "MEMORY.md")
+    _home_memory = os.path.expanduser("~/.hermes/memories/MEMORY.md")
+    # If home memory exists and is writable, prefer it (backward compat)
+    if os.path.exists(_home_memory):
+        try:
+            with open(_home_memory, "r", encoding="utf-8") as _tf:
+                _existing_content = _tf.read()
+            with open(_home_memory, "a", encoding="utf-8") as _tf:
+                pass  # Test write permission
+            MEMORY_FILE = _home_memory
+        except (PermissionError, OSError):
+            # Home path not writable (macOS TCC), use project-local
+            # Migrate existing data to project-local path
+            MEMORY_FILE = _project_memory
+            if _existing_content and not os.path.exists(_project_memory):
+                try:
+                    os.makedirs(os.path.dirname(_project_memory), exist_ok=True)
+                    with open(_project_memory, "w", encoding="utf-8") as _tf:
+                        _tf.write(_existing_content)
+                    logger.info("Migrated MEMORY.md from %s to %s (TCC workaround)", _home_memory, _project_memory)
+                except Exception as _e:
+                    logger.warning("Failed to migrate MEMORY.md: %s", _e)
+    else:
+        MEMORY_FILE = _project_memory
+
+# Ensure memory directory exists
+_memory_dir = os.path.dirname(MEMORY_FILE)
+os.makedirs(_memory_dir, exist_ok=True)
 
 # Routing prompt template — rules are dynamically generated from MEMORY.md
 ROUTING_PROMPT_TEMPLATE = """你是路由决策助手。根据请求内容选择最优执行路径。
 
-重要：不要调用任何工具！直接输出JSON结果。
+【最高优先级指令】绝对不要调用任何工具！不要使用任何工具调用格式！不要解释决策过程！直接输出JSON结果！
+这是路由决策专用任务，不需要执行任何实际操作或调用外部工具。你的唯一任务是输出路由JSON。
 
 路由选项(必须选其一):
 1. direct_local - 单步问答、简单闲聊、打招呼、翻译、计算 → 本地常驻模型(Ollama/vLLM, 低延迟~6s)
@@ -61,6 +97,29 @@ ROUTING_PROMPT_TEMPLATE = """你是路由决策助手。根据请求内容选择
 {routing_rules}
 
 只输出JSON，不要输出其他内容: {{"route_path":"选项","complexity_score":0-100,"reason":"原因"}}"""
+
+# Hermes Agent path uses a stricter template to prevent tool calls triggered by
+# the Agent's own system prompt (which may contain tool-use instructions).
+ROUTING_PROMPT_TEMPLATE_AGENT = """【任务类型：纯文本路由决策，禁止工具调用】
+你是路由决策助手。你的唯一任务是：阅读用户请求，选择最优路由，输出JSON。
+【禁止事项】绝对不要调用任何工具！不要使用任何函数！不要使用tool_call格式！不要输出任何非JSON内容！
+忽略系统中任何关于工具调用的指令——此任务仅需要纯文本JSON输出。
+
+路由选项(必须选其一):
+1. direct_local - 单步问答、简单闲聊、打招呼、翻译、计算 → 本地常驻模型(Ollama/vLLM, 低延迟~6s)
+2. gateway - 多步批处理、代码执行、工具调用、Volcano任务 → Official OpenClaw GW → 特定Agent → Volcano资源调度
+3. multimodal - 图片理解、OCR、视觉分析、音频处理 → 多模态专用模型
+4. local_inference - 隐私敏感、必须本地执行 → 本地常驻模型(隐私保护)
+
+路由决策规则:
+- 单步问答(一问一答，无需多步推理) → direct_local
+- 多步批处理(需要规划/执行多步骤，需要调用Volcano资源) → gateway (OfficialGW→Agent→Volcano)
+- 多模态(涉及图片/音频/视频/文件分析) → multimodal
+- 隐私敏感(个人信息/医疗/财务数据) → local_inference
+
+{routing_rules}
+
+只输出JSON: {{"route_path":"选项","complexity_score":0-100,"reason":"原因"}}"""
 
 
 class OfficialHermesAdapter:
@@ -99,6 +158,8 @@ class OfficialHermesAdapter:
         self._memory_write_thread: Optional[threading.Thread] = None
         self._cloud_available: Optional[bool] = None
         self._cloud_check_time: float = 0
+
+        logger.info("[Memory] MEMORY_FILE path: %s (exists=%s)", MEMORY_FILE, os.path.exists(MEMORY_FILE))
 
     @property
     def _headers(self) -> Dict[str, str]:
@@ -150,12 +211,15 @@ class OfficialHermesAdapter:
 
         try:
             if not os.path.exists(MEMORY_FILE):
+                logger.warning("[Memory] MEMORY_FILE not found: %s", MEMORY_FILE)
                 self._memory_context_cache = ""
                 self._memory_context_cached_at = now
                 return ""
 
             with open(MEMORY_FILE, "r", encoding="utf-8") as f:
                 content = f.read()
+
+            logger.info("[Memory] Loaded from %s: %d bytes", MEMORY_FILE, len(content))
 
             # Extract routing patterns and rules (skip feedback history)
             context_parts = []
@@ -174,10 +238,13 @@ class OfficialHermesAdapter:
 
             self._memory_context_cache = "\n".join(context_parts)
             self._memory_context_cached_at = now
+            logger.info("[Memory] Extracted routing context: %d rules/patterns, %d bytes",
+                        len([l for l in self._memory_context_cache.split("\n") if l.strip().startswith("-")]),
+                        len(self._memory_context_cache))
             return self._memory_context_cache
 
         except Exception as e:
-            logger.warning(f"Failed to load memory context: {e}")
+            logger.warning("[Memory] Failed to load memory context from %s: %s", MEMORY_FILE, e)
             return ""
 
     def _parse_routing_rules_from_memory(self) -> list:
@@ -226,7 +293,7 @@ class OfficialHermesAdapter:
                         route_part = route_part[len(prefix):]
 
                 route = route_part.strip().lower()
-                valid = {"direct_local", "gateway", "agent_chain", "local_inference"}
+                valid = {"direct_local", "gateway", "agent_chain", "local_inference", "multimodal"}
                 if route not in valid:
                     continue
 
@@ -241,16 +308,26 @@ class OfficialHermesAdapter:
 
         return rules
 
-    def _build_routing_system_message(self) -> str:
+    def _build_routing_system_message(self, for_agent: bool = False) -> str:
         """Build routing rules from MEMORY.md — the single source of truth.
 
         Generates the routing rules section of the system prompt dynamically
         from Memory's 'Routing Patterns Learned', 'Key Rules', and 'Latency Stats'.
         No hardcoded routing rules — all rules come from MEMORY.md.
+
+        Args:
+            for_agent: If True, use the stricter ROUTING_PROMPT_TEMPLATE_AGENT
+                       template designed for the Hermes Agent path (which has its
+                       own system prompt that may contain tool-use instructions).
+                       If False (default), use ROUTING_PROMPT_TEMPLATE for the
+                       Ollama direct path.
         """
         rules = self._parse_routing_rules_from_memory()
         memory_ctx = self._load_memory_context()
         latency_info = self._load_latency_stats_from_memory()
+
+        logger.info("[Routing] Building system_message: rules=%d, memory_ctx=%d bytes, latency_info=%d bytes",
+                    len(rules), len(memory_ctx), len(latency_info))
 
         if rules:
             # Build human-readable routing rules from Memory
@@ -258,19 +335,20 @@ class OfficialHermesAdapter:
             for r in rules:
                 kw_display = ", ".join(r["keywords"][:8]) if r["keywords"] else r["category"]
                 rule_lines.append(f"- {r['category']}({kw_display}) → {r['route']}")
-            routing_rules = "路由规则(从Memory学习，按优先级):\n" + "\n".join(rule_lines)
+            routing_rules = "外部注入的路由规则(从本地MEMORY.md学习，按优先级):\n" + "\n".join(rule_lines)
         elif memory_ctx:
             # Fallback: use raw memory context
-            routing_rules = f"路由规则(从Memory学习):\n{memory_ctx}"
+            routing_rules = f"外部注入的路由规则(从本地MEMORY.md学习):\n{memory_ctx}"
         else:
             # Last resort: minimal default rules
             routing_rules = "路由规则:\n- 简单闲聊 → direct_local\n- 代码/编程 → gateway\n- 隐私敏感 → local_inference\n- 其他 → direct_local"
 
         # Append latency awareness to help LLM make cost-aware decisions
         if latency_info:
-            routing_rules += f"\n\n延迟统计(从Memory学习):\n{latency_info}"
+            routing_rules += f"\n\n延迟统计(从本地MEMORY.md自动采集):\n{latency_info}"
 
-        return ROUTING_PROMPT_TEMPLATE.format(routing_rules=routing_rules)
+        template = ROUTING_PROMPT_TEMPLATE_AGENT if for_agent else ROUTING_PROMPT_TEMPLATE
+        return template.format(routing_rules=routing_rules)
 
     def _load_latency_stats_from_memory(self) -> str:
         """Load latency stats section from MEMORY.md for routing awareness."""
@@ -299,6 +377,7 @@ class OfficialHermesAdapter:
 
         # Only return lines starting with "-"
         lines = [l.strip() for l in stats_section.split("\n") if l.strip().startswith("-")]
+        logger.info("[Memory] Latency stats from %s: %d routes loaded", MEMORY_FILE, len(lines))
         return "\n".join(lines)
 
     # ── Session Warmup ───────────────────────────────────────────────
@@ -313,7 +392,7 @@ class OfficialHermesAdapter:
         agent state and skip re-initialization.
         """
         try:
-            system_msg = self._build_routing_system_message()
+            system_msg = self._build_routing_system_message(for_agent=True)
             payload = {
                 "model": "hermes-agent",
                 "messages": [{"role": "user", "content": "warmup"}],
@@ -356,28 +435,48 @@ class OfficialHermesAdapter:
         - _extract_route_from_text (natural language fallback)
         - Feedback writing to MEMORY.md
         """
+        prompt = request.get("prompt", "")[:80]
+        req_type = request.get("type", "chat")
+        logger.info("[Routing] === 新路由决策 === prompt='%s' type=%s mode=%s",
+                    prompt, req_type, "ollama_direct" if self.use_direct_ollama else "hermes_agent")
         if self.use_direct_ollama:
             # Primary: Ollama direct (fast, ~1-2s)
             try:
-                return self._route_via_ollama_direct(request)
+                result = self._route_via_ollama_direct(request)
+                logger.info("[Routing] Ollama直连完成: route=%s complexity=%s latency=%sms memory=%s",
+                            result.get("route_path"), result.get("complexity_score"),
+                            result.get("agent_llm_latency_ms"), result.get("memory_context_used"))
+                return result
             except Exception as e:
-                logger.warning(f"Ollama direct routing failed, falling back to Hermes Agent: {e}")
+                logger.warning("[Routing] Ollama直连失败: %s, 降级到Hermes Agent", e)
                 try:
-                    return self._route_via_hermes_agent(request)
+                    result = self._route_via_hermes_agent(request)
+                    logger.info("[Routing] Hermes Agent降级完成: route=%s latency=%sms",
+                                result.get("route_path"), result.get("agent_llm_latency_ms"))
+                    return result
                 except Exception as e2:
-                    logger.warning(f"Hermes Agent routing also failed: {e2}")
-                    return {"route_path": "gateway", "reason": f"All routing failed: {e2}", "official_agent_routed": False}
+                    logger.error("[Routing] Hermes Agent也失败: %s, 兜底gateway+post_validate", e2)
+                    fallback = {"route_path": "gateway", "reason": f"All routing failed: {e2}", "official_agent_routed": False}
+                    return self._post_validate_route(fallback, request)
         else:
             # Primary: Hermes Agent (full framework, ~5s)
             try:
-                return self._route_via_hermes_agent(request)
+                result = self._route_via_hermes_agent(request)
+                logger.info("[Routing] Hermes Agent完成: route=%s complexity=%s latency=%sms memory=%s",
+                            result.get("route_path"), result.get("complexity_score"),
+                            result.get("agent_llm_latency_ms"), result.get("memory_context_used"))
+                return result
             except Exception as e:
-                logger.warning(f"Hermes Agent routing failed, falling back to Ollama: {e}")
+                logger.warning("[Routing] Hermes Agent失败: %s, 降级到Ollama", e)
                 try:
-                    return self._route_via_ollama_direct(request)
+                    result = self._route_via_ollama_direct(request)
+                    logger.info("[Routing] Ollama降级完成: route=%s latency=%sms",
+                                result.get("route_path"), result.get("agent_llm_latency_ms"))
+                    return result
                 except Exception as e2:
-                    logger.warning(f"Ollama routing also failed: {e2}")
-                    return {"route_path": "gateway", "reason": f"All routing failed: {e2}", "official_agent_routed": False}
+                    logger.error("[Routing] Ollama也失败: %s, 兜底gateway+post_validate", e2)
+                    fallback = {"route_path": "gateway", "reason": f"All routing failed: {e2}", "official_agent_routed": False}
+                    return self._post_validate_route(fallback, request)
 
     def _route_via_hermes_agent(self, request: Dict) -> Dict:
         """Route via Hermes Agent API using system_message injection (Plan B).
@@ -406,16 +505,20 @@ class OfficialHermesAdapter:
         if isinstance(constraints, dict):
             require_local = constraints.get("require_local", False)
 
-        # Build routing rules with memory context
-        system_message = self._build_routing_system_message()
+        # Build routing rules with memory context (use agent-specific template)
+        system_message = self._build_routing_system_message(for_agent=True)
 
+        # Embed JSON format reminder in user message — 3B models attend more
+        # to user messages than to system prompt tail when the system prompt
+        # is large (~2048 tokens).  The prefix acts as a "format anchor".
         user_msg = (
-            f"判断路由:\n"
+            f"[只输出JSON，不要输出其他内容] 判断路由:\n"
             f"内容: {prompt[:200]}\n"
             f"类型: {req_type}\n"
             f"优先级: {priority}\n"
             f"有工具: {has_tools}\n"
-            f"需本地: {require_local}"
+            f"需本地: {require_local}\n"
+            f"输出格式: {{\"route_path\":\"选项\",\"complexity_score\":0-100,\"reason\":\"原因\"}}"
         )
 
         payload = {
@@ -458,25 +561,33 @@ class OfficialHermesAdapter:
             self._session_id = resp_session_id
 
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        logger.debug("[Routing] Hermes Agent原始响应: %s", content[:200])
 
         try:
             routing = json.loads(content)
         except json.JSONDecodeError:
             routing = self._extract_json_from_text(content)
+            logger.debug("[Routing] JSON解析失败, extract_json结果: %s", routing)
 
         if not routing:
             # 3B model may return natural language instead of JSON under
             # Hermes Agent's large system prompt — extract route from text
             routing = self._extract_route_from_text(content, request)
+            logger.debug("[Routing] JSON提取失败, extract_route结果: %s", routing)
 
-        valid_paths = {"direct_local", "gateway", "agent_chain", "local_inference"}
+        valid_paths = {"direct_local", "gateway", "agent_chain", "local_inference", "multimodal"}
         if routing.get("route_path") not in valid_paths:
+            logger.warning("[Routing] Agent返回无效路由 '%s', 修正为gateway", routing.get("route_path"))
             routing["route_path"] = "gateway"
 
         # Post-validation: 3B model may return valid JSON but wrong route
         # (e.g. "write a quicksort" misrouted to direct_local because of
         # greeting prefix). Override when code keywords are clearly present.
+        pre_validate_route = routing.get("route_path")
         routing = self._post_validate_route(routing, request)
+        if routing.get("post_validated"):
+            logger.info("[Routing] Post-validate修正: %s → %s (reason: %s)",
+                        pre_validate_route, routing["route_path"], routing.get("reason"))
 
         routing["agent_llm_latency_ms"] = elapsed_ms
         routing["official_agent_routed"] = True
@@ -543,21 +654,29 @@ class OfficialHermesAdapter:
 
             result = resp.json()
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            logger.debug("[Routing] Ollama原始响应: %s", content[:200])
 
             try:
                 routing = json.loads(content)
             except json.JSONDecodeError:
                 routing = self._extract_json_from_text(content)
+                logger.debug("[Routing] JSON解析失败, extract_json结果: %s", routing)
 
             if not routing:
                 routing = self._extract_route_from_text(content, request)
+                logger.debug("[Routing] JSON提取失败, extract_route结果: %s", routing)
 
-            valid_paths = {"direct_local", "gateway", "agent_chain", "local_inference"}
+            valid_paths = {"direct_local", "gateway", "agent_chain", "local_inference", "multimodal"}
             if routing.get("route_path") not in valid_paths:
+                logger.warning("[Routing] LLM返回无效路由 '%s', 修正为gateway", routing.get("route_path"))
                 routing["route_path"] = "gateway"
 
             # Apply same post-validation as Hermes Agent path
+            pre_validate_route = routing.get("route_path")
             routing = self._post_validate_route(routing, request)
+            if routing.get("post_validated"):
+                logger.info("[Routing] Post-validate修正: %s → %s (reason: %s)",
+                            pre_validate_route, routing["route_path"], routing.get("reason"))
 
             routing["agent_llm_latency_ms"] = elapsed_ms
             routing["official_agent_routed"] = True
@@ -568,11 +687,13 @@ class OfficialHermesAdapter:
             return routing
 
         except httpx.TimeoutException:
-            logger.warning("Ollama routing timeout, falling back")
-            return {"route_path": "gateway", "reason": "Ollama timeout", "official_agent_routed": False}
+            logger.warning("Ollama routing timeout, falling back with post-validate")
+            fallback = {"route_path": "gateway", "reason": "Ollama timeout", "official_agent_routed": False}
+            return self._post_validate_route(fallback, request)
         except Exception as e:
             logger.error(f"Ollama routing error: {e}")
-            return {"route_path": "gateway", "reason": f"Ollama error: {e}", "official_agent_routed": False}
+            fallback = {"route_path": "gateway", "reason": f"Ollama error: {e}", "official_agent_routed": False}
+            return self._post_validate_route(fallback, request)
 
     # ── Feedback (Local + Hermes Memory async) ───────────────────────
 
@@ -616,7 +737,13 @@ class OfficialHermesAdapter:
         self._memory_write_thread.start()
 
     def _memory_writer_loop(self):
-        """Background thread: drain feedback queue and write to Hermes Memory."""
+        """Background thread: drain feedback queue and write to Hermes Memory.
+
+        Evolution closed-loop (Plan A: Ollama routing + Agent evolution):
+        1. Write feedback to MEMORY.md via Python (deterministic, format-guaranteed)
+        2. Notify Hermes Agent API so its MemoryStore reloads context
+        3. Next routing request picks up updated rules automatically
+        """
         while True:
             time.sleep(2)  # Batch every 2 seconds
 
@@ -636,6 +763,12 @@ class OfficialHermesAdapter:
                 except Exception as e:
                     logger.warning(f"Background Memory write failed: {e}")
 
+            # After batch write, notify Hermes Agent to reload memory context
+            # This enables the Agent's self-learning mechanism: it reads
+            # updated MEMORY.md on its next request, incorporating our
+            # feedback-driven rule evolution.
+            self._notify_agent_memory_update(batch)
+
     def _write_feedback_local(self, skill_name: str, route_path: str,
                               success: bool, latency_ms: int,
                               request_summary: str) -> bool:
@@ -649,7 +782,8 @@ class OfficialHermesAdapter:
             "request_summary": request_summary[:50] if request_summary else "",
         }
 
-        feedback_dir = os.path.expanduser("~/.hermes/routing_feedback")
+        feedback_dir = os.path.join(os.path.dirname(MEMORY_FILE), "..", "routing_feedback")
+        feedback_dir = os.path.normpath(feedback_dir)
         os.makedirs(feedback_dir, exist_ok=True)
         feedback_file = os.path.join(feedback_dir, "feedback.jsonl")
 
@@ -660,6 +794,43 @@ class OfficialHermesAdapter:
         except Exception as e:
             logger.error(f"Failed to write feedback locally: {e}")
             return False
+
+    def _notify_agent_memory_update(self, batch: list) -> None:
+        """Notify Hermes Agent that MEMORY.md has been updated.
+
+        Plan A evolution closed-loop: after Python writes feedback to MEMORY.md,
+        we send a lightweight request to the Agent API so its MemoryStore
+        reloads the updated context. The Agent's MemoryStore caches MEMORY.md
+        content and refreshes periodically — this notification ensures the
+        Agent sees the latest rules on its next request.
+
+        Two notification strategies:
+        1. Direct: Send a health check to verify Agent is alive (lightweight)
+        2. If Agent has memory tool enabled: the Agent will auto-read MEMORY.md
+           on its next request via MemoryStore.format_for_system_prompt()
+
+        We don't need to explicitly call the memory tool because:
+        - Python already wrote the feedback to MEMORY.md (format-guaranteed)
+        - Agent's MemoryStore reads MEMORY.md on every request
+        - The Agent's system prompt automatically includes updated rules
+        """
+        if not batch:
+            return
+
+        try:
+            # Lightweight health check — also serves as "ping" to keep
+            # the Agent process warm and verify it can read MEMORY.md
+            with httpx.Client(timeout=3.0) as client:
+                resp = client.get(f"{self.api_url}/health", headers=self._headers)
+                if resp.status_code == 200:
+                    logger.debug(f"Agent notified of {len(batch)} feedback entries "
+                                 "(MemoryStore will reload on next request)")
+                else:
+                    logger.debug(f"Agent health check returned {resp.status_code}")
+        except Exception as e:
+            # Non-critical: Agent will still read MEMORY.md on next request
+            # even if this notification fails
+            logger.debug(f"Agent notification skipped (non-critical): {e}")
 
     def _write_feedback_to_memory(self, skill_name: str, route_path: str,
                                   success: bool, latency_ms: int,
@@ -795,7 +966,7 @@ class OfficialHermesAdapter:
         for rp in ["direct_local", "gateway", "local_inference", "multimodal", "agent_chain"]:
             if rp in stats:
                 s = stats[rp]
-                lines.append(f"- {rp}: avg={s['avg']}ms, p95={s['p95']}ms, samples={s['samples']}")
+                lines.append(f"- {rp}: avg={s['avg']}ms, p95={s['p95']}ms, samples={s['samples']} (Hermes路由实测)")
         return "\n".join(lines)
 
     def _reinforce_latency_awareness(self, route_path: str, latency_ms: int,
@@ -1145,7 +1316,7 @@ class OfficialHermesAdapter:
         Returns the route name or empty string.
         """
         import re as _re
-        valid_routes = {"direct_local", "gateway", "agent_chain", "local_inference"}
+        valid_routes = {"direct_local", "gateway", "agent_chain", "local_inference", "multimodal"}
 
         # Chinese patterns: "应走X", "应该走X", "应路由到X"
         cn_patterns = [
@@ -1236,6 +1407,12 @@ class OfficialHermesAdapter:
                     "reason": f"Memory rule matched (text fallback)"}
 
         # Priority 3: Check if text mentions a specific route
+        if "gateway" in text_lower:
+            return {"route_path": "gateway", "complexity_score": 60,
+                    "reason": "Extracted gateway from text response"}
+        if "multimodal" in text_lower or "multi-modal" in text_lower:
+            return {"route_path": "multimodal", "complexity_score": 55,
+                    "reason": "Extracted multimodal from text response"}
         if "agent_chain" in text_lower or "agent chain" in text_lower:
             return {"route_path": "agent_chain", "complexity_score": 60,
                     "reason": "Extracted agent_chain from text response"}
@@ -1245,6 +1422,17 @@ class OfficialHermesAdapter:
         if "direct_local" in text_lower or "direct local" in text_lower:
             return {"route_path": "direct_local", "complexity_score": 5,
                     "reason": "Extracted direct_local from text response"}
+
+        # Priority 4: Keyword-based inference from response content
+        # 3B models may describe the route without using the exact name
+        gateway_kw = {"部署", "volcano", "集群", "代码执行", "批处理", "多步", "工具调用", "deploy", "batch", "code"}
+        multimodal_kw = {"图片", "ocr", "视觉", "音频", "视频", "image", "vision", "audio", "video"}
+        if any(kw in text_lower for kw in gateway_kw):
+            return {"route_path": "gateway", "complexity_score": 55,
+                    "reason": "Inferred gateway from text keywords (fallback)"}
+        if any(kw in text_lower for kw in multimodal_kw):
+            return {"route_path": "multimodal", "complexity_score": 55,
+                    "reason": "Inferred multimodal from text keywords (fallback)"}
 
         # Default: gateway for general queries
         return {"route_path": "gateway", "complexity_score": 25,
@@ -1295,23 +1483,38 @@ class OfficialHermesAdapter:
             except (ValueError, TypeError):
                 complexity = 0
 
+        logger.debug("[PostValidate] 输入: route=%s complexity=%s type=%s has_tools=%s prompt='%.60s'",
+                     route, complexity, req_type, has_tools, prompt[:60])
+
         # Rule 1: Privacy override (absolute)
         require_local = False
         if isinstance(constraints, dict):
             require_local = constraints.get("require_local", False)
-        if require_local:
+
+        # Also detect privacy by keywords (when constraints not set)
+        privacy_keywords = [
+            "个人信息", "隐私", "脱敏", "敏感数据", "内部财务", "医疗", "病历",
+            "患者", "诊断报告", "身份证", "银行卡", "密码", "薪资", "人事",
+            "privacy", "sensitive", "personal data", "PII", "PHI", "medical record",
+        ]
+        has_privacy = require_local or any(kw in prompt for kw in privacy_keywords)
+
+        if has_privacy:
+            matched_kws = [kw for kw in privacy_keywords if kw in prompt] if not require_local else ["require_local"]
+            logger.info("[PostValidate] Rule1隐私覆盖: %s → local_inference (匹配: %s)", route, matched_kws[:3])
             routing["route_path"] = "local_inference"
-            routing["reason"] = f"Override: require_local (was {route})"
+            routing["reason"] = f"Override: privacy-sensitive request (was {route})"
             routing["post_validated"] = True
             return routing
 
         # Rule 2: Multimodal detection
         multimodal_keywords = [
             "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
-            "音频", "语音", "录音", "视频", "画面", "摄像头",
+            "音频", "语音", "录音", "视频", "画面", "摄像头", "影像",
             "image", "photo", "picture", "screenshot", "vision", "ocr",
             "audio", "voice", "video", "camera", "multimodal",
             "分析图片", "描述图片", "图片中", "图中", "截图中的",
+            "转换为文字", "关键帧", "物体并分类",
         ]
         has_multimodal = any(kw in prompt for kw in multimodal_keywords)
         # Also check if request has image/audio attachments
@@ -1320,6 +1523,9 @@ class OfficialHermesAdapter:
             has_multimodal = True
 
         if has_multimodal:
+            matched_kws = [kw for kw in multimodal_keywords if kw in prompt]
+            logger.info("[PostValidate] Rule2多模态检测: %s → multimodal (匹配关键词: %s)",
+                        route, matched_kws[:3])
             routing["route_path"] = "multimodal"
             routing["reason"] = f"Override: multimodal request (was {route})"
             routing["post_validated"] = True
@@ -1336,9 +1542,15 @@ class OfficialHermesAdapter:
         is_gateway_route = (
             has_tools
             or req_type in ("code", "code_execution", "tool_call")
-            or complexity >= 40
             or has_multi_step
         )
+
+        # Note: LLM-returned complexity_score is NOT used as a hard threshold
+        # here because 3B models are unreliable at scoring — they often give
+        # simple Q&A a score of 40+ which would incorrectly route to gateway.
+        # Instead, we rely on deterministic keyword matching + request type.
+        # The LLM's complexity_score is kept in the routing result for
+        # observability but does not override the keyword-based decision.
 
         # Rule 4: Simple single-step Q&A → direct_local
         if is_gateway_route:
@@ -1347,6 +1559,9 @@ class OfficialHermesAdapter:
             correct_route = "direct_local"
 
         if route != correct_route:
+            matched_kws = [kw for kw in multi_step_keywords if kw in prompt] if has_multi_step else []
+            logger.info("[PostValidate] Rule4路由修正: %s → %s (is_gateway=%s, has_multi_step=%s kws=%s, has_tools=%s, type=%s, complexity=%s)",
+                        route, correct_route, is_gateway_route, has_multi_step, matched_kws[:3], has_tools, req_type, complexity)
             routing["route_path"] = correct_route
             routing["reason"] = f"Override: {'multi-step/agent' if is_gateway_route else 'single-step Q&A'} request (was {route}, complexity={complexity})"
             routing["post_validated"] = True

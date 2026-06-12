@@ -7,8 +7,10 @@ import subprocess
 import threading
 import time
 import asyncio
+import uuid
 import psutil
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
@@ -31,6 +33,16 @@ from hermes.dispatch_worker import DispatchWorker
 
 logger = logging.getLogger(__name__)
 
+# Note: Actual logging configuration is set in __main__ via uvicorn log_config.
+# This early basicConfig ensures logs are visible during module import phase.
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+for _n in ("httpx", "httpcore", "httpcore.http11", "httpcore.connection"):
+    logging.getLogger(_n).setLevel(logging.WARNING)
+
 HERMES_PORT = int(os.getenv("HERMES_PORT", "8082"))
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OFFICIAL_GW_URL = os.getenv("OPENCLAW_OFFICIAL_GATEWAY_URL", "http://127.0.0.1:3005")
@@ -43,7 +55,7 @@ OFFICIAL_AGENT_URL = os.getenv("OFFICIAL_AGENT_URL", "http://127.0.0.1:8642")
 OFFICIAL_AGENT_KEY = os.getenv("OFFICIAL_AGENT_KEY", "")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
-USE_DIRECT_OLLAMA = os.getenv("USE_DIRECT_OLLAMA", "false").lower() == "true"
+USE_DIRECT_OLLAMA = os.getenv("USE_DIRECT_OLLAMA", "true").lower() == "true"
 
 # Downstream service timeouts
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60.0"))
@@ -68,7 +80,7 @@ hermes = HermesRouter(
 QUEUE_BACKEND = os.getenv("QUEUE_BACKEND", "auto")  # auto | redis | inprocess
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 QUEUE_DATA_DIR = os.getenv("QUEUE_DATA_DIR", "")
-DISPATCH_WORKERS = int(os.getenv("DISPATCH_WORKERS", "4"))
+DISPATCH_WORKERS = int(os.getenv("DISPATCH_WORKERS", "8"))
 
 msg_queue = create_queue(backend=QUEUE_BACKEND, redis_url=REDIS_URL, data_dir=QUEUE_DATA_DIR)
 dispatch_worker = DispatchWorker(
@@ -86,7 +98,8 @@ _stats: Dict = {
 }
 MAX_HISTORY = 50
 
-# Pending sync results: request_id → threading.Event + result holder
+# Pending sync results: request_id → {"event": threading.Event, "holder": dict}
+# Uses threading.Event for cross-thread notification (dispatch workers are threads).
 _pending_sync: Dict[str, Dict] = {}
 _pending_sync_lock = threading.Lock()
 
@@ -884,10 +897,11 @@ async def memory_content():
         from hermes.official_agent_adapter import MEMORY_FILE
         if os.path.exists(MEMORY_FILE):
             content = open(MEMORY_FILE, "r", encoding="utf-8").read()
-            return {"content": content, "path": MEMORY_FILE}
-        return {"content": "", "path": MEMORY_FILE}
+            stat = os.stat(MEMORY_FILE)
+            return {"content": content, "path": MEMORY_FILE, "exists": True, "size": stat.st_size}
+        return {"content": "", "path": MEMORY_FILE, "exists": False, "size": 0}
     except Exception as e:
-        return {"content": "", "error": str(e)}
+        return {"content": "", "error": str(e), "exists": False, "size": 0}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -939,16 +953,18 @@ async def queue_submit(request: QueueSubmitRequest):
 
 
 @app.post("/queue/submit-sync", summary="Submit and wait for result")
-async def queue_submit_sync(request: QueueSubmitRequest, timeout: float = 30.0):
+async def queue_submit_sync(request: QueueSubmitRequest, timeout: float = 400.0):
     """Submit a request and wait for the result (synchronous mode).
 
-    Uses event-based waiting instead of polling for efficiency.
-    The dispatch worker will set the event when the result is ready.
+    Uses threading.Event for cross-thread notification (dispatch workers
+    are threads, asyncio.Event.set() is not thread-safe).
+    Polls event.is_set() every 0.1s with periodic peek as safety net.
     """
     import uuid
+    import asyncio
     request_id = str(uuid.uuid4())
 
-    # Register pending sync result
+    # Register pending sync result with threading.Event (thread-safe)
     event = threading.Event()
     holder = {"result": None}
     with _pending_sync_lock:
@@ -963,32 +979,32 @@ async def queue_submit_sync(request: QueueSubmitRequest, timeout: float = 30.0):
     # Submit to queue
     msg_queue.push(QUEUE_REQUESTS, message)
 
-    # Wait for result (event is set by the result-checking background task)
-    # We still poll the result queue, but only consume results matching our request_id
+    # Wait for event notification with short-poll + periodic peek fallback
     deadline = time.time() + timeout
+    peek_interval = 10.0  # Peek every 10s as safety net
+    last_peek = 0
     while time.time() < deadline:
-        # Check if our result has been delivered via the pending sync mechanism
         if event.is_set():
             with _pending_sync_lock:
                 _pending_sync.pop(request_id, None)
             return holder["result"]
 
-        # Also check the result queue for our request_id
-        # Peek and search without consuming unrelated results
-        peek_results = msg_queue.peek(QUEUE_RESULTS, limit=50)
-        for i, r in enumerate(peek_results):
-            if r.get("request_id") == request_id:
-                # Found our result — drain up to this point
-                for _ in range(i + 1):
-                    popped = msg_queue.pop(QUEUE_RESULTS)
-                    if popped and popped.get("request_id") != request_id:
-                        # Put unrelated results back
-                        msg_queue.push(QUEUE_RESULTS, popped)
-                with _pending_sync_lock:
-                    _pending_sync.pop(request_id, None)
-                return r
+        # Periodic peek fallback (safety net for missed notifications)
+        now = time.time()
+        if now - last_peek >= peek_interval:
+            last_peek = now
+            peek_results = msg_queue.peek(QUEUE_RESULTS, limit=50)
+            for i, r in enumerate(peek_results):
+                if r.get("request_id") == request_id:
+                    for _ in range(i + 1):
+                        popped = msg_queue.pop(QUEUE_RESULTS)
+                        if popped and popped.get("request_id") != request_id:
+                            msg_queue.push(QUEUE_RESULTS, popped)
+                    with _pending_sync_lock:
+                        _pending_sync.pop(request_id, None)
+                    return r
 
-        time.sleep(0.3)
+        await asyncio.sleep(0.1)
 
     # Timeout — clean up
     with _pending_sync_lock:
@@ -1091,6 +1107,43 @@ _proc_lock = threading.Lock()
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
+def _find_process_on_port(port: int) -> Optional[Dict]:
+    """Find a process listening on the given port using psutil.
+
+    Returns {"pid": int, "name": str} or None if no process found.
+    This is used as a fallback when a service is not in _managed_procs
+    (e.g., started externally) but we need to check if it's alive.
+    """
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            if conn.laddr.port == port and conn.status == "LISTEN":
+                try:
+                    proc = psutil.Process(conn.pid)
+                    return {"pid": conn.pid, "name": proc.name()}
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+    except psutil.AccessDenied:
+        # macOS: psutil.net_connections() may need root.
+        # Fallback: use lsof to find the process.
+        try:
+            result = subprocess.run(
+                ["lsof", "-i", f":{port}", "-sTCP:LISTEN", "-t", "-n"],
+                capture_output=True, text=True, timeout=3,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                pid = int(result.stdout.strip().split("\n")[0])
+                try:
+                    proc = psutil.Process(pid)
+                    return {"pid": pid, "name": proc.name()}
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    return {"pid": pid, "name": "unknown"}
+        except Exception as e2:
+            logger.debug("[PortDiscovery] lsof fallback failed for port %d: %s", port, e2)
+    except Exception as e:
+        logger.debug("[PortDiscovery] Failed to find process on port %d: %s", port, e)
+    return None
+
+
 def _find_openclaw_bin():
     """Find openclaw binary path."""
     candidates = [
@@ -1125,10 +1178,13 @@ _DEFAULT_WATCHDOG_CONFIG = {
     "startup_grace_seconds": 45,
     "shutdown_timeout_seconds": 5,
     "port_cleanup_wait_seconds": 3,
+    "health_check_timeout_seconds": 5,  # short timeout: if agent doesn't respond in 5s, it's busy (not dead)
+    "consecutive_failures_before_restart": 2,  # require 2 consecutive failures before restarting
 }
 _watchdog_config = dict(_DEFAULT_WATCHDOG_CONFIG)
 _restart_history = {}  # service -> {"attempts": int, "last_attempt": float, "last_restart_time": float}
 _service_start_times = {}  # service -> float (timestamp when last started/restarted)
+_watchdog_health_cache = {}  # service -> {"healthy": bool, "status_code": int, "data": dict, "timestamp": float}
 
 
 def _load_watchdog_config():
@@ -1186,6 +1242,21 @@ def _get_service_configs():
         "port": 11434,
         "health_url": "http://127.0.0.1:11434/api/tags",
     }
+    # Hermes Agent (Official) — auto-discover from hermes-official-venv
+    _hermes_venv = os.path.join(PROJECT_ROOT, "hermes-official-venv", "bin", "hermes")
+    _hermes_cmd = [_hermes_venv, "gateway", "run", "--accept-hooks"] if os.path.isfile(_hermes_venv) else None
+    SERVICE_CONFIGS["hermesAgent"] = {
+        "cmd": _hermes_cmd,
+        "cwd": PROJECT_ROOT,
+        "port": 8642,
+        "health_url": "http://127.0.0.1:8642/health",
+        "startup_grace_override": 60,
+        "env": {
+            "API_SERVER_ENABLED": "true",
+            "API_SERVER_KEY": OFFICIAL_AGENT_KEY or "hermes-local",
+            "API_SERVER_PORT": "8642",
+        },
+    }
     # Override from config file if present
     config_path = os.path.join(os.path.dirname(__file__), "watchdog_config.json")
     if os.path.isfile(config_path):
@@ -1197,7 +1268,7 @@ def _get_service_configs():
             for name, overrides in svc_cfg.items():
                 if name in SERVICE_CONFIGS:
                     for k, v in overrides.items():
-                        if v is not None and k not in ("cmd", "cwd", "description"):
+                        if v is not None and k not in ("description",):
                             SERVICE_CONFIGS[name][k] = v
                 elif overrides.get("cmd") and overrides.get("port"):
                     # New service from config
@@ -1217,16 +1288,34 @@ async def _check_service_health(name: str) -> bool:
     configs = _get_service_configs()
     cfg = configs.get(name)
     if not cfg:
+        logger.debug("[HealthCheck] %s: 无配置, 跳过", name)
         return False
     health_url = cfg.get("health_url")
     if not health_url:
+        logger.debug("[HealthCheck] %s: 无health_url, 跳过", name)
         return False
+    timeout = _watchdog_config.get("health_check_timeout_seconds", 10)
     try:
-        import urllib.request
-        req = urllib.request.Request(health_url)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status == 200
-    except Exception:
+        import httpx
+        headers = {}
+        if name == "hermesAgent" and OFFICIAL_AGENT_KEY:
+            headers["Authorization"] = f"Bearer {OFFICIAL_AGENT_KEY}"
+        start = time.time()
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(health_url, headers=headers)
+        elapsed_ms = int((time.time() - start) * 1000)
+        healthy = resp.status_code == 200
+        logger.info("[HealthCheck] %s: %s status=%d latency=%dms url=%s",
+                    name, "✓健康" if healthy else "✗异常", resp.status_code, elapsed_ms, health_url)
+        return healthy
+    except httpx.TimeoutException as e:
+        logger.warning("[HealthCheck] %s: ✗超时 (%ds) url=%s error=%s", name, timeout, health_url, type(e).__name__)
+        return False
+    except httpx.ConnectError as e:
+        logger.warning("[HealthCheck] %s: ✗连接失败 url=%s error=%s", name, health_url, str(e)[:80])
+        return False
+    except Exception as e:
+        logger.warning("[HealthCheck] %s: ✗异常 url=%s error=%s: %s", name, health_url, type(e).__name__, str(e)[:80])
         return False
 
 
@@ -1235,29 +1324,102 @@ async def _watchdog_loop():
     global _watchdog_running
     logger.info("[Watchdog] Starting service watchdog (interval=%ds, grace=%ds)",
                 _watchdog_config["interval_seconds"], _watchdog_config["startup_grace_seconds"])
+    check_round = 0
+    _consecutive_failures = {}  # service -> int (consecutive health check failures)
+    global _watchdog_health_cache
+    _watchdog_health_cache = {}  # service -> {"healthy": bool, "status_code": int, "data": dict, "timestamp": float}
     while _watchdog_running:
         await asyncio.sleep(_watchdog_config["interval_seconds"])
         if not _watchdog_running:
             break
+        check_round += 1
         configs = _get_service_configs()
         now = time.time()
+        logger.debug("[Watchdog] === 第%d轮检查 === services=%s", check_round, list(configs.keys()))
         for name, cfg in configs.items():
             # Skip health check if service was recently restarted (grace period)
             start_time = _service_start_times.get(name, 0)
             grace = _watchdog_config.get("startup_grace_seconds", 45)
-            if (now - start_time) < grace:
-                logger.debug("[Watchdog] %s: in startup grace period (%.0fs remaining), skipping",
-                             name, grace - (now - start_time))
+            # Use per-service grace override if set
+            svc_grace = cfg.get("startup_grace_override") or grace
+            if (now - start_time) < svc_grace:
+                logger.debug("[Watchdog] %s: 启动宽限期内 (%.0fs剩余), 跳过",
+                             name, svc_grace - (now - start_time))
                 continue
 
             healthy = await _check_service_health(name)
+
+            # Cache the health check result for /proxy/health to use.
+            # If HTTP check failed but process is alive, mark as "busy" not "unhealthy".
+            # This prevents Dashboard from showing false "unavailable" warnings.
             if healthy:
-                # Reset restart attempts on healthy check
-                if name in _restart_history:
+                _watchdog_health_cache[name] = {
+                    "healthy": True,
+                    "status_code": 200,
+                    "data": {"status": "healthy"},
+                    "timestamp": now,
+                }
+            else:
+                # Check if process is still alive before marking as unhealthy
+                # Priority: 1) _managed_procs  2) port-based discovery (psutil)
+                alive_pid = None
+                with _proc_lock:
+                    existing = _managed_procs.get(name)
+                    proc = existing.get("process") if existing else None
+                    if proc and proc.poll() is None:
+                        alive_pid = proc.pid
+
+                if alive_pid is None:
+                    # Fallback: discover process by listening port
+                    port = cfg.get("port")
+                    if port:
+                        found = _find_process_on_port(port)
+                        if found:
+                            alive_pid = found["pid"]
+                            logger.info("[Watchdog] %s: 端口发现进程(pid=%d)监听port=%d",
+                                        name, alive_pid, port)
+
+                if alive_pid is not None:
+                    # Process alive but HTTP check failed — likely busy
+                    logger.info("[Watchdog] %s: HTTP检查失败但进程存活(pid=%d), 缓存标记为busy",
+                                name, alive_pid)
+                    _watchdog_health_cache[name] = {
+                        "healthy": True,
+                        "status_code": 0,
+                        "data": {"status": "busy", "pid": alive_pid},
+                        "timestamp": now,
+                    }
+                    healthy = True  # Treat as healthy for restart logic
+                else:
+                    _watchdog_health_cache[name] = {
+                        "healthy": False,
+                        "status_code": 0,
+                        "data": {"status": "unhealthy"},
+                        "timestamp": now,
+                    }
+
+            if healthy:
+                # Reset both restart attempts and consecutive failure count on healthy check
+                fail_count = _consecutive_failures.get(name, 0)
+                if fail_count > 0:
+                    logger.info("[Watchdog] %s: 恢复健康, 重置连续失败计数 (was %d)",
+                                name, fail_count)
+                    _consecutive_failures[name] = 0
+                if name in _restart_history and _restart_history[name]["attempts"] > 0:
+                    logger.info("[Watchdog] %s: 恢复健康, 重置重启计数 (was %d attempts)",
+                                name, _restart_history[name]["attempts"])
                     _restart_history[name]["attempts"] = 0
                 continue
 
-            # Service is down — check if we should restart
+            # Service is unhealthy — track consecutive failures
+            _consecutive_failures[name] = _consecutive_failures.get(name, 0) + 1
+            required_failures = _watchdog_config.get("consecutive_failures_before_restart", 2)
+            if _consecutive_failures[name] < required_failures:
+                logger.warning("[Watchdog] %s: ✗不健康 (连续失败 %d/%d, 需 %d 次才重启)",
+                               name, _consecutive_failures[name], required_failures, required_failures)
+                continue
+
+            # Required consecutive failures reached — check if we should restart
             hist = _restart_history.get(name, {"attempts": 0, "last_attempt": 0})
 
             if hist["attempts"] >= _watchdog_config["max_restart_attempts"]:
@@ -1268,7 +1430,34 @@ async def _watchdog_loop():
             if (now - hist["last_attempt"]) < _watchdog_config["restart_cooldown_seconds"]:
                 continue  # Too soon to retry
 
-            logger.info("[Watchdog] %s: service down, attempting restart (attempt %d/%d)",
+            # CRITICAL: Check if the process is still running before restarting.
+            # If the process is alive but health check fails, it's likely just busy
+            # (e.g., hermesAgent processing a long gateway request). Don't kill it!
+            alive_pid = None
+            with _proc_lock:
+                existing = _managed_procs.get(name)
+                proc = existing.get("process") if existing else None
+                if proc and proc.poll() is None:
+                    alive_pid = proc.pid
+
+            if alive_pid is None:
+                # Fallback: check by port
+                port = cfg.get("port")
+                if port:
+                    found = _find_process_on_port(port)
+                    if found:
+                        alive_pid = found["pid"]
+
+            if alive_pid is not None:
+                # Process is still running — health check failure is likely due to load,
+                # not a crash. Log warning but do NOT restart.
+                logger.warning("[Watchdog] %s: ✗不健康 but process alive (pid=%d), "
+                               "likely busy — skipping restart (consecutive_failures=%d)",
+                               name, alive_pid, _consecutive_failures[name])
+                continue
+
+            # Process is dead (crashed) — proceed with restart
+            logger.info("[Watchdog] %s: process dead, attempting restart (attempt %d/%d)",
                         name, hist["attempts"] + 1, _watchdog_config["max_restart_attempts"])
             hist["attempts"] += 1
             hist["last_attempt"] = now
@@ -1358,6 +1547,8 @@ async def api_start_service(req: ServiceStartRequest):
         raise HTTPException(status_code=400, detail=f"Unknown service: {name}. Use: {list(configs.keys())}")
 
     cfg = configs[name]
+    if not cfg.get("cmd"):
+        raise HTTPException(status_code=400, detail=f"Service {name} has no start command configured (cmd is missing or auto-discovery failed)")
     try:
         # Redirect stdout/stderr to log files instead of PIPE to avoid buffer deadlock
         log_dir = os.path.join(PROJECT_ROOT, "logs")
@@ -1370,7 +1561,7 @@ async def api_start_service(req: ServiceStartRequest):
             cwd=cfg["cwd"],
             stdout=stdout_log,
             stderr=stderr_log,
-            env={**os.environ},
+            env={**os.environ, **cfg.get("env", {})},
         )
         with _proc_lock:
             _managed_procs[name] = {
@@ -1495,7 +1686,9 @@ async def api_watchdog_status():
 async def api_watchdog_config_update(enabled: bool = True, interval_seconds: int = 30,
                                       max_restart_attempts: int = 3, restart_cooldown_seconds: int = 60,
                                       startup_grace_seconds: int = 45, shutdown_timeout_seconds: int = 5,
-                                      port_cleanup_wait_seconds: int = 3):
+                                      port_cleanup_wait_seconds: int = 3,
+                                      health_check_timeout_seconds: int = 10,
+                                      consecutive_failures_before_restart: int = 2):
     _watchdog_config["enabled"] = enabled
     _watchdog_config["interval_seconds"] = max(10, interval_seconds)
     _watchdog_config["max_restart_attempts"] = max(1, max_restart_attempts)
@@ -1503,6 +1696,8 @@ async def api_watchdog_config_update(enabled: bool = True, interval_seconds: int
     _watchdog_config["startup_grace_seconds"] = max(15, startup_grace_seconds)
     _watchdog_config["shutdown_timeout_seconds"] = max(1, shutdown_timeout_seconds)
     _watchdog_config["port_cleanup_wait_seconds"] = max(1, port_cleanup_wait_seconds)
+    _watchdog_config["health_check_timeout_seconds"] = max(3, health_check_timeout_seconds)
+    _watchdog_config["consecutive_failures_before_restart"] = max(1, consecutive_failures_before_restart)
     # Persist to config file
     try:
         import json as _json
@@ -1522,26 +1717,71 @@ async def api_watchdog_config_update(enabled: bool = True, interval_seconds: int
 
 @app.get("/proxy/health", summary="Proxy health check for all services (bypasses CORS)")
 async def api_proxy_health():
-    import urllib.request
-    import json as _json
-    services = {
-        "hermes": "http://127.0.0.1:8082/health",
-        "officialGateway": "http://127.0.0.1:3005/health",
-        "ollama": "http://127.0.0.1:11434/api/tags",
-    }
+    """Return health status of all services using Watchdog's cached results.
+    This endpoint NEVER makes outbound HTTP requests — it reads the latest
+    health check results from the Watchdog background loop, so it always
+    responds instantly regardless of service load.
+    """
+    now = time.time()
     result = {}
+
     # Hermes self-check: we're running if this handler executes
     result["hermes"] = {"healthy": True, "status_code": 200, "data": {"status": "healthy"}}
-    for name, url in services.items():
-        if name == "hermes":
-            continue  # Already checked above
-        try:
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = _json.loads(resp.read())
-                result[name] = {"healthy": resp.status == 200, "status_code": resp.status, "data": data}
-        except Exception as e:
-            result[name] = {"healthy": False, "error": str(e)}
+
+    # Read from Watchdog's health cache (populated by _watchdog_loop)
+    # If no cache yet (just started), check process liveness as fallback
+    cache = _watchdog_health_cache
+    configs = _get_service_configs()
+
+    for name in ["hermesAgent", "officialGateway", "ollama"]:
+        cached = cache.get(name)
+        if cached and (now - cached.get("timestamp", 0)) < 60:
+            # Fresh cache (< 60s old) — use it directly
+            result[name] = {
+                "healthy": cached["healthy"],
+                "status_code": cached.get("status_code", 200 if cached["healthy"] else 0),
+                "data": cached.get("data", {}),
+            }
+        else:
+            # No cache or stale — check process liveness as fallback
+            # Priority: 1) _managed_procs  2) port-based discovery (psutil)
+            alive_pid = None
+            with _proc_lock:
+                existing = _managed_procs.get(name)
+                proc = existing.get("process") if existing else None
+                if proc and proc.poll() is None:
+                    alive_pid = proc.pid
+
+            if alive_pid is None:
+                # Fallback: discover process by listening port
+                cfg = configs.get(name, {})
+                port = cfg.get("port")
+                if port:
+                    found = _find_process_on_port(port)
+                    if found:
+                        alive_pid = found["pid"]
+
+            if alive_pid is not None:
+                result[name] = {
+                    "healthy": True,
+                    "status_code": 0,
+                    "data": {"status": "busy", "pid": alive_pid},
+                }
+            else:
+                result[name] = {
+                    "healthy": False,
+                    "status_code": 0,
+                    "data": {"status": "unknown"},
+                }
+
+    # Summary log
+    unhealthy = [n for n, d in result.items() if not d.get("healthy")]
+    if unhealthy:
+        logger.warning("[ProxyHealth] 检查完成: %d/%d 异常 [%s]",
+                       len(unhealthy), len(result), ", ".join(unhealthy))
+    else:
+        logger.debug("[ProxyHealth] 检查完成: 全部 %d 个服务健康", len(result))
+
     return result
 
 
@@ -1557,12 +1797,242 @@ async def api_proxy_ollama_ps():
         return {"models": [], "error": str(e)}
 
 
+@app.get("/proxy/agent-health", summary="Hermes Agent 8642 detailed health and evolution status")
+async def api_proxy_agent_health():
+    """Detailed health check for Hermes Agent (8642) including:
+    - Agent availability and health (from Watchdog cache, never blocks)
+    - Routing mode (ollama_direct vs hermes_agent)
+    - Memory context status (MEMORY.md loaded)
+    - Feedback queue size
+    - Plugin status (intelligent-routing)
+    - Evolution stats (rules learned, feedback recorded)
+    """
+    stats = official_agent.get_stats()
+
+    # Use Watchdog cache for agent health — never make direct HTTP calls
+    # that could block when the agent is busy processing long requests.
+    now = time.time()
+    cached = _watchdog_health_cache.get("hermesAgent")
+    if cached and (now - cached.get("timestamp", 0)) < 60:
+        agent_healthy = cached["healthy"]
+        agent_health_data = cached.get("data", {})
+    else:
+        # Fallback: check process liveness by port
+        found = _find_process_on_port(8642)
+        if found:
+            agent_healthy = True
+            agent_health_data = {"status": "busy", "pid": found["pid"]}
+        else:
+            agent_healthy = False
+            agent_health_data = {"status": "unknown"}
+
+    # Plugin check — use cached stats instead of making HTTP call
+    # Only attempt HTTP check if agent is healthy and not busy
+    plugin_status = {"name": "intelligent-routing", "active": False, "tools": []}
+    if agent_healthy and agent_health_data.get("status") == "healthy":
+        try:
+            import httpx as _httpx
+            headers = {}
+            if OFFICIAL_AGENT_KEY:
+                headers["Authorization"] = f"Bearer {OFFICIAL_AGENT_KEY}"
+            async with _httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{OFFICIAL_AGENT_URL}/v1/models", headers=headers)
+                if resp.status_code == 200:
+                    plugin_status["active"] = True
+        except Exception:
+            pass  # Agent busy — plugin status unknown, not an error
+    elif agent_healthy and agent_health_data.get("status") == "busy":
+        # Agent is busy — assume plugin is still active (it was before)
+        plugin_status["active"] = True
+        plugin_status["note"] = "assumed active (agent busy, HTTP check skipped)"
+
+    # Memory file status
+    from hermes.official_agent_adapter import MEMORY_FILE
+    memory_status = {
+        "file_exists": os.path.exists(MEMORY_FILE),
+        "file_size": 0,
+        "last_modified": None,
+    }
+    if os.path.exists(MEMORY_FILE):
+        try:
+            stat = os.stat(MEMORY_FILE)
+            memory_status["file_size"] = stat.st_size
+            memory_status["last_modified"] = datetime.fromtimestamp(stat.st_mtime).isoformat()
+        except Exception:
+            pass
+
+    return {
+        "agent": {
+            "url": OFFICIAL_AGENT_URL,
+            "healthy": agent_healthy,
+            "health": agent_health_data,
+            "routing_mode": stats.get("mode", "unknown"),
+            "use_direct_ollama": stats.get("use_direct_ollama", True),
+            "session_id": stats.get("session_id"),
+            "feedback_queue_size": stats.get("feedback_queue_size", 0),
+        },
+        "plugin": plugin_status,
+        "memory": memory_status,
+        "evolution": {
+            "memory_context_loaded": bool(official_agent._load_memory_context()),
+            "rules_parsed": len(official_agent._parse_routing_rules_from_memory()),
+        },
+    }
+
+
+@app.post("/queue/test-loop", summary="End-to-end test: queue request → route → execute → result queue")
+async def queue_test_loop(request: HermesDispatchRequest):
+    """Submit a request through the queue pipeline and wait for the result.
+
+    Full test loop:
+    1. Push request to request queue
+    2. DispatchWorker picks it up → routes via Ollama direct
+    3. Dispatches to downstream (Ollama/OfficialGW/multimodal)
+    4. Result pushed to result queue
+    5. Feedback recorded to MEMORY.md (evolution closed-loop)
+    6. Return the complete result with trace
+
+    This tests the entire pipeline: Queue → Router → Executor → Result → Feedback → MEMORY.md
+    """
+    request_id = str(uuid.uuid4())
+
+    # Flush stale results to avoid scanning old entries
+    flushed = msg_queue.flush(QUEUE_RESULTS)
+    if flushed > 0:
+        logger.info(f"Test-loop flushed {flushed} stale results from queue")
+
+    # Enqueue the request
+    queue_msg = {
+        "request_id": request_id,
+        "appid": request.appid,
+        "type": request.type,
+        "prompt": request.prompt,
+        "priority": request.priority,
+        "model_hint": request.model_hint,
+        "parameters": request.parameters,
+        "context": request.context,
+        "tools": request.tools,
+        "tool_choice": request.tool_choice,
+        "constraints": request.constraints,
+        "timeout_ms": request.timeout_ms,
+        "route_mode": request.route_mode,
+        "agent_id": request.agent_id,
+        "attachments": request.attachments,
+    }
+    msg_queue.push(QUEUE_REQUESTS, queue_msg)
+
+    # Wait for result (poll result queue with timeout)
+    max_wait = (request.timeout_ms or 30000) / 1000.0
+    deadline = time.time() + max_wait
+    result = None
+
+    while time.time() < deadline:
+        # Check result queue for our request_id (scan all entries)
+        queue_size = msg_queue.size(QUEUE_RESULTS)
+        results = msg_queue.peek(QUEUE_RESULTS, limit=max(queue_size, 50))
+        for r in results:
+            if isinstance(r, dict) and r.get("request_id") == request_id:
+                result = r
+                break
+        if result:
+            break
+        time.sleep(0.3)
+
+    if not result:
+        return {
+            "request_id": request_id,
+            "status": "timeout",
+            "message": f"Result not received within {max_wait}s",
+            "queue_sizes": {
+                "requests": msg_queue.size(QUEUE_REQUESTS),
+                "results": msg_queue.size(QUEUE_RESULTS),
+                "feedback": msg_queue.size(QUEUE_FEEDBACK),
+            },
+        }
+
+    return {
+        "request_id": request_id,
+        "status": "completed",
+        "result": result,
+        "queue_sizes": {
+            "requests": msg_queue.size(QUEUE_REQUESTS),
+            "results": msg_queue.size(QUEUE_RESULTS),
+            "feedback": msg_queue.size(QUEUE_FEEDBACK),
+        },
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
+    import logging.config
+
+    # Custom StreamHandler that flushes after every emit — ensures worker thread
+    # log output appears immediately instead of being buffered by uvicorn's event loop.
+    class _FlushingStreamHandler(logging.StreamHandler):
+        def emit(self, record):
+            super().emit(record)
+            self.flush()
+
+    # Build log config that preserves hermes module loggers while using uvicorn's default format
+    _log_level = os.getenv("HERMES_LOG_LEVEL", "DEBUG").upper()
+
+    # Ensure logs directory exists
+    _log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    _log_file = os.path.join(_log_dir, "hermes_server.log")
+
+    _log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+                "datefmt": "%H:%M:%S",
+            },
+            "file": {
+                "format": "%(asctime)s.%(msecs)03d %(levelname)-5s [%(name)s] %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "default": {
+                "()": _FlushingStreamHandler,
+                "formatter": "default",
+                "stream": "ext://sys.stdout",
+            },
+            "file": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "formatter": "file",
+                "filename": _log_file,
+                "maxBytes": 10485760,  # 10MB
+                "backupCount": 3,
+                "encoding": "utf-8",
+            },
+        },
+        "loggers": {
+            # Hermes modules — all use the same DEBUG level for detailed diagnostics
+            "hermes": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            "hermes.server": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            "hermes.official_agent_adapter": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            "hermes.dispatch_worker": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            "hermes.router": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            "hermes.agent": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            "hermes.message_queue": {"level": _log_level, "handlers": ["default", "file"], "propagate": False},
+            # Suppress noisy libraries
+            "httpx": {"level": "WARNING"},
+            "httpcore": {"level": "WARNING"},
+            # Uvicorn loggers
+            "uvicorn": {"level": "INFO", "handlers": ["default"], "propagate": False},
+            "uvicorn.error": {"level": "INFO", "handlers": ["default"], "propagate": False},
+            "uvicorn.access": {"level": "INFO", "handlers": ["default"], "propagate": False},
+        },
+        "root": {"level": "WARNING", "handlers": ["default"]},
+    }
     uvicorn.run(
         "hermes.server:app",
         host="0.0.0.0",
         port=HERMES_PORT,
+        log_config=_log_config,
         log_level="info",
         reload=False,
     )

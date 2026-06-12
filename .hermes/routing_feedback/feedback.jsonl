@@ -1,0 +1,20 @@
+{"timestamp": "2026-06-12T13:32:11.490620", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 5756, "request_summary": "你好，今天天气怎么样？"}
+{"timestamp": "2026-06-12T13:32:11.811623", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 4484, "request_summary": "1+1等于几？"}
+{"timestamp": "2026-06-12T13:32:14.459280", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 5133, "request_summary": "翻译：hello world"}
+{"timestamp": "2026-06-12T13:32:19.421825", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 8091, "request_summary": "什么是AI？"}
+{"timestamp": "2026-06-12T13:32:30.492247", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 17153, "request_summary": "请解释量子计算的基本原理"}
+{"timestamp": "2026-06-12T13:33:31.880990", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 66154, "request_summary": "请分析这张图片中的文字内容"}
+{"timestamp": "2026-06-12T13:33:32.263248", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 76524, "request_summary": "执行Python脚本计算斐波那契数列"}
+{"timestamp": "2026-06-12T13:33:32.568987", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 64738, "request_summary": "描述这张照片中的场景"}
+{"timestamp": "2026-06-12T13:35:06.014195", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 155520, "request_summary": "识别图片中的物体并分类"}
+{"timestamp": "2026-06-12T13:35:07.896894", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 96011, "request_summary": "将这段音频转换为文字"}
+{"timestamp": "2026-06-12T13:36:10.379932", "skill": "routing-decision", "route_path": "multimodal", "success": true, "latency_ms": 158115, "request_summary": "分析视频中的关键帧"}
+{"timestamp": "2026-06-12T13:36:36.394325", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 258565, "request_summary": "写一个JavaScript函数实现快速排序"}
+{"timestamp": "2026-06-12T13:36:38.284889", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 258939, "request_summary": "调试这段SQL查询语句的性能问题"}
+{"timestamp": "2026-06-12T13:36:40.158202", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 258813, "request_summary": "请规划一个CI/CD部署流程"}
+{"timestamp": "2026-06-12T13:37:07.906537", "skill": "routing-decision", "route_path": "local_inference", "success": false, "latency_ms": 215336, "request_summary": "分析这份内部财务数据 error:timed out"}
+{"timestamp": "2026-06-12T13:37:33.448345", "skill": "routing-decision", "route_path": "gateway", "success": true, "latency_ms": 310099, "request_summary": "使用Volcano调度分布式训练任务"}
+{"timestamp": "2026-06-12T13:38:08.949682", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 182931, "request_summary": "处理用户个人信息并脱敏"}
+{"timestamp": "2026-06-12T13:38:15.718741", "skill": "routing-decision", "route_path": "local_inference", "success": true, "latency_ms": 187820, "request_summary": "分析医疗影像诊断报告"}
+{"timestamp": "2026-06-12T13:45:45.479992", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 5168, "request_summary": "你好，今天天气怎么样？"}
+{"timestamp": "2026-06-12T14:07:32.704026", "skill": "routing-decision", "route_path": "direct_local", "success": true, "latency_ms": 4635, "request_summary": "你好，今天天气怎么样？"}

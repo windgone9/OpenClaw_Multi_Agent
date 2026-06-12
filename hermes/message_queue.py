@@ -117,7 +117,26 @@ class InProcessQueue(MessageQueue):
     """
 
     def __init__(self, data_dir: str = ""):
-        self._data_dir = data_dir or os.path.expanduser("~/.hermes/queues")
+        if data_dir:
+            self._data_dir = data_dir
+        else:
+            # Try project-local path first (avoids macOS TCC restrictions)
+            _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            _project_queues = os.path.join(_project_root, ".hermes", "queues")
+            _home_queues = os.path.expanduser("~/.hermes/queues")
+            if os.path.exists(_home_queues):
+                try:
+                    os.makedirs(_home_queues, exist_ok=True)
+                    # Test write permission
+                    _test_file = os.path.join(_home_queues, ".write_test")
+                    with open(_test_file, "w") as f:
+                        f.write("test")
+                    os.remove(_test_file)
+                    self._data_dir = _home_queues
+                except (PermissionError, OSError):
+                    self._data_dir = _project_queues
+            else:
+                self._data_dir = _project_queues
         os.makedirs(self._data_dir, exist_ok=True)
 
         self._queues: Dict[str, List[Dict]] = {}

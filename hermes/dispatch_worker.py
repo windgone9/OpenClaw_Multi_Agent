@@ -42,12 +42,41 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OFFICIAL_GW_URL = os.getenv("OPENCLAW_OFFICIAL_GATEWAY_URL", "http://127.0.0.1:3005")
 
 # Timeouts
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60.0"))
-OFFICIAL_GW_TIMEOUT = float(os.getenv("OFFICIAL_GW_TIMEOUT", "120.0"))
+OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120.0"))
+OFFICIAL_GW_TIMEOUT = float(os.getenv("OFFICIAL_GW_TIMEOUT", "300.0"))
+
+# Semaphore to limit concurrent Ollama requests (GPU is the bottleneck)
+_OLLAMA_MAX_CONCURRENT = int(os.getenv("OLLAMA_MAX_CONCURRENT", "2"))
+_ollama_semaphore = threading.Semaphore(_OLLAMA_MAX_CONCURRENT)
 
 # Multimodal model configuration
 MULTIMODAL_MODEL = os.getenv("MULTIMODAL_MODEL", "llava:7b")
 LOCAL_MODEL = os.getenv("LOCAL_MODEL", "qwen2.5:3b")
+
+# Cache available Ollama models to avoid hitting missing models (causes long timeouts)
+_ollama_models_cache: list = []
+_ollama_models_cache_ts: float = 0.0
+_OLLAMA_MODELS_CACHE_TTL = 60.0  # refresh every 60s
+
+
+def _get_ollama_models() -> list:
+    """Get list of available Ollama models (cached)."""
+    global _ollama_models_cache, _ollama_models_cache_ts
+    now = time.time()
+    if _ollama_models_cache and (now - _ollama_models_cache_ts) < _OLLAMA_MODELS_CACHE_TTL:
+        return _ollama_models_cache
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(f"{OLLAMA_URL}/api/tags")
+            resp.raise_for_status()
+            models = [m.get("name", "") for m in resp.json().get("models", [])]
+            _ollama_models_cache = models
+            _ollama_models_cache_ts = now
+            logger.debug("[Ollama] Available models: %s", models)
+            return models
+    except Exception as e:
+        logger.warning("[Ollama] Failed to list models: %s", e)
+        return _ollama_models_cache  # return stale cache
 
 
 class DispatchWorker:
@@ -123,8 +152,8 @@ class DispatchWorker:
         request_id = request.get("request_id", str(uuid.uuid4()))
         start_time = time.time()
 
-        logger.info(f"[{request_id}] Processing: type={request.get('type')}, "
-                     f"prompt={request.get('prompt', '')[:50]}")
+        logger.info("[DispatchWorker] 开始路由决策: appid=%s prompt='%.60s'",
+                    request.get("appid", "default"), request.get("prompt", "")[:60])
 
         result = {
             "request_id": request_id,
@@ -139,7 +168,11 @@ class DispatchWorker:
 
         try:
             # Step 1: Route via Hermes Agent (Memory-driven intelligent routing)
+            logger.info("[DispatchWorker] 开始路由决策: appid=%s prompt='%.60s'",
+                        request.get("appid", "default"), request.get("prompt", "")[:60])
             routing = self.adapter.route_via_agent(request)
+            logger.info("[DispatchWorker] 路由完成: route=%s complexity=%s post_validated=%s",
+                        routing.get("route_path"), routing.get("complexity_score"), routing.get("post_validated"))
             result["routing"] = {
                 "route_path": routing.get("route_path", "gateway"),
                 "complexity_score": routing.get("complexity_score", 0),
@@ -180,6 +213,19 @@ class DispatchWorker:
 
         # Step 4: Push result to result queue
         self.queue.push(QUEUE_RESULTS, result)
+
+        # Step 5: Notify pending sync waiters (submit-sync event-based waiting)
+        # Uses threading.Event.set() — thread-safe and reliable
+        if request.get("_sync_mode"):
+            try:
+                import hermes.server as srv
+                with srv._pending_sync_lock:
+                    entry = srv._pending_sync.get(request_id)
+                    if entry:
+                        entry["holder"]["result"] = result
+                        entry["event"].set()
+            except Exception as e:
+                logger.warning("[DispatchWorker] Failed to notify sync waiter %s: %s", request_id, e)
 
         # Update stats
         with self._lock:
@@ -229,8 +275,13 @@ class DispatchWorker:
         Args:
             privacy: If True, this is a local_inference route (privacy-enforced).
         """
+        request_id = request.get("request_id", "unknown")
         prompt = request.get("prompt", "")
         model = LOCAL_MODEL
+        route_tag = "local_inference" if privacy else "direct_local"
+
+        logger.info("[Ollama] [%s] → 发送请求: route=%s model=%s timeout=%.0fs prompt='%.50s'",
+                    request_id, route_tag, model, OLLAMA_TIMEOUT, prompt[:50])
 
         payload = {
             "model": model,
@@ -240,10 +291,15 @@ class DispatchWorker:
         }
 
         start = time.time()
-        with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-            resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
-            resp.raise_for_status()
+        with _ollama_semaphore:
+            logger.info("[OllamaSemaphore] [%s] Acquired (%s), remaining=%d",
+                        request_id, route_tag, _ollama_semaphore._value)
+            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+                resp.raise_for_status()
         elapsed_ms = int((time.time() - start) * 1000)
+        logger.info("[Ollama] [%s] ✓ 响应成功: route=%s model=%s elapsed=%dms",
+                    request_id, route_tag, model, elapsed_ms)
 
         data = resp.json()
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -269,6 +325,7 @@ class DispatchWorker:
         - Code execution tasks
         - Tool call / Agent chain tasks
         """
+        request_id = request.get("request_id", "unknown")
         prompt = request.get("prompt", "")
         context = request.get("context", [])
         messages = []
@@ -290,15 +347,46 @@ class DispatchWorker:
         if gw_token:
             headers["Authorization"] = f"Bearer {gw_token}"
 
+        logger.info("[OfficialGW] [%s] → 发送请求: url=%s timeout=%.0fs prompt='%.50s'",
+                    request_id, f"{OFFICIAL_GW_URL}/v1/chat/completions",
+                    OFFICIAL_GW_TIMEOUT, prompt[:50])
+
         start = time.time()
-        with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
-            resp = client.post(
-                f"{OFFICIAL_GW_URL}/v1/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            resp.raise_for_status()
+        try:
+            with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
+                resp = client.post(
+                    f"{OFFICIAL_GW_URL}/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                resp.raise_for_status()
+        except httpx.TimeoutException as e:
+            elapsed_ms = int((time.time() - start) * 1000)
+            logger.error("[OfficialGW] [%s] ✗ 超时: type=%s elapsed=%dms timeout=%.0fs prompt='%.50s'",
+                         request_id, type(e).__name__, elapsed_ms, OFFICIAL_GW_TIMEOUT, prompt[:50])
+            # Log connection state for diagnosis
+            self._log_gw_connection_state(request_id)
+            raise
+        except httpx.HTTPStatusError as e:
+            elapsed_ms = int((time.time() - start) * 1000)
+            logger.error("[OfficialGW] [%s] ✗ HTTP错误: status=%d elapsed=%dms prompt='%.50s'",
+                         request_id, e.response.status_code, elapsed_ms, prompt[:50])
+            raise
+        except httpx.ConnectError as e:
+            elapsed_ms = int((time.time() - start) * 1000)
+            logger.error("[OfficialGW] [%s] ✗ 连接失败: elapsed=%dms error=%s",
+                         request_id, elapsed_ms, str(e)[:100])
+            self._log_gw_connection_state(request_id)
+            raise
+        except Exception as e:
+            elapsed_ms = int((time.time() - start) * 1000)
+            logger.error("[OfficialGW] [%s] ✗ 异常: type=%s elapsed=%dms error=%s",
+                         request_id, type(e).__name__, elapsed_ms, str(e)[:100])
+            raise
+
         elapsed_ms = int((time.time() - start) * 1000)
+        logger.info("[OfficialGW] [%s] ✓ 响应成功: elapsed=%dms status_code=%d",
+                    request_id, elapsed_ms, resp.status_code)
 
         data = resp.json()
         choice = data.get("choices", [{}])[0]
@@ -319,19 +407,71 @@ class DispatchWorker:
             "dispatch_latency_ms": elapsed_ms,
         }
 
+    def _log_gw_connection_state(self, request_id: str):
+        """Log OfficialGW connection state for diagnosing connection accumulation."""
+        import subprocess
+        try:
+            # Parse port from OFFICIAL_GW_URL
+            from urllib.parse import urlparse
+            parsed = urlparse(OFFICIAL_GW_URL)
+            port = parsed.port or 3005
+            host = parsed.hostname or "127.0.0.1"
+
+            # Count active connections to OfficialGW port
+            result = subprocess.run(
+                ["lsof", "-i", f":{port}", "-P", "-n"],
+                capture_output=True, text=True, timeout=5
+            )
+            lines = result.stdout.strip().split("\n") if result.stdout.strip() else []
+            total_lines = len(lines)
+            established = sum(1 for l in lines if "ESTABLISHED" in l)
+            close_wait = sum(1 for l in lines if "CLOSE_WAIT" in l)
+            time_wait = sum(1 for l in lines if "TIME_WAIT" in l)
+            listen = sum(1 for l in lines if "LISTEN" in l)
+
+            logger.warning("[OfficialGW] [%s] 连接状态诊断: port=%d total=%d ESTABLISHED=%d CLOSE_WAIT=%d TIME_WAIT=%d LISTEN=%d",
+                           request_id, port, total_lines, established, close_wait, time_wait, listen)
+
+            # Log hermes worker threads making GW connections
+            hermes_gw_conns = sum(1 for l in lines if "python" in l.lower() and "ESTABLISHED" in l)
+            logger.warning("[OfficialGW] [%s] Hermes→GW 活跃连接: %d (worker可能阻塞)",
+                           request_id, hermes_gw_conns)
+
+            # Log top 5 connection details for debugging
+            if total_lines > 10:
+                detail_lines = [l for l in lines if "ESTABLISHED" in l or "CLOSE_WAIT" in l][:5]
+                for dl in detail_lines:
+                    logger.debug("[OfficialGW] [%s] 连接详情: %s", request_id, dl.strip()[:120])
+        except Exception as e:
+            logger.debug("[OfficialGW] [%s] 连接状态诊断失败: %s", request_id, e)
+
     def _dispatch_to_multimodal(self, request: Dict, routing: Dict) -> Dict:
         """Dispatch to local multimodal model (image/audio/video processing).
 
         Uses Ollama with a multimodal-capable model (e.g., llava).
         Falls back to standard local model if multimodal model is unavailable.
+        Pre-checks model availability to avoid long timeouts on missing models.
         """
         prompt = request.get("prompt", "")
         model = MULTIMODAL_MODEL
+        attachments = request.get("attachments", [])
+        request_id = request.get("request_id", "unknown")
+
+        # Pre-check: is the multimodal model available?
+        available_models = _get_ollama_models()
+        model_available = any(model in m or m.startswith(model.split(":")[0]) for m in available_models)
+
+        if not model_available:
+            logger.warning("[Multimodal] [%s] Model '%s' not found in Ollama (available: %s), "
+                           "falling back to local model immediately", request_id, model, available_models)
+            return self._multimodal_fallback(prompt, model, attachments,
+                                             f"Model '{model}' not installed. Available: {', '.join(available_models[:5])}")
+
+        logger.info("[Multimodal] [%s] → 发送请求: model=%s timeout=%.0fs prompt='%.50s'",
+                    request_id, model, OLLAMA_TIMEOUT, prompt[:50])
 
         # Build messages with optional image content
         messages = [{"role": "user", "content": prompt}]
-        # If request has attachments (images), add them to the message
-        attachments = request.get("attachments", [])
         if attachments:
             # Ollama multimodal format: content is an array of text + image parts
             content_parts = [{"type": "text", "text": prompt}]
@@ -352,10 +492,15 @@ class DispatchWorker:
 
         start = time.time()
         try:
-            with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
-                resp.raise_for_status()
+            with _ollama_semaphore:
+                logger.info("[OllamaSemaphore] [%s] Acquired (multimodal), remaining=%d",
+                            request_id, _ollama_semaphore._value)
+                with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
+                    resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+                    resp.raise_for_status()
             elapsed_ms = int((time.time() - start) * 1000)
+            logger.info("[Multimodal] [%s] ✓ 响应成功: model=%s elapsed=%dms",
+                        request_id, model, elapsed_ms)
 
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -372,34 +517,47 @@ class DispatchWorker:
                 "dispatch_latency_ms": elapsed_ms,
             }
         except Exception as e:
-            # Fallback: if multimodal model unavailable, use standard local model
-            logger.warning(f"Multimodal model '{model}' unavailable, "
-                           f"falling back to local model: {e}")
+            logger.warning("[Multimodal] Model '%s' failed: %s, falling back to local", model, e)
+            return self._multimodal_fallback(prompt, model, attachments, str(e)[:80])
+
+    def _multimodal_fallback(self, prompt: str, original_model: str,
+                              attachments: list, reason: str) -> Dict:
+        """Fallback for multimodal requests when the multimodal model is unavailable.
+
+        Uses the standard local model with a clear notice that multimodal
+        processing is not available.
+        """
+        fallback_prompt = (
+            f"[系统提示：多模态模型 '{original_model}' 当前不可用（原因：{reason}），"
+            f"无法处理图片/音频/视频内容。以下为原始问题：]\n\n{prompt}"
+        )
+        start = time.time()
+        with _ollama_semaphore:
             with httpx.Client(timeout=OLLAMA_TIMEOUT) as client:
-                fallback_payload = {
+                payload = {
                     "model": LOCAL_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": fallback_prompt}],
                     "stream": False,
                     "options": {"num_ctx": 4096, "temperature": 0.7},
                 }
-                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=fallback_payload)
+                resp = client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
                 resp.raise_for_status()
-            elapsed_ms = int((time.time() - start) * 1000)
+        elapsed_ms = int((time.time() - start) * 1000)
 
-            data = resp.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-            return {
-                "model_name": LOCAL_MODEL,
-                "model_type": "local",
-                "output": content,
-                "latency_ms": elapsed_ms,
-                "usage": data.get("usage", {}),
-                "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
-                "routed_via": "hermes_multimodal_fallback_local",
-                "dispatch_latency_ms": elapsed_ms,
-                "fallback_reason": f"Multimodal model '{model}' unavailable: {str(e)[:80]}",
-            }
+        return {
+            "model_name": LOCAL_MODEL,
+            "model_type": "local",
+            "output": content,
+            "latency_ms": elapsed_ms,
+            "usage": data.get("usage", {}),
+            "finish_reason": data.get("choices", [{}])[0].get("finish_reason", "stop"),
+            "routed_via": "hermes_multimodal_fallback_local",
+            "dispatch_latency_ms": elapsed_ms,
+            "fallback_reason": f"Multimodal model '{original_model}' unavailable: {reason}",
+        }
 
     # ── Feedback → Memory Self-Learning ──────────────────────────────
 
