@@ -519,7 +519,8 @@ async function sendQueueRequest(body,label){
     const data=await res.json();const elapsed=Date.now()-st;
     const isOk=data.status==='success',result=data.result||{},routing=data.routing||{};
     log(isOk?'ok':'err','['+rid+'] '+(isOk?'\u2713':'\u2717')+' Queue: path='+(routing.route_path||'-')+', model='+(routing.selected_model||'-')+', latency='+(data.total_latency_ms||elapsed)+'ms','hermes');
-    if(routing.route_path)RC[routing.route_path]=(RC[routing.route_path]||0)+1;
+    if(routing.route_path&&routing.route_path!=='-')RC[routing.route_path]=(RC[routing.route_path]||0)+1;
+    if(!isOk)RC['failed']=(RC['failed']||0)+1;
     LH.push({value:elapsed,label:'#'+dc});SH.push({rate:isOk?100:0});
     // Extract OGW request_id from openclaw_metadata if gateway route
     let ogwRequestId=null;
@@ -539,6 +540,8 @@ async function sendQueueRequest(body,label){
     AR.push(cardData);ph.outerHTML=renderCard(cardData);
   }catch(e){
     log('err','['+rid+'] \u2717 Queue失败: '+e.message,'hermes');
+    AR.push({request_id:rid,appid:body.appid||'q-test',status:'failed',result:{output:'',latency_ms:0},total_latency_ms:Date.now()-st,strategy_name:'-',is_hermes:true,hermes_routing:{route_path:'-',complexity_score:0}});
+    SH.push({rate:0});LH.push({value:Date.now()-st,label:'#'+rid});
     ph.innerHTML='<div class="dc-header"><div class="dc-left"><span class="dc-id">#'+rid+'</span><span class="dc-model" style="color:var(--red)">失败: '+e.message+'</span></div><div class="dc-right"><span class="dc-status failed">\u2717 失败</span></div></div>';
   }
   refreshPipeline();updateCharts();
@@ -914,8 +917,8 @@ async function refreshMetrics(){
 function renderRouteDist(){
   const total=Object.values(RC).reduce((s,v)=>s+v,0);const el=document.getElementById('route-dist');
   if(!el||total===0)return;
-  const colors={gateway:'var(--blue)',agent_chain:'var(--purple)',direct_local:'var(--green)',local_inference:'var(--cyan)',multimodal:'var(--orange)'};
-  const labels={gateway:'\u{1F309} OfficialGW',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理',multimodal:'\u{1F4F7} 多模态'};
+  const colors={gateway:'var(--blue)',agent_chain:'var(--purple)',direct_local:'var(--green)',local_inference:'var(--cyan)',multimodal:'var(--orange)',failed:'var(--red)'};
+  const labels={gateway:'\u{1F309} OfficialGW',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理',multimodal:'\u{1F4F7} 多模态',failed:'\u274C 失败'};
   let html='';
   for(const[k,v]of Object.entries(RC)){const pct=Math.round(v/total*100);html+='<div class="route-bar"><span class="rb-label">'+(labels[k]||k)+'</span><div class="rb-track"><div class="rb-fill" style="width:'+pct+'%;background:'+(colors[k]||'var(--border2)')+'">'+pct+'%</div></div><span style="font-size:11px;color:var(--text3)">'+v+'</span></div>'}
   el.innerHTML=html;

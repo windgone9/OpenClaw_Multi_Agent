@@ -1006,9 +1006,12 @@ async def queue_submit_sync(request: QueueSubmitRequest, timeout: float = 400.0)
 
         await asyncio.sleep(0.1)
 
-    # Timeout — clean up
+    # Timeout — clean up and record as failed
     with _pending_sync_lock:
         _pending_sync.pop(request_id, None)
+
+    _stats["total_requests"] += 1
+    _stats["failed_requests"] += 1
 
     return {
         "request_id": request_id,
