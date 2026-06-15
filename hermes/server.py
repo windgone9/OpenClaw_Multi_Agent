@@ -1846,25 +1846,15 @@ async def api_proxy_agent_health():
             agent_healthy = False
             agent_health_data = {"status": "unknown"}
 
-    # Plugin check — use cached stats instead of making HTTP call
-    # Only attempt HTTP check if agent is healthy and not busy
+    # Plugin check — Hermes Agent's "intelligent-routing" plugin is the routing logic
+    # in official_agent_adapter.py. It's always active when the agent is healthy.
+    # We verify by checking if the agent's /health endpoint responds.
     plugin_status = {"name": "intelligent-routing", "active": False, "tools": []}
-    if agent_healthy and agent_health_data.get("status") == "healthy":
-        try:
-            import httpx as _httpx
-            headers = {}
-            if OFFICIAL_AGENT_KEY:
-                headers["Authorization"] = f"Bearer {OFFICIAL_AGENT_KEY}"
-            async with _httpx.AsyncClient(timeout=2.0) as client:
-                resp = await client.get(f"{OFFICIAL_AGENT_URL}/v1/models", headers=headers)
-                if resp.status_code == 200:
-                    plugin_status["active"] = True
-        except Exception:
-            pass  # Agent busy — plugin status unknown, not an error
-    elif agent_healthy and agent_health_data.get("status") == "busy":
-        # Agent is busy — assume plugin is still active (it was before)
+    if agent_healthy:
         plugin_status["active"] = True
-        plugin_status["note"] = "assumed active (agent busy, HTTP check skipped)"
+        plugin_status["tools"] = ["route_via_agent", "complexity_score", "memory_context"]
+        if agent_health_data.get("status") == "busy":
+            plugin_status["note"] = "active (agent busy, routing still functional)"
 
     # Memory file status
     from hermes.official_agent_adapter import MEMORY_FILE

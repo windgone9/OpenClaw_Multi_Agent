@@ -159,6 +159,16 @@ class OfficialHermesAdapter:
         self._memory_context_cached_at: float = 0
         self._memory_context_cache_ttl = 10  # seconds
 
+        # Ollama routing circuit breaker — skip Ollama when it's consistently timing out
+        # During batch tests, Ollama GPU is saturated with local inference, so routing
+        # requests always timeout (15s each). The circuit breaker detects this and
+        # skips Ollama routing entirely, going straight to keyword-based post_validate.
+        self._routing_fail_count = 0          # consecutive Ollama routing failures
+        self._routing_circuit_open = False     # True = skip Ollama, use post_validate directly
+        self._routing_circuit_opened_at = 0.0  # when circuit was opened
+        self._ROUTING_CB_THRESHOLD = 2        # consecutive failures before opening circuit
+        self._ROUTING_CB_COOLDOWN = 120.0     # seconds before trying Ollama again
+
         self._session_id = None
         self._session_warmed_up = False
         self._conversation_id = f"routing-{int(time.time())}"
@@ -496,8 +506,24 @@ class OfficialHermesAdapter:
         """
         prompt = request.get("prompt", "")[:80]
         req_type = request.get("type", "chat")
-        logger.info("[Routing] === 新路由决策 === prompt='%s' type=%s mode=%s",
-                    prompt, req_type, "ollama_direct" if self.use_direct_ollama else "hermes_agent")
+        logger.info("[Routing] === 新路由决策 === prompt='%s' type=%s mode=%s circuit=%s",
+                    prompt, req_type, "ollama_direct" if self.use_direct_ollama else "hermes_agent",
+                    "OPEN(skip_ollama)" if self._routing_circuit_open else "closed")
+
+        # Circuit breaker: if Ollama routing has failed consecutively, skip it entirely
+        # and go straight to keyword-based post_validate (saves 15s per request)
+        if self._routing_circuit_open:
+            if time.time() - self._routing_circuit_opened_at > self._ROUTING_CB_COOLDOWN:
+                logger.info("[Routing] 熔断器冷却完成, 重新尝试Ollama路由")
+                self._routing_circuit_open = False
+                self._routing_fail_count = 0
+            else:
+                logger.info("[Routing] 熔断器开启, 跳过Ollama, 直接使用关键词路由 (节省15s/请求)")
+                result = self._post_validate_route({"route_path": "gateway", "complexity_score": 0}, request)
+                result["official_agent_routed"] = False
+                result["agent_decision"] = "circuit_breaker_fallback"
+                result["agent_llm_latency_ms"] = 0
+                return result
         if self.use_direct_ollama:
             # Primary: Ollama direct (fast, ~1-2s)
             try:
@@ -717,6 +743,13 @@ class OfficialHermesAdapter:
                 elapsed_ms = int((time.time() - start) * 1000)
                 logger.warning("[Routing] Ollama不可用 (%s, %dms), 使用post-validate fallback",
                                type(e).__name__, elapsed_ms)
+                # Trip circuit breaker: after N consecutive failures, skip Ollama entirely
+                self._routing_fail_count += 1
+                if self._routing_fail_count >= self._ROUTING_CB_THRESHOLD and not self._routing_circuit_open:
+                    self._routing_circuit_open = True
+                    self._routing_circuit_opened_at = time.time()
+                    logger.warning("[Routing] 熔断器触发! 连续%d次Ollama路由失败, 未来%ds内跳过Ollama路由",
+                                   self._routing_fail_count, int(self._ROUTING_CB_COOLDOWN))
                 # Reset connection pool after timeout to avoid stale connections
                 # blocking subsequent requests (Ollama may still be processing the timed-out request)
                 try:
@@ -730,6 +763,12 @@ class OfficialHermesAdapter:
                     pass
                 return self._post_validate_route({"route_path": "gateway", "complexity_score": 0}, request)
             elapsed_ms = int((time.time() - start) * 1000)
+
+            # Ollama routing succeeded — reset circuit breaker
+            if self._routing_fail_count > 0:
+                logger.info("[Routing] Ollama路由恢复, 重置熔断器 (之前连续失败%d次)", self._routing_fail_count)
+            self._routing_fail_count = 0
+            self._routing_circuit_open = False
 
             result = resp.json()
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")

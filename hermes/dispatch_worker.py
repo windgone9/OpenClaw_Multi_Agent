@@ -332,7 +332,7 @@ class DispatchWorker:
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "options": {"num_ctx": 4096, "temperature": 0.7},
+            "options": {"num_ctx": 4096, "temperature": 0.7, "num_predict": 2048},
         }
 
         start = time.time()
@@ -388,7 +388,7 @@ class DispatchWorker:
         payload = {
             "model": "openclaw/default",
             "messages": messages,
-            "max_tokens": 512,
+            "max_tokens": 2048,
         }
         if request.get("tools"):
             payload["tools"] = request["tools"]
@@ -543,7 +543,7 @@ class DispatchWorker:
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {"num_ctx": 4096, "temperature": 0.7},
+            "options": {"num_ctx": 4096, "temperature": 0.7, "num_predict": 2048},
         }
 
         start = time.time()
@@ -592,7 +592,7 @@ class DispatchWorker:
                 "model": LOCAL_MODEL,
                 "messages": [{"role": "user", "content": fallback_prompt}],
                 "stream": False,
-                "options": {"num_ctx": 4096, "temperature": 0.7},
+                "options": {"num_ctx": 4096, "temperature": 0.7, "num_predict": 2048},
             }
             resp = _ollama_http_client.post("/v1/chat/completions", json=payload)
             resp.raise_for_status()
