@@ -44,6 +44,7 @@ OFFICIAL_GW_URL = os.getenv("OPENCLAW_OFFICIAL_GATEWAY_URL", "http://127.0.0.1:3
 # Timeouts
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120.0"))
 OFFICIAL_GW_TIMEOUT = float(os.getenv("OFFICIAL_GW_TIMEOUT", "300.0"))
+MULTIMODAL_TIMEOUT = float(os.getenv("MULTIMODAL_TIMEOUT", "180.0"))  # multimodal needs more time
 
 # Semaphore to limit concurrent Ollama requests (GPU is the bottleneck)
 # This covers BOTH routing decisions AND request execution, since they share the same GPU
@@ -74,7 +75,7 @@ _OLLAMA_MODELS_CACHE_TTL = 60.0  # refresh every 60s
 # the "stuck request" problem where new connections queue behind timed-out ones
 _ollama_http_client = httpx.Client(
     base_url=OLLAMA_URL,
-    timeout=httpx.Timeout(connect=5.0, read=120.0, write=5.0, pool=5.0),
+    timeout=httpx.Timeout(connect=5.0, read=OLLAMA_TIMEOUT, write=5.0, pool=5.0),
     limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
 )
 _ollama_client_lock = threading.Lock()
@@ -90,7 +91,7 @@ def _reset_ollama_client():
             pass
         _ollama_http_client = httpx.Client(
             base_url=OLLAMA_URL,
-            timeout=httpx.Timeout(connect=5.0, read=120.0, write=5.0, pool=5.0),
+            timeout=httpx.Timeout(connect=5.0, read=OLLAMA_TIMEOUT, write=5.0, pool=5.0),
             limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
         )
 
@@ -524,7 +525,7 @@ class DispatchWorker:
                                              f"Model '{model}' not installed. Available: {', '.join(available_models[:5])}")
 
         logger.info("[Multimodal] [%s] → 发送请求: model=%s timeout=%.0fs prompt='%.50s'",
-                    request_id, model, OLLAMA_TIMEOUT, prompt[:50])
+                    request_id, model, MULTIMODAL_TIMEOUT, prompt[:50])
 
         # Build messages with optional image content
         messages = [{"role": "user", "content": prompt}]
@@ -551,8 +552,14 @@ class DispatchWorker:
             with _ollama_semaphore:
                 logger.info("[OllamaSemaphore] [%s] Acquired (multimodal), remaining=%d",
                             request_id, _ollama_semaphore._value)
-                resp = _ollama_http_client.post("/v1/chat/completions", json=payload)
-                resp.raise_for_status()
+                # Use a separate client with longer timeout for multimodal requests
+                with httpx.Client(
+                    base_url=OLLAMA_URL,
+                    timeout=httpx.Timeout(connect=10.0, read=MULTIMODAL_TIMEOUT, write=10.0, pool=10.0),
+                    limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+                ) as mm_client:
+                    resp = mm_client.post("/v1/chat/completions", json=payload)
+                    resp.raise_for_status()
             elapsed_ms = int((time.time() - start) * 1000)
             logger.info("[Multimodal] [%s] ✓ 响应成功: model=%s elapsed=%dms",
                         request_id, model, elapsed_ms)
@@ -594,8 +601,15 @@ class DispatchWorker:
                 "stream": False,
                 "options": {"num_ctx": 4096, "temperature": 0.7, "num_predict": 2048},
             }
-            resp = _ollama_http_client.post("/v1/chat/completions", json=payload)
-            resp.raise_for_status()
+            # Use a separate client with longer timeout for multimodal fallback
+            # (multimodal requests may take longer even when falling back to local model)
+            with httpx.Client(
+                base_url=OLLAMA_URL,
+                timeout=httpx.Timeout(connect=10.0, read=MULTIMODAL_TIMEOUT, write=10.0, pool=10.0),
+                limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+            ) as fb_client:
+                resp = fb_client.post("/v1/chat/completions", json=payload)
+                resp.raise_for_status()
         elapsed_ms = int((time.time() - start) * 1000)
 
         data = resp.json()
