@@ -452,8 +452,8 @@ else
   log_substep "从 .env.example 创建 .env..."
   cp "$PROJECT_DIR/.env.example" "$ENV_FILE"
 
-  # 交互式配置 API Keys
-  log_info "配置 API Keys（留空跳过，后续可手动编辑 .env）："
+  # 交互式配置 API Keys（可选，使用远端模型时才需要）
+  log_info "配置 API Keys（可选，使用远端模型时才需要，留空跳过）："
 
   MOONSHOT_KEY=$(ask_input "Moonshot API Key" "")
   if [ -n "$MOONSHOT_KEY" ]; then

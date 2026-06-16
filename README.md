@@ -74,12 +74,12 @@ cd OpenClaw_Multi_Agent
 cp .env.example .env
 ```
 
-编辑 `.env`，填入 API Key：
+编辑 `.env`，按需配置 API Key（可选，仅使用远端模型时需要）：
 
 ```bash
-# 必填：至少配置一个云端模型 API Key
-MOONSHOT_API_KEY=sk-your-moonshot-api-key
-DEEPSEEK_API_KEY=sk-your-deepseek-api-key
+# 可选：使用远端模型时配置（本地 Ollama 模型无需配置）
+MOONSHOT_API_KEY=
+DEEPSEEK_API_KEY=
 ```
 
 > **重要**：Python 调度器通过 `python-dotenv` 自动加载 `.env` 文件，无需手动 `source`。
@@ -366,8 +366,8 @@ OpenClaw_Multi_Agent/
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MOONSHOT_API_KEY` | - | Moonshot API Key |
-| `DEEPSEEK_API_KEY` | - | DeepSeek API Key |
+| `MOONSHOT_API_KEY` | - | Moonshot API Key（可选，使用远端模型时配置） |
+| `DEEPSEEK_API_KEY` | - | DeepSeek API Key（可选，使用远端模型时配置） |
 | `OPENCLAW_TOKEN` | - | OpenClaw Gateway 认证 Token |
 | `OPENCLAW_API_KEY` | - | OpenClaw API Key |
 | `OPENCLAW_K8S_GATEWAY_URL` | 同 `OPENCLAW_OFFICIAL_GATEWAY_URL` | K8S 插件网关地址 |
