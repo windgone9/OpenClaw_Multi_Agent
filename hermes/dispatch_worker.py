@@ -5,6 +5,7 @@ Architecture (simplified, no Bridge/Gateway middle layer):
   [Request Queue] → DispatchWorker → Hermes Agent 路由决策
                                       ├─ direct_local    → Ollama/vLLM 直连 (单步问答, 低延迟)
                                       ├─ gateway         → OfficialGW 直连 (多步批处理/Volcano/Agent)
+                                      ├─ k8s_gateway     → OpenClaw K8S 插件 (AIWorkload 提交/查询/删除)
                                       ├─ multimodal      → 本地多模态模型直连 (图片/音频/视频)
                                       └─ local_inference → Ollama/vLLM 直连 (隐私敏感, 本地执行)
                    ← [Result Queue] ← 结果写入
@@ -13,6 +14,7 @@ Architecture (simplified, no Bridge/Gateway middle layer):
 调用路径清晰，结果可追溯:
   - direct_local:    Hermes → Ollama(11434)
   - gateway:         Hermes → OfficialGW(3005) → Agent → Volcano
+  - k8s_gateway:     Hermes → OpenClaw GW → /plugins/k8s/v1/workloads → K8S AIWorkload
   - multimodal:      Hermes → 本地多模态模型(11434)
   - local_inference: Hermes → Ollama(11434) (隐私约束)
 """
@@ -292,13 +294,24 @@ class DispatchWorker:
     def _dispatch(self, request: Dict, routing: Dict) -> Dict:
         """Dispatch request directly to downstream service based on routing decision.
 
-        4-category routing (no Bridge/Gateway middle layer):
+        5-category routing (no Bridge/Gateway middle layer):
           - direct_local    → Ollama/vLLM 直连 (单步问答, 低延迟)
           - gateway         → OfficialGW 直连 (多步批处理/Volcano/Agent)
+          - k8s_gateway     → OpenClaw K8S 插件 (AIWorkload 提交/查询/删除)
           - multimodal      → 本地多模态模型直连 (图片/音频/视频)
           - local_inference → Ollama/vLLM 直连 (隐私敏感, 本地执行)
         """
         route_path = routing["route_path"]
+
+        # Check for K8S workload request — takes priority over regular gateway
+        if request.get("type") == "k8s_workload" or request.get("k8s_workload"):
+            k8s_spec = request.get("k8s_workload", {})
+            logger.info("[K8S Dispatch] [%s] K8S请求拦截: type=%s k8s_action=%s route_path=%s → k8s_gateway",
+                        request.get("request_id", "?"),
+                        request.get("type", "?"),
+                        k8s_spec.get("action", "submit"),
+                        route_path)
+            return self._dispatch_to_k8s_gateway(request, routing)
 
         if route_path == "direct_local":
             return self._dispatch_to_local(request, routing)
@@ -369,6 +382,221 @@ class DispatchWorker:
             "routed_via": route_tag,
             "dispatch_latency_ms": elapsed_ms,
         }
+
+    def _dispatch_to_k8s_gateway(self, request: Dict, routing: Dict) -> Dict:
+        """Dispatch to OpenClaw K8S plugin for AIWorkload submission/query/delete.
+
+        Routes to OpenClaw Gateway's /plugins/k8s/v1/workloads endpoint.
+        Supports three operations based on k8s_workload.action:
+          - submit (default): POST /plugins/k8s/v1/workloads
+          - get: GET /plugins/k8s/v1/workloads/{workloadId}
+          - delete: DELETE /plugins/k8s/v1/workloads/{workloadId}
+        """
+        request_id = request.get("request_id", "unknown")
+        k8s_spec = request.get("k8s_workload", {})
+        action = k8s_spec.get("action", "submit")
+
+        headers = {"Content-Type": "application/json"}
+        gw_token = os.getenv("OPENCLAW_TOKEN", "")
+        if gw_token:
+            headers["Authorization"] = f"Bearer {gw_token}"
+            logger.debug("[K8SGateway] [%s] 认证: Bearer token 已设置 (len=%d)", request_id, len(gw_token))
+        else:
+            logger.warning("[K8SGateway] [%s] 认证: OPENCLAW_TOKEN 未设置，请求将不带认证头", request_id)
+
+        # Determine OpenClaw Gateway URL for K8S plugin
+        k8s_gw_url = os.getenv("OPENCLAW_K8S_GATEWAY_URL", OFFICIAL_GW_URL)
+        k8s_base = f"{k8s_gw_url}/plugins/k8s/v1/workloads"
+        logger.info("[K8SGateway] [%s] 初始化: action=%s gw_url=%s k8s_base=%s timeout=%s",
+                    request_id, action, k8s_gw_url, k8s_base, OFFICIAL_GW_TIMEOUT)
+
+        start = time.time()
+
+        if action == "submit":
+            # ── Submit AIWorkload ──
+            payload = {
+                "requestId": k8s_spec.get("requestId", request_id),
+                "tenant": k8s_spec.get("tenant", {"id": request.get("appid", "default")}),
+                "taskType": k8s_spec.get("taskType", "batch-inference"),
+                "intent": k8s_spec.get("intent", {}),
+            }
+            if k8s_spec.get("sla"):
+                payload["sla"] = k8s_spec["sla"]
+            if k8s_spec.get("callback"):
+                payload["callback"] = k8s_spec["callback"]
+
+            logger.info("[K8SGateway] [%s] → 提交 AIWorkload: taskType=%s tenant=%s requestId=%s url=%s",
+                        request_id, payload["taskType"], payload["tenant"], payload["requestId"], k8s_base)
+            logger.debug("[K8SGateway] [%s] 提交 payload: %s", request_id, payload)
+
+            with _gw_semaphore:
+                try:
+                    with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
+                        logger.debug("[K8SGateway] [%s] 发送 POST %s (semaphore acquired)", request_id, k8s_base)
+                        resp = client.post(k8s_base, headers=headers, json=payload)
+                        logger.debug("[K8SGateway] [%s] 收到响应: status_code=%d content_type=%s content_len=%s",
+                                     request_id, resp.status_code,
+                                     resp.headers.get("content-type", "?"),
+                                     resp.headers.get("content-length", "?"))
+                        resp.raise_for_status()
+                except httpx.TimeoutException as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    logger.error("[K8SGateway] [%s] ✗ 提交超时: elapsed=%dms timeout=%s type=%s",
+                                 request_id, elapsed_ms, OFFICIAL_GW_TIMEOUT, type(e).__name__)
+                    raise
+                except httpx.HTTPStatusError as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    body = {}
+                    try:
+                        body = e.response.json()
+                    except Exception:
+                        body_text = e.response.text[:200] if hasattr(e.response, 'text') else ''
+                        logger.debug("[K8SGateway] [%s] 错误响应体(非JSON): %s", request_id, body_text)
+                    err = body.get("error", {})
+                    logger.error("[K8SGateway] [%s] ✗ HTTP错误: status=%d code=%s msg=%s elapsed=%dms",
+                                 request_id, e.response.status_code,
+                                 err.get("code", "?"), err.get("message", "")[:80], elapsed_ms)
+                    raise
+                except httpx.ConnectError as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    logger.error("[K8SGateway] [%s] ✗ 连接失败: url=%s elapsed=%dms error=%s",
+                                 request_id, k8s_base, elapsed_ms, str(e)[:100])
+                    raise
+
+            elapsed_ms = int((time.time() - start) * 1000)
+            data = resp.json()
+            k8s_payload = data.get("payload", {})
+            workload_id = k8s_payload.get("workloadId", "?")
+            wl_status = k8s_payload.get("status", "Unknown")
+            is_duplicate = data.get("duplicate", False)
+
+            logger.info("[K8SGateway] [%s] ✓ AIWorkload 已提交: workloadId=%s status=%s namespace=%s duplicate=%s elapsed=%dms",
+                        request_id, workload_id, wl_status,
+                        k8s_payload.get("namespace", "?"), is_duplicate, elapsed_ms)
+            logger.debug("[K8SGateway] [%s] 响应 payload: %s", request_id, k8s_payload)
+
+            return {
+                "model_name": "openclaw/default",
+                "model_type": "openclaw-agent",
+                "output": f"已提交 K8S AIWorkload: {workload_id}，状态: {wl_status}",
+                "latency_ms": elapsed_ms,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "finish_reason": "stop",
+                "routed_via": "hermes_k8s_gateway",
+                "dispatch_latency_ms": elapsed_ms,
+                "k8s_workload": k8s_payload,
+            }
+
+        elif action == "get":
+            # ── Query AIWorkload status ──
+            workload_id = k8s_spec.get("workloadId", "")
+            if not workload_id:
+                logger.error("[K8SGateway] [%s] ✗ 查询失败: workloadId 缺失", request_id)
+                raise ValueError("k8s_workload.workloadId is required for get action")
+            params = {}
+            if k8s_spec.get("namespace"):
+                params["namespace"] = k8s_spec["namespace"]
+            elif k8s_spec.get("tenantId"):
+                params["tenantId"] = k8s_spec["tenantId"]
+
+            url = f"{k8s_base}/{workload_id}"
+            logger.info("[K8SGateway] [%s] → 查询 AIWorkload: workloadId=%s url=%s params=%s",
+                        request_id, workload_id, url, params)
+
+            with _gw_semaphore:
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        resp = client.get(url, headers=headers, params=params)
+                        logger.debug("[K8SGateway] [%s] 查询响应: status_code=%d", request_id, resp.status_code)
+                        resp.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    logger.error("[K8SGateway] [%s] ✗ 查询HTTP错误: workloadId=%s status=%d elapsed=%dms",
+                                 request_id, workload_id, e.response.status_code, elapsed_ms)
+                    raise
+                except Exception as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    logger.error("[K8SGateway] [%s] ✗ 查询失败: workloadId=%s error=%s elapsed=%dms",
+                                 request_id, workload_id, str(e)[:100], elapsed_ms)
+                    raise
+
+            elapsed_ms = int((time.time() - start) * 1000)
+            data = resp.json()
+            k8s_payload = data.get("payload", {})
+            wl_status = k8s_payload.get("status", "Unknown")
+
+            logger.info("[K8SGateway] [%s] ✓ 查询成功: workloadId=%s status=%s namespace=%s elapsed=%dms",
+                        request_id, workload_id, wl_status,
+                        k8s_payload.get("namespace", "?"), elapsed_ms)
+
+            return {
+                "model_name": "openclaw/default",
+                "model_type": "openclaw-agent",
+                "output": f"工作负载 {workload_id} 状态: {wl_status}",
+                "latency_ms": elapsed_ms,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "finish_reason": "stop",
+                "routed_via": "hermes_k8s_gateway",
+                "dispatch_latency_ms": elapsed_ms,
+                "k8s_workload": k8s_payload,
+            }
+
+        elif action == "delete":
+            # ── Delete AIWorkload ──
+            workload_id = k8s_spec.get("workloadId", "")
+            if not workload_id:
+                logger.error("[K8SGateway] [%s] ✗ 删除失败: workloadId 缺失", request_id)
+                raise ValueError("k8s_workload.workloadId is required for delete action")
+            params = {}
+            if k8s_spec.get("namespace"):
+                params["namespace"] = k8s_spec["namespace"]
+            elif k8s_spec.get("tenantId"):
+                params["tenantId"] = k8s_spec["tenantId"]
+
+            url = f"{k8s_base}/{workload_id}"
+            logger.info("[K8SGateway] [%s] → 删除 AIWorkload: workloadId=%s url=%s params=%s",
+                        request_id, workload_id, url, params)
+
+            with _gw_semaphore:
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        resp = client.delete(url, headers=headers, params=params)
+                        logger.debug("[K8SGateway] [%s] 删除响应: status_code=%d", request_id, resp.status_code)
+                        resp.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    logger.error("[K8SGateway] [%s] ✗ 删除HTTP错误: workloadId=%s status=%d elapsed=%dms",
+                                 request_id, workload_id, e.response.status_code, elapsed_ms)
+                    raise
+                except Exception as e:
+                    elapsed_ms = int((time.time() - start) * 1000)
+                    logger.error("[K8SGateway] [%s] ✗ 删除失败: workloadId=%s error=%s elapsed=%dms",
+                                 request_id, workload_id, str(e)[:100], elapsed_ms)
+                    raise
+
+            elapsed_ms = int((time.time() - start) * 1000)
+            data = resp.json()
+            k8s_payload = data.get("payload", {})
+
+            logger.info("[K8SGateway] [%s] ✓ 删除成功: workloadId=%s status=%s namespace=%s elapsed=%dms",
+                        request_id, workload_id,
+                        k8s_payload.get("status", "Deleting"),
+                        k8s_payload.get("namespace", "?"), elapsed_ms)
+
+            return {
+                "model_name": "openclaw/default",
+                "model_type": "openclaw-agent",
+                "output": f"工作负载 {workload_id} 已标记删除",
+                "latency_ms": elapsed_ms,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "finish_reason": "stop",
+                "routed_via": "hermes_k8s_gateway",
+                "dispatch_latency_ms": elapsed_ms,
+                "k8s_workload": k8s_payload,
+            }
+
+        else:
+            raise ValueError(f"Unknown k8s_workload action: {action}")
 
     def _dispatch_to_official_gw(self, request: Dict, routing: Dict) -> Dict:
         """Dispatch directly to OpenClaw Official Gateway.

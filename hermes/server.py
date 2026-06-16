@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional as Opt
@@ -920,6 +920,8 @@ class QueueSubmitRequest(BaseModel):
     tools: Opt[list] = None
     tool_choice: Opt[str] = None
     constraints: Opt[dict] = None
+    attachments: Opt[list] = None
+    k8s_workload: Opt[dict] = None
 
 
 @app.post("/queue/submit", summary="Submit request to dispatch queue")
@@ -1121,6 +1123,266 @@ async def queue_flush(queue_name: Opt[str] = None):
     for name, q in name_map.items():
         flushed[name] = msg_queue.flush(q)
     return {"flushed": flushed}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# K8S AIWorkload API — Direct K8S resource operations
+# ══════════════════════════════════════════════════════════════════════════════
+
+class K8SWorkloadRequest(BaseModel):
+    """Request model for K8S AIWorkload submission."""
+    requestId: Opt[str] = None
+    tenant: Opt[dict] = None
+    taskType: str = "batch-inference"
+    intent: dict = {}
+    sla: Opt[dict] = None
+    callback: Opt[dict] = None
+
+
+class K8SWorkloadActionRequest(BaseModel):
+    """Request model for K8S AIWorkload get/delete."""
+    workloadId: str
+    namespace: Opt[str] = None
+    tenantId: Opt[str] = None
+
+
+@app.post("/k8s/workloads", summary="Submit K8S AIWorkload via OpenClaw Gateway")
+async def k8s_submit_workload(req: K8SWorkloadRequest, appid: str = "default"):
+    """Submit an AIWorkload to K8S cluster through OpenClaw Gateway.
+
+    This is the independent API entry point — no Hermes routing needed.
+    Directly calls OpenClaw /plugins/k8s/v1/workloads.
+    Returns 202 Accepted with workloadId and status.
+    """
+    import uuid
+    import time as _time
+
+    request_id = req.requestId or str(uuid.uuid4())[:8]
+    start = _time.time()
+
+    logger.info("[K8S API] [%s] 收到提交请求: appid=%s taskType=%s tenant=%s",
+                request_id, appid, req.taskType, req.tenant)
+
+    # Build dispatch-compatible request dict
+    dispatch_req = {
+        "request_id": request_id,
+        "appid": appid,
+        "type": "k8s_workload",
+        "prompt": f"K8S AIWorkload: {req.taskType}",
+        "priority": 3,
+        "k8s_workload": {
+            "action": "submit",
+            "requestId": request_id,
+            "tenant": req.tenant or {"id": appid},
+            "taskType": req.taskType,
+            "intent": req.intent,
+            **({"sla": req.sla} if req.sla else {}),
+            **({"callback": req.callback} if req.callback else {}),
+        },
+    }
+
+    # Build routing dict
+    routing = {
+        "route_path": "k8s_gateway",
+        "complexity_score": 75.0,
+        "selected_model": "openclaw/default",
+        "reason": "K8S AIWorkload direct submit",
+    }
+
+    try:
+        result = dispatch_worker._dispatch_to_k8s_gateway(dispatch_req, routing)
+        elapsed_ms = int((_time.time() - start) * 1000)
+
+        logger.info("[K8S API] [%s] 提交成功: workloadId=%s elapsed=%dms",
+                    request_id,
+                    result.get("k8s_workload", {}).get("workloadId", "?"),
+                    elapsed_ms)
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "request_id": request_id,
+                "appid": appid,
+                "status": "success",
+                "timestamp": datetime.now().isoformat(),
+                "total_latency_ms": elapsed_ms,
+                "routing": routing,
+                "result": result,
+                "error": None,
+            },
+        )
+    except Exception as e:
+        elapsed_ms = int((_time.time() - start) * 1000)
+        logger.error("[K8S API] [%s] 提交失败: appid=%s taskType=%s elapsed=%dms error=%s",
+                     request_id, appid, req.taskType, elapsed_ms, str(e)[:200])
+        return JSONResponse(
+            status_code=502,
+            content={
+                "request_id": request_id,
+                "appid": appid,
+                "status": "failed",
+                "timestamp": datetime.now().isoformat(),
+                "total_latency_ms": elapsed_ms,
+                "routing": routing,
+                "result": None,
+                "error": {"code": "K8S_GATEWAY_ERROR", "message": str(e)},
+            },
+        )
+
+
+@app.get("/k8s/workloads/{workload_id}", summary="Get K8S AIWorkload status")
+async def k8s_get_workload(workload_id: str, namespace: Opt[str] = None, tenantId: Opt[str] = None):
+    """Query AIWorkload status from K8S cluster via OpenClaw Gateway."""
+    import time as _time
+    import uuid
+
+    start = _time.time()
+    request_id = str(uuid.uuid4())[:8]
+
+    logger.info("[K8S API] [%s] 收到查询请求: workloadId=%s namespace=%s tenantId=%s",
+                request_id, workload_id, namespace, tenantId)
+
+    dispatch_req = {
+        "request_id": request_id,
+        "appid": tenantId or "default",
+        "type": "k8s_workload",
+        "prompt": f"查询 AIWorkload: {workload_id}",
+        "k8s_workload": {
+            "action": "get",
+            "workloadId": workload_id,
+            **({"namespace": namespace} if namespace else {}),
+            **({"tenantId": tenantId} if tenantId else {}),
+        },
+    }
+
+    routing = {
+        "route_path": "k8s_gateway",
+        "complexity_score": 10.0,
+        "selected_model": "openclaw/default",
+        "reason": "K8S AIWorkload status query",
+    }
+
+    try:
+        result = dispatch_worker._dispatch_to_k8s_gateway(dispatch_req, routing)
+        elapsed_ms = int((_time.time() - start) * 1000)
+        logger.info("[K8S API] [%s] 查询成功: workloadId=%s status=%s elapsed=%dms",
+                    request_id, workload_id,
+                    result.get("k8s_workload", {}).get("status", "?"), elapsed_ms)
+        return {
+            "request_id": request_id,
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "total_latency_ms": elapsed_ms,
+            "result": result,
+            "error": None,
+        }
+    except Exception as e:
+        elapsed_ms = int((_time.time() - start) * 1000)
+        logger.error("[K8S API] [%s] 查询失败: workloadId=%s elapsed=%dms error=%s",
+                     request_id, workload_id, elapsed_ms, str(e)[:200])
+        return JSONResponse(
+            status_code=502,
+            content={
+                "request_id": request_id,
+                "status": "failed",
+                "timestamp": datetime.now().isoformat(),
+                "total_latency_ms": elapsed_ms,
+                "error": {"code": "K8S_GATEWAY_ERROR", "message": str(e)},
+            },
+        )
+
+
+@app.delete("/k8s/workloads/{workload_id}", summary="Delete K8S AIWorkload")
+async def k8s_delete_workload(workload_id: str, namespace: Opt[str] = None, tenantId: Opt[str] = None):
+    """Delete an AIWorkload from K8S cluster via OpenClaw Gateway."""
+    import time as _time
+    import uuid
+
+    start = _time.time()
+    request_id = str(uuid.uuid4())[:8]
+
+    logger.info("[K8S API] [%s] 收到删除请求: workloadId=%s namespace=%s tenantId=%s",
+                request_id, workload_id, namespace, tenantId)
+
+    dispatch_req = {
+        "request_id": request_id,
+        "appid": tenantId or "default",
+        "type": "k8s_workload",
+        "prompt": f"删除 AIWorkload: {workload_id}",
+        "k8s_workload": {
+            "action": "delete",
+            "workloadId": workload_id,
+            **({"namespace": namespace} if namespace else {}),
+            **({"tenantId": tenantId} if tenantId else {}),
+        },
+    }
+
+    routing = {
+        "route_path": "k8s_gateway",
+        "complexity_score": 10.0,
+        "selected_model": "openclaw/default",
+        "reason": "K8S AIWorkload delete",
+    }
+
+    try:
+        result = dispatch_worker._dispatch_to_k8s_gateway(dispatch_req, routing)
+        elapsed_ms = int((_time.time() - start) * 1000)
+        logger.info("[K8S API] [%s] 删除成功: workloadId=%s status=%s elapsed=%dms",
+                    request_id, workload_id,
+                    result.get("k8s_workload", {}).get("status", "?"), elapsed_ms)
+        return {
+            "request_id": request_id,
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "total_latency_ms": elapsed_ms,
+            "result": result,
+            "error": None,
+        }
+    except Exception as e:
+        elapsed_ms = int((_time.time() - start) * 1000)
+        logger.error("[K8S API] [%s] 删除失败: workloadId=%s elapsed=%dms error=%s",
+                     request_id, workload_id, elapsed_ms, str(e)[:200])
+        return JSONResponse(
+            status_code=502,
+            content={
+                "request_id": request_id,
+                "status": "failed",
+                "timestamp": datetime.now().isoformat(),
+                "total_latency_ms": elapsed_ms,
+                "error": {"code": "K8S_GATEWAY_ERROR", "message": str(e)},
+            },
+        )
+
+
+@app.post("/k8s/callback", summary="K8S workload status callback from OpenClaw")
+async def k8s_callback(payload: dict):
+    """Receive status callback from OpenClaw Gateway when workload status changes.
+
+    OpenClaw calls this endpoint to notify Hermes of workload state transitions.
+    The payload structure matches OpenClaw's callback format.
+    """
+    workload_id = payload.get("workloadId", "unknown")
+    new_status = payload.get("status", payload.get("phase", "Unknown"))
+    request_id = payload.get("requestId", "?")
+    namespace = payload.get("namespace", "?")
+    timestamp = payload.get("timestamp", "?")
+
+    logger.info("[K8S Callback] 收到回调: workloadId=%s phase=%s namespace=%s requestId=%s ts=%s",
+                workload_id, new_status, namespace, request_id, timestamp)
+    logger.debug("[K8S Callback] 完整 payload: %s", payload)
+
+    # Store callback in result queue for polling
+    msg_queue.push(QUEUE_RESULTS, {
+        "request_id": f"k8s-cb-{workload_id}",
+        "status": "callback",
+        "timestamp": datetime.now().isoformat(),
+        "k8s_workload": payload,
+    })
+
+    logger.info("[K8S Callback] 已推入结果队列: workloadId=%s queue=%s",
+                workload_id, QUEUE_RESULTS)
+
+    return {"status": "ok", "workloadId": workload_id}
 
 
 # ─── Service Management ───────────────────────────────────────────────

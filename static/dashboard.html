@@ -193,14 +193,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
       <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-agent')"><span class="pf-icon">🤖</span><div class="pf-info"><div class="pf-title">Hermes Agent 进化</div><div class="pf-desc">Memory自学习 + 规则演化</div></div><span class="pf-badge idle" id="pf-agent-badge">待机</span><span class="pf-metric" id="pf-agent-metric">-</span></div><div class="pf-detail" id="pf-agent-detail"><div class="pf-detail-row"><span class="pf-detail-key">Agent状态</span><span class="pf-detail-val" id="pf-agent-status">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">路由模式</span><span class="pf-detail-val" id="pf-agent-mode">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">MEMORY.md</span><span class="pf-detail-val" id="pf-agent-memory">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">规则数</span><span class="pf-detail-val" id="pf-agent-rules">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">反馈队列</span><span class="pf-detail-val" id="pf-agent-fbq">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">插件</span><span class="pf-detail-val" id="pf-agent-plugin">-</span></div></div></div>
       <div class="pf-arrow">▼</div>
-      <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-ex')"><span class="pf-icon">⚡</span><div class="pf-info"><div class="pf-title">执行引擎</div><div class="pf-desc">direct_local / gateway / multimodal</div></div><span class="pf-badge idle" id="pf-ex-badge">待机</span><span class="pf-metric" id="pf-ex-metric">-</span></div><div class="pf-detail" id="pf-ex-detail"><div class="pf-detail-row"><span class="pf-detail-key">Official GW</span><span class="pf-detail-val" id="pf-ex-ogw">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">Ollama</span><span class="pf-detail-val" id="pf-ex-ollama">-</span></div></div></div>
+      <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-ex')"><span class="pf-icon">⚡</span><div class="pf-info"><div class="pf-title">执行引擎</div><div class="pf-desc">direct_local / gateway / k8s_gateway / multimodal</div></div><span class="pf-badge idle" id="pf-ex-badge">待机</span><span class="pf-metric" id="pf-ex-metric">-</span></div><div class="pf-detail" id="pf-ex-detail"><div class="pf-detail-row"><span class="pf-detail-key">Official GW</span><span class="pf-detail-val" id="pf-ex-ogw">-</span></div><div class="pf-detail-row"><span class="pf-detail-key">Ollama</span><span class="pf-detail-val" id="pf-ex-ollama">-</span></div></div></div>
       <div class="pf-arrow">▼</div>
       <div class="pf-stage"><div class="pf-stage-header" onclick="toggleDetail('pf-rt')"><span class="pf-icon">📤</span><div class="pf-info"><div class="pf-title">结果返回</div><div class="pf-desc">结果入队 + 反馈学习</div></div><span class="pf-badge idle" id="pf-rt-badge">待机</span><span class="pf-metric" id="pf-rt-metric">-</span></div><div class="pf-detail" id="pf-rt-detail"><div class="pf-detail-row"><span class="pf-detail-key">结果队列</span><span class="pf-detail-val" id="pf-rt-resq">0</span></div><div class="pf-detail-row"><span class="pf-detail-key">反馈记录</span><span class="pf-detail-val" id="pf-rt-fb">0</span></div><div class="pf-detail-row"><span class="pf-detail-key">成功率</span><span class="pf-detail-val" id="pf-rt-srate">-</span></div></div></div>
     </div>
     <div class="pl-center">
       <div class="req-form">
         <select id="req-appid"><option value="test-app">test-app</option><option value="prod-app">prod-app</option><option value="demo">demo</option></select>
-        <select id="req-type"><option value="chat">chat</option><option value="completion">completion</option></select>
+        <select id="req-type"><option value="chat">chat</option><option value="completion">completion</option><option value="k8s_workload">k8s_workload</option></select>
         <select id="req-priority"><option value="3">P3 普通</option><option value="2">P2 较高</option><option value="1">P1 紧急</option></select>
         <select id="req-mode"><option value="queue">Queue 队列</option></select>
         <select id="req-model"><option value="">自动选择</option><option value="ollama/qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
@@ -218,6 +218,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
           <button class="btn btn-blue btn-sm" onclick="sendBatch('code')" style="background:#2563eb">🔧 多步批处理</button>
           <button class="btn btn-purple btn-sm" onclick="sendBatch('multimodal')" style="background:#7c3aed">🖼️ 多模态</button>
           <button class="btn btn-cyan btn-sm" onclick="sendBatch('privacy')" style="background:#0e7490">🔒 隐私请求</button>
+          <button class="btn btn-orange btn-sm" onclick="sendBatch('k8s')" style="background:#c2410c">☸ K8S工作负载</button>
         </div>
       </div>
       <div id="results-area" style="flex:1;overflow-y:auto;padding:14px">
@@ -459,7 +460,7 @@ function renderCard(data){
   h+='<span class="tag '+mTag+'">'+mt+'</span>';
   if(data.is_hermes&&data.hermes_routing){
     const hr=data.hermes_routing;
-    const pi=hr.route_path==='agent_chain'?'\u{1F916}':hr.route_path==='gateway'?'\u{1F309}':hr.route_path==='direct_local'?'\u{1F3E0}':hr.route_path==='multimodal'?'\u{1F4F7}':hr.route_path==='local_inference'?'\u{1F512}':'\u2601';
+    const pi=hr.route_path==='agent_chain'?'\u{1F916}':hr.route_path==='gateway'?'\u{1F309}':hr.route_path==='direct_local'?'\u{1F3E0}':hr.route_path==='multimodal'?'\u{1F4F7}':hr.route_path==='local_inference'?'\u{1F512}':hr.route_path==='k8s_gateway'?'\u2638':'\u2601';
     const scoreDisplay=hr.complexity_score!=null?hr.complexity_score:'N/A';
     h+='<span class="tag" style="background:#0c2d48;color:var(--cyan)">\u{1F9E0} '+scoreDisplay+'/'+(hr.threshold||40)+' \u2192 '+pi+' '+hr.route_path+'</span>';
   }
@@ -484,13 +485,23 @@ function renderCard(data){
     const hr=data.hermes_routing;
     const hasScore=hr.complexity_score!=null;
     const cc=hasScore&&hr.complexity_score>=(hr.threshold||40)?'var(--red)':'var(--green)';
-    const pn={gateway:'\u{1F309} OfficialGW',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理',multimodal:'\u{1F4F7} 多模态'};
+    const pn={gateway:'\u{1F309} OfficialGW',agent_chain:'\u{1F916} Agent链路',direct_local:'\u{1F3E0} 本地直连',local_inference:'\u{1F512} 本地推理',multimodal:'\u{1F4F7} 多模态',k8s_gateway:'\u2638 K8S网关'};
     const scoreLine=hasScore?'<b>复杂度:</b> <span style="color:'+cc+';font-weight:700">'+hr.complexity_score+'</span> / '+(hr.threshold||40):'<b>路由:</b> Hermes Agent';
     h+='<div style="margin-top:8px"><div class="di-label">\u{1F9E0} 路由决策</div><div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #0e7490"><div style="margin-bottom:4px">'+scoreLine+' \u2192 <b>'+(pn[hr.route_path]||hr.route_path)+'</b></div><div style="margin-bottom:4px"><b>模型:</b> '+(hr.selected_model||'-')+'</div><div><b>原因:</b> '+esc(hr.reason||'')+'</div>';
     // OfficialGW link button for gateway route
     if(hr.route_path==='gateway'){
       h+='<div style="margin-top:6px"><a href="'+OGW+'/" target="_blank" style="color:var(--blue);font-size:11px;text-decoration:none;padding:3px 8px;border:1px solid var(--blue);border-radius:4px">\u{1F517} 打开 OpenClaw 官方 Gateway</a>'+(data.ogw_request_id?' <span style="color:var(--cyan);font-size:10px;padding:3px 6px;border:1px solid var(--cyan);border-radius:4px;margin-left:4px">\u{1F4CB} '+data.ogw_request_id+'</span>':'')+'</div>';
     }
+    h+='</div></div>';
+  }
+  // K8S workload info
+  if(result.k8s_workload){
+    const kw=result.k8s_workload;
+    h+='<div style="margin-top:8px"><div class="di-label">\u2638 K8S 工作负载</div><div style="background:var(--bg);border-radius:6px;padding:8px;font-size:11px;border:1px solid #c2410c">';
+    if(kw.workloadId)h+='<div style="margin-bottom:4px"><b>Workload ID:</b> '+esc(kw.workloadId)+'</div>';
+    if(kw.status)h+='<div style="margin-bottom:4px"><b>状态:</b> <span style="color:'+(kw.status==='Pending'?'var(--orange)':kw.status==='Running'?'var(--green)':kw.status==='Completed'?'var(--cyan)':'var(--red)')+'">'+esc(kw.status)+'</span></div>';
+    if(kw.namespace)h+='<div style="margin-bottom:4px"><b>命名空间:</b> '+esc(kw.namespace)+'</div>';
+    if(kw.aiworkloadRef)h+='<div style="margin-bottom:4px"><b>资源引用:</b> '+esc(kw.aiworkloadRef.kind+'/'+kw.aiworkloadRef.name)+'</div>';
     h+='</div></div>';
   }
   if(data.agent_trace&&data.agent_trace.length>0){
@@ -534,7 +545,7 @@ async function sendQueueRequest(body,label){
       total_latency_ms:elapsed,strategy_name:routing.route_path||'-',is_bridge:false,
       is_agent_chain:routing.route_path==='agent_chain',is_hermes:true,
       hermes_routing:{route_path:routing.route_path,complexity_score:routing.complexity_score,threshold:40,selected_model:routing.selected_model,reason:routing.reason},
-      _input_json:body,_output_json:isOk?{model_name:result.model_name,model_type:result.model_type,output:result.output||'',latency_ms:result.latency_ms||elapsed,finish_reason:result.finish_reason||'stop',routed_via:result.routed_via_gateway?'gateway':'local'}:null,
+      _input_json:body,_output_json:isOk?{model_name:result.model_name,model_type:result.model_type,output:result.output||'',latency_ms:result.latency_ms||elapsed,finish_reason:result.finish_reason||'stop',routed_via:result.routed_via_gateway?'gateway':result.routed_via||'local',...(result.k8s_workload?{k8s_workload:result.k8s_workload}:{})}:null,
       ogw_request_id:ogwRequestId,
     };
     AR.push(cardData);ph.outerHTML=renderCard(cardData);
@@ -549,6 +560,10 @@ async function sendQueueRequest(body,label){
 
 function sendRequest(){
   const body={appid:document.getElementById('req-appid').value,type:document.getElementById('req-type').value,priority:parseInt(document.getElementById('req-priority').value),prompt:document.getElementById('req-prompt').value,model:document.getElementById('req-model').value||undefined};
+  // Auto-attach k8s_workload when type is k8s_workload
+  if(body.type==='k8s_workload'){
+    body.k8s_workload={taskType:'batch-inference',intent:{batchInference:{model:{name:'resnet50',framework:'pytorch'},input:{uri:'s3://datasets/imgs/'},output:{uri:'s3://results/demo/'},scale:{items:1000,batchSize:32}}}};
+  }
   const mode=document.getElementById('req-mode').value;
   if(mode==='queue')sendQueueRequest(body,'Queue调度');else sendQueueRequest(body,'Queue调度');
 }
@@ -581,6 +596,11 @@ function sendBatch(scenario){
       {prompt:'处理用户个人信息并脱敏',label:'🔒 隐私-脱敏处理',expect:'local_inference',constraints:{require_local:true}},
       {prompt:'分析医疗影像诊断报告',label:'🔒 隐私-医疗数据',expect:'local_inference',constraints:{require_local:true}},
     ],
+    k8s:[
+      {prompt:'提交批量推理任务到K8S集群',label:'☸ K8S-批量推理',expect:'k8s_gateway',type:'k8s_workload',k8s_workload:{taskType:'batch-inference',intent:{batchInference:{model:{name:'resnet50',framework:'pytorch'},input:{uri:'s3://datasets/imgs/'},output:{uri:'s3://results/demo/'},scale:{items:1000,batchSize:32}}}}},
+      {prompt:'提交分布式训练任务到K8S',label:'☸ K8S-分布式训练',expect:'k8s_gateway',type:'k8s_workload',k8s_workload:{taskType:'distributed-training',intent:{distributedTraining:{model:{name:'llama-7b',framework:'pytorch'},data:{uri:'s3://datasets/train/'},hyperparameters:{epochs:10,learningRate:0.001,batchSize:64},parallelism:{workers:4,strategy:'data-parallel'}}}}},
+      {prompt:'提交超参调优任务到K8S',label:'☸ K8S-超参调优',expect:'k8s_gateway',type:'k8s_workload',k8s_workload:{taskType:'hyperparameter-tuning',intent:{hyperparameterTuning:{model:{name:'bert-base',framework:'pytorch'},searchSpace:{learningRate:{min:0.0001,max:0.01,type:'float'},batchSize:{values:[16,32,64],type:'categorical'}},objective:{metric:'accuracy',goal:'maximize'},maxTrials:20}}}},
+    ],
   };
   let items=[];
   if(scenario==='all'){
@@ -595,6 +615,7 @@ function sendBatch(scenario){
       const body={appid:'batch-test',type:item.type||'chat',priority:3,prompt:item.prompt};
       if(item.constraints)body.constraints=item.constraints;
       if(item.attachments)body.attachments=item.attachments;
+      if(item.k8s_workload)body.k8s_workload=item.k8s_workload;
       sendQueueRequest(body,item.label);
     },i*2000);
   });

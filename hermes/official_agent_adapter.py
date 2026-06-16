@@ -510,6 +510,21 @@ class OfficialHermesAdapter:
                     prompt, req_type, "ollama_direct" if self.use_direct_ollama else "hermes_agent",
                     "OPEN(skip_ollama)" if self._routing_circuit_open else "closed")
 
+        # Fast path: K8S workload requests bypass LLM routing entirely
+        if req_type == "k8s_workload" or request.get("k8s_workload"):
+            logger.info("[Routing] K8S workload 请求, 直接路由到 k8s_gateway (跳过LLM)")
+            return {
+                "route_path": "k8s_gateway",
+                "complexity_score": 75.0,
+                "selected_model": "openclaw/default",
+                "reason": "K8S AIWorkload request — direct k8s_gateway routing",
+                "agent_decision": "k8s_fast_path",
+                "memory_context_used": False,
+                "post_validated": False,
+                "official_agent_routed": False,
+                "agent_llm_latency_ms": 0,
+            }
+
         # Circuit breaker: if Ollama routing has failed consecutively, skip it entirely
         # and go straight to keyword-based post_validate (saves 15s per request)
         if self._routing_circuit_open:
