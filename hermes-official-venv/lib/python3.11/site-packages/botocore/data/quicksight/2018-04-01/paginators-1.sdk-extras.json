@@ -74,6 +74,12 @@
           "RequestId"
         ]
       },
+      "ListOAuthClientApplications": {
+        "non_aggregate_keys": [
+          "Status",
+          "RequestId"
+        ]
+      },
       "ListIngestions": {
         "non_aggregate_keys": [
           "Status",
@@ -229,6 +235,18 @@
         ]
       },
       "SearchFlows": {
+        "non_aggregate_keys": [
+          "Status",
+          "RequestId"
+        ]
+      },
+      "ListKnowledgeBases": {
+        "non_aggregate_keys": [
+          "Status",
+          "RequestId"
+        ]
+      },
+      "SearchKnowledgeBases": {
         "non_aggregate_keys": [
           "Status",
           "RequestId"

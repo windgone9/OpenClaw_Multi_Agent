@@ -1,0 +1,74 @@
+# ============================================
+# LiteLLM Proxy 模型路由配置
+# 文档: https://docs.litellm.ai/docs/proxy/configs
+# ============================================
+
+model_list:
+  # ---------- 本地对话模型 ----------
+  - model_name: qwen2.5
+    litellm_params:
+      model: ollama/qwen2.5:3b
+      api_base: http://ollama:11434
+      timeout: 120
+  - model_name: qwen2.5
+    litellm_params:
+      model: ollama/qwen2.5:7b
+      api_base: http://ollama:11434
+      timeout: 180
+
+  # ---------- 多模态模型 ----------
+  - model_name: llava
+    litellm_params:
+      model: ollama/llava:7b
+      api_base: http://ollama:11434
+      timeout: 180
+
+  # ---------- 云端模型（可选，配置 API Key 后启用） ----------
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 120
+  - model_name: moonshot-chat
+    litellm_params:
+      model: moonshot/moonshot-v1-8k
+      api_key: os.environ/MOONSHOT_API_KEY
+      timeout: 120
+
+  # ---------- ASR 语音识别（豆包） ----------
+  - model_name: doubao-asr
+    litellm_params:
+      model: openai/whisper-1
+      api_base: https://openspeech.bytedance.com/v1
+      api_key: os.environ/DOUBAO_ASR_KEY
+      timeout: 60
+
+  # ---------- Embedding ----------
+  - model_name: bge-embedding
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://ollama:11434
+      timeout: 30
+
+router_settings:
+  routing_strategy: latency-based-routing
+  num_retries: 2
+  timeout: 120
+  allowed_fails: 3
+  cooldown_time: 60
+  retry_after: 60
+  model_group_alias:
+    chat: qwen2.5
+    vision: llava
+    asr: doubao-asr
+    embedding: bge-embedding
+
+general_settings:
+  drop_params: true
+  set_verbose: false
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  success_callback: ["prometheus"]
+  failure_callback: ["prometheus"]
+  callbacks: ["prometheus"]

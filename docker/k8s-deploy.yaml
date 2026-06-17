@@ -1,0 +1,537 @@
+# ============================================
+# OpenClaw Multi-Agent — K8S 部署配置
+# 包含 Deployment + Service + HPA + Ingress
+# ============================================
+
+---
+# ==================== Namespace ====================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openclaw
+
+---
+# ==================== LiteLLM Proxy Deployment ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: openclaw
+  labels:
+    app: litellm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:main-latest
+          ports:
+            - containerPort: 4000
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: litellm-master-key
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: deepseek-api-key
+                  optional: true
+            - name: MOONSHOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: moonshot-api-key
+                  optional: true
+            - name: DOUBAO_ASR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: doubao-asr-key
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+
+---
+# LiteLLM Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: openclaw
+spec:
+  selector:
+    app: litellm
+  ports:
+    - port: 4000
+      targetPort: 4000
+  type: ClusterIP
+
+---
+# LiteLLM HPA (自动缩扩容)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: litellm-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: litellm
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "50"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+# ==================== Hermes Agent Deployment ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: openclaw
+  labels:
+    app: hermes
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hermes
+  template:
+    metadata:
+      labels:
+        app: hermes
+    spec:
+      containers:
+        - name: hermes
+          image: openclaw/hermes:latest
+          ports:
+            - containerPort: 8082
+          env:
+            - name: OPENCLAW_OFFICIAL_GATEWAY_URL
+              value: "http://openclaw-gw:3005"
+            - name: OPENCLAW_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: openclaw-token
+                  optional: true
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+---
+# Hermes Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes
+  namespace: openclaw
+spec:
+  selector:
+    app: hermes
+  ports:
+    - port: 8082
+      targetPort: 8082
+  type: ClusterIP
+
+---
+# Hermes HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hermes-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hermes
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ==================== Stream Service Deployment ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-service
+  namespace: openclaw
+  labels:
+    app: stream-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: stream-service
+  template:
+    metadata:
+      labels:
+        app: stream-service
+    spec:
+      containers:
+        - name: stream-service
+          image: openclaw/stream-service:latest
+          ports:
+            - containerPort: 8084
+          env:
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+            - name: DOUBAO_ASR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: doubao-asr-key
+                  optional: true
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+# Stream Service (SessionAffinity for WebSocket)
+apiVersion: v1
+kind: Service
+metadata:
+  name: stream-service
+  namespace: openclaw
+spec:
+  selector:
+    app: stream-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+  type: ClusterIP
+
+---
+# Stream Service HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stream-service-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stream-service
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # WebSocket 需要更长的稳定窗口
+
+---
+# ==================== Ollama Deployment (GPU) ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: openclaw
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: "4Gi"
+              nvidia.com/gpu: 1
+            limits:
+              memory: "8Gi"
+              nvidia.com/gpu: 1
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: ollama-data
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+
+---
+# Ollama Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: openclaw
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+  type: ClusterIP
+
+---
+# Ollama PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: openclaw
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# ==================== Ingress (统一入口) ====================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openclaw-ingress
+  namespace: openclaw
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/websocket-services: "stream-service"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # LiteLLM OpenAI 兼容接口
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm
+                port:
+                  number: 4000
+          # LiteLLM 管理
+          - path: /litellm
+            pathType: Prefix
+            backend:
+              service:
+                name: litellm
+                port:
+                  number: 4000
+          # Hermes K8S 接口
+          - path: /k8s
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes
+                port:
+                  number: 8082
+          # Stream 推流
+          - path: /v1/stream
+            pathType: Prefix
+            backend:
+              service:
+                name: stream-service
+                port:
+                  number: 8084
+          # Dashboard
+          - path: /dashboard.html
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes
+                port:
+                  number: 8082
+
+---
+# ==================== Secrets ====================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openclaw-secrets
+  namespace: openclaw
+type: Opaque
+stringData:
+  litellm-master-key: "sk-litellm-change-me"
+  openclaw-token: ""
+  deepseek-api-key: ""
+  moonshot-api-key: ""
+  doubao-asr-key: ""
+
+---
+# ==================== LiteLLM ConfigMap ====================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: openclaw
+data:
+  config.yaml: |
+    model_list:
+      - model_name: qwen2.5
+        litellm_params:
+          model: ollama/qwen2.5:3b
+          api_base: http://ollama:11434
+          timeout: 120
+      - model_name: llava
+        litellm_params:
+          model: ollama/llava:7b
+          api_base: http://ollama:11434
+          timeout: 180
+      - model_name: deepseek-chat
+        litellm_params:
+          model: deepseek/deepseek-chat
+          api_key: os.environ/DEEPSEEK_API_KEY
+          timeout: 120
+      - model_name: doubao-asr
+        litellm_params:
+          model: openai/whisper-1
+          api_base: https://openspeech.bytedance.com/v1
+          api_key: os.environ/DOUBAO_ASR_KEY
+          timeout: 60
+      - model_name: bge-embedding
+        litellm_params:
+          model: ollama/nomic-embed-text
+          api_base: http://ollama:11434
+          timeout: 30
+
+    router_settings:
+      routing_strategy: latency-based-routing
+      num_retries: 2
+      timeout: 120
+      allowed_fails: 3
+      cooldown_time: 60
+
+    general_settings:
+      drop_params: true
+      set_verbose: false

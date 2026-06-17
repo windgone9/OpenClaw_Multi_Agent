@@ -172,6 +172,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
     <span class="svc-dot"><span class="dot" id="dot-agent"></span> Agent:8642</span>
     <span class="svc-dot"><span class="dot" id="dot-official"></span> OfficialGW</span>
     <span class="svc-dot"><span class="dot" id="dot-ollama"></span> Ollama</span>
+    <span class="svc-dot"><span class="dot" id="dot-litellm"></span> LiteLLM</span>
+    <span class="svc-dot"><span class="dot" id="dot-stream"></span> Stream</span>
     <span style="color:var(--purple)">v2026.6</span>
     <span id="clock" style="color:var(--text3)"></span>
   </div>
@@ -182,6 +184,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   <button class="tab-btn" onclick="switchTab('metrics',this)">📊 监控指标</button>
   <button class="tab-btn" onclick="switchTab('memory',this)">🧬 Memory闭环</button>
   <button class="tab-btn" onclick="switchTab('logs',this)">📋 实时日志</button>
+  <button class="tab-btn" onclick="switchTab('apidirect',this)">⚡ API直调</button>
 </div>
 <div class="tab-content active" id="tab-pipeline">
   <div class="pipeline-layout">
@@ -203,7 +206,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
         <select id="req-type"><option value="chat">chat</option><option value="completion">completion</option><option value="k8s_workload">k8s_workload</option></select>
         <select id="req-priority"><option value="3">P3 普通</option><option value="2">P2 较高</option><option value="1">P1 紧急</option></select>
         <select id="req-mode"><option value="queue">Queue 队列</option></select>
-        <select id="req-model"><option value="">自动选择</option><option value="ollama/qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
+        <select id="req-model"><option value="">自动选择</option><option value="ollama/qwen2.5:3b">qwen2.5:3b</option><option value="ollama/llava:7b">llava:7b (视觉)</option><option value="deepseek-chat">deepseek-chat</option></select>
         <textarea id="req-prompt" rows="2" placeholder="输入请求内容...">你好，请介绍一下你自己</textarea>
         <div class="btn-row" style="gap:4px">
           <button class="btn btn-primary" onclick="sendRequest()">🚀 发送请求</button>
@@ -344,6 +347,103 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
     </div>
   </div>
 </div>
+<div class="tab-content" id="tab-apidirect">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:20px;overflow-y:auto;width:100%;height:100%">
+    <!-- 对话测试 -->
+    <div class="svc-card" style="grid-column:1/2">
+      <div class="svc-card-title"><span class="svc-dot ok" style="background:var(--blue);box-shadow:0 0 8px var(--blue)"></span> 对话 /v1/chat/completions</div>
+      <div style="margin-bottom:10px">
+        <select id="api-model" style="background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;width:100%">
+          <option value="qwen2.5:3b">qwen2.5:3b (本地)</option>
+          <option value="qwen2.5:7b">qwen2.5:7b (本地)</option>
+          <option value="llava:7b">llava:7b (视觉)</option>
+          <option value="deepseek-chat">deepseek-chat (云端)</option>
+        </select>
+      </div>
+      <div style="margin-bottom:10px">
+        <textarea id="api-prompt" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:13px;resize:vertical;font-family:inherit" placeholder="输入对话内容...">你好，请介绍一下你自己</textarea>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+        <label style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:4px"><input type="checkbox" id="api-stream"> 流式</label>
+        <label style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:4px"><input type="checkbox" id="api-vision"> Vision模式</label>
+      </div>
+      <div id="api-vision-url-box" style="margin-bottom:10px;display:none">
+        <input id="api-image-url" type="text" placeholder="图片 URL (Vision模式)" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="apiChatSend()">发送请求</button>
+        <button class="btn btn-ghost" onclick="apiChatClear()">清空</button>
+      </div>
+      <div id="api-chat-result" style="margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;display:none"></div>
+      <div id="api-chat-stream" style="margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;display:none"></div>
+      <div id="api-chat-meta" style="margin-top:8px;font-size:11px;color:var(--text3);display:none"></div>
+    </div>
+
+    <!-- 多模态附件测试 -->
+    <div class="svc-card" style="grid-column:2/3">
+      <div class="svc-card-title"><span class="svc-dot ok" style="background:var(--purple);box-shadow:0 0 8px var(--purple)"></span> 多模态 /v1/multimodal/chat</div>
+      <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:#052e16;color:var(--green);border:1px solid var(--green)" onclick="mmQuickTest('image')">🖼️ 图片测试</button>
+        <button class="btn btn-sm" style="background:#172554;color:var(--blue);border:1px solid var(--blue)" onclick="mmQuickTest('pdf')">📄 PDF测试</button>
+        <button class="btn btn-sm" style="background:#312e81;color:var(--purple);border:1px solid var(--purple)" onclick="mmQuickTest('audio')">🎵 音频测试</button>
+        <button class="btn btn-sm" style="background:#451a03;color:var(--orange);border:1px solid var(--orange)" onclick="mmQuickTest('mixed')">🔀 混合测试</button>
+      </div>
+      <div style="margin-bottom:10px">
+        <textarea id="api-mm-prompt" rows="2" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:13px;resize:vertical;font-family:inherit" placeholder="输入提示词...">请转写这段音频内容</textarea>
+      </div>
+      <div style="margin-bottom:6px">
+        <select id="api-mm-model" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px">
+          <option value="auto">auto (自动路由)</option>
+          <option value="qwen2.5:3b">qwen2.5:3b (文本)</option>
+          <option value="llava:7b">llava:7b (视觉)</option>
+        </select>
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">附件列表 (JSON格式，支持 image/pdf/audio/docx 类型)</div>
+        <textarea id="api-mm-attachments" rows="4" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:11px;resize:vertical;font-family:monospace" placeholder='[{"type":"image","url":"http://..."}]'>[
+  {"type": "audio", "url": "http://127.0.0.1:9000/speech_test.wav"}
+]</textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-purple" onclick="apiMultimodalSend()">发送多模态请求</button>
+        <button class="btn btn-ghost" onclick="mmClear()">清空</button>
+      </div>
+      <div id="api-mm-result" style="margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;display:none"></div>
+      <div id="api-mm-meta" style="margin-top:8px;font-size:11px;color:var(--text3);display:none"></div>
+    </div>
+
+    <!-- SSE 推流测试 -->
+    <div class="svc-card" style="grid-column:1/2">
+      <div class="svc-card-title"><span class="svc-dot ok" style="background:var(--green);box-shadow:0 0 8px var(--green)"></span> SSE 推流 /v1/stream/sse</div>
+      <div style="margin-bottom:10px">
+        <textarea id="api-sse-prompt" rows="2" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:10px;font-size:13px;resize:vertical;font-family:inherit" placeholder="输入推流请求...">请写一首关于春天的诗</textarea>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-green" onclick="apiSSESend()">开始推流</button>
+        <button class="btn btn-ghost" id="api-sse-stop" onclick="apiSSEStop()" disabled>停止</button>
+      </div>
+      <div id="api-sse-result" style="margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;display:none"></div>
+    </div>
+
+    <!-- 模型列表 & Embedding -->
+    <div class="svc-card" style="grid-column:2/3">
+      <div class="svc-card-title"><span class="svc-dot ok" style="background:var(--orange);box-shadow:0 0 8px var(--orange)"></span> 模型列表 / Embedding</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" onclick="apiListModels()">获取模型列表</button>
+      </div>
+      <div id="api-models-list" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;max-height:120px;overflow-y:auto;font-family:monospace;display:none"></div>
+      <div style="margin-top:12px;font-size:12px;color:var(--text3);border-top:1px solid var(--border);padding-top:10px">Embedding 测试</div>
+      <div style="margin-top:6px">
+        <input id="api-emb-input" type="text" placeholder="输入文本获取 Embedding" value="Hello, world!" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px">
+      </div>
+      <div style="margin-top:6px;display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="apiEmbedding()">获取 Embedding</button>
+      </div>
+      <div id="api-emb-result" style="margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;max-height:100px;overflow-y:auto;font-family:monospace;display:none"></div>
+    </div>
+  </div>
+</div>
+
 <div class="tab-content" id="tab-logs">
   <div class="logs-layout">
     <div class="logs-toolbar">
@@ -358,9 +458,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
   </div>
 </div>
 <script>
-const H='http://localhost:8082',OGW='http://localhost:3005',OLL='http://localhost:11434';
+const H='http://localhost:8082',OGW='http://localhost:3005',OLL='http://localhost:11434',LITELLM='http://localhost:4000',STREAM='http://localhost:8084';
 let dc=0;const AR=[],RC={},LH=[],SH=[],LOGS=[];const MAX_LOGS=2000;
-let svcStatus={hermes:false,agent:false,official:false,ollama:false};
+let svcStatus={hermes:false,agent:false,official:false,ollama:false,litellm:false,stream:false};
 
 // Unified health cache — all pages read from this, updated by a single timer
 let _healthCache={hermes:{healthy:true},hermesAgent:{healthy:false},officialGateway:{healthy:false},ollama:{healthy:false}};
@@ -379,12 +479,13 @@ async function fetchHealthOnce(){
     svcStatus['agent']=_healthCache.hermesAgent&&_healthCache.hermesAgent.healthy;
     svcStatus['official']=_healthCache.officialGateway&&_healthCache.officialGateway.healthy;
     svcStatus['ollama']=_healthCache.ollama&&_healthCache.ollama.healthy;
-    updateTopbarDots();
   }catch{
     // On fetch failure, keep previous cache status instead of marking all as unhealthy
-    // This prevents false "unavailable" warnings during brief network hiccups
-    updateTopbarDots();
   }
+  // 独立检查 LiteLLM Proxy 和 Stream Service
+  try{const r=await fetch(LITELLM+'/health',{signal:AbortSignal.timeout(3000)});const d=await r.json();svcStatus['litellm']=d.status==='healthy';}catch{svcStatus['litellm']=false;}
+  try{const r=await fetch(STREAM+'/health',{signal:AbortSignal.timeout(3000)});const d=await r.json();svcStatus['stream']=d.status==='healthy';}catch{svcStatus['stream']=false;}
+  updateTopbarDots();
 }
 
 async function fetchAgentHealthOnce(){
@@ -585,11 +686,11 @@ function sendBatch(scenario){
       {prompt:'使用Volcano调度分布式训练任务',label:'🔧 多步批处理-Volcano',expect:'gateway'},
     ],
     multimodal:[
-      {prompt:'请分析这张图片中的文字内容',label:'🖼️ 多模态-图片OCR',expect:'multimodal',attachments:[{type:'image_url',url:'https://example.com/ocr-test.png'}]},
-      {prompt:'描述这张照片中的场景',label:'🖼️ 多模态-图片描述',expect:'multimodal',attachments:[{type:'image_url',url:'https://example.com/scene.jpg'}]},
-      {prompt:'识别图片中的物体并分类',label:'🖼️ 多模态-视觉识别',expect:'multimodal',attachments:[{type:'image_url',url:'https://example.com/objects.jpg'}]},
-      {prompt:'将这段音频转换为文字',label:'🖼️ 多模态-语音识别',expect:'multimodal',attachments:[{type:'audio_url',url:'https://example.com/audio.mp3'}]},
-      {prompt:'分析视频中的关键帧',label:'🖼️ 多模态-视频分析',expect:'multimodal',attachments:[{type:'video_url',url:'https://example.com/video.mp4'}]},
+      {prompt:'请描述这张图片的内容',label:'🖼️ 多模态-图片描述',expect:'multimodal',attachments:[{type:'image',url:'http://127.0.0.1:9000/test.png'}]},
+      {prompt:'请总结这份文档的关键信息',label:'📄 多模态-PDF文档',expect:'multimodal',attachments:[{type:'pdf',url:'http://127.0.0.1:9000/test.pdf'}]},
+      {prompt:'请转写这段音频内容',label:'🎵 多模态-音频转写(FunASR)',expect:'multimodal',attachments:[{type:'audio',url:'http://127.0.0.1:9000/speech_test.wav'}]},
+      {prompt:'请分析这些附件的内容',label:'🔀 多模态-图片+PDF',expect:'multimodal',attachments:[{type:'image',url:'http://127.0.0.1:9000/test.png'},{type:'pdf',url:'http://127.0.0.1:9000/test.pdf'}]},
+      {prompt:'请分析图片和音频的内容',label:'🔀 多模态-图片+音频',expect:'multimodal',attachments:[{type:'image',url:'http://127.0.0.1:9000/test.png'},{type:'audio',url:'http://127.0.0.1:9000/speech_test.wav'}]},
     ],
     privacy:[
       {prompt:'分析这份内部财务数据',label:'🔒 隐私-财务数据',expect:'local_inference',constraints:{require_local:true}},
@@ -687,6 +788,7 @@ const SVC_DEFS=[
   {id:'agent',name:'Hermes Agent 进化',icon:'\u{1F916}',url:H+'/proxy/agent-health',port:8642,startSvc:null,stopSvc:null},
   {id:'official',name:'Official Gateway',icon:'\u{1F3E2}',url:OGW+'/health',port:3005,startSvc:'officialGateway',stopSvc:'officialGateway'},
   {id:'ollama',name:'Ollama 本地推理',icon:'\u{1F999}',url:OLL+'/api/tags',port:11434,startSvc:'ollama',stopSvc:'ollama'},
+  {id:'litellm',name:'LiteLLM Proxy',icon:'\u{1F4F7}',url:LITELLM+'/health',port:4000,startSvc:null,stopSvc:null},
 ];
 
 async function refreshServices(){
@@ -746,6 +848,27 @@ async function refreshServices(){
       const models=info.models||[];
       html+='<div class="svc-row"><span class="svc-key">模型数</span><span class="svc-val">'+models.length+'</span></div>';
       if(models.length>0)html+='<div class="svc-row"><span class="svc-key">模型列表</span><span class="svc-val" style="font-size:10px">'+models.slice(0,3).map(m=>m.name).join(', ')+(models.length>3?'...':'')+'</span></div>';
+    }
+    if(svc.id==='litellm'){
+      // Fetch LiteLLM health directly
+      try{
+        const lr=await fetch(LITELLM+'/health',{signal:AbortSignal.timeout(3000)});
+        const ld=await lr.json();
+        const caps=ld.capabilities||{};
+        const mdls=ld.models||{};
+        html+='<div class="svc-row"><span class="svc-key">状态</span><span class="svc-val" style="color:var(--green)">✓ 运行中</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">对话模型</span><span class="svc-val">'+(mdls.chat||'-')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">视觉模型</span><span class="svc-val" style="color:'+(caps.vision?'var(--green)':'var(--red)')+'">'+(mdls.vision||'-')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">多模态</span><span class="svc-val" style="color:'+(caps.multimodal?'var(--green)':'var(--red)')+'">'+(caps.multimodal?'✓ 支持':'✗ 不支持')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">Vision</span><span class="svc-val" style="color:'+(caps.vision?'var(--green)':'var(--red)')+'">'+(caps.vision?'✓ 支持':'✗ 不支持')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">ASR</span><span class="svc-val" style="color:'+(caps.asr?'var(--green)':'var(--red)')+'">'+(caps.asr?'✓ 支持':'✗ 不支持')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">FunASR</span><span class="svc-val" style="color:'+(caps.funasr?'var(--green)':'var(--text3)')+'">'+(caps.funasr?'✓ 已连接':'未配置')+'</span></div>';
+        html+='<div class="svc-row"><span class="svc-key">MinIO</span><span class="svc-val" style="color:'+(caps.minio?'var(--green)':'var(--red)')+'">'+(caps.minio?'✓ 已连接':'✗ 未配置')+'</span></div>';
+        svcStatus['litellm']=true;
+      }catch(e){
+        html+='<div class="svc-row"><span class="svc-key">状态</span><span class="svc-val" style="color:var(--red)">✗ 不可用</span></div>';
+        svcStatus['litellm']=false;
+      }
     }
     html+='<div class="svc-actions">';
     if(canStart)html+='<button class="svc-btn svc-btn-start" onclick="startService(\''+svc.startSvc+'\')" '+(isRunning?'disabled':'')+' >\u25B6 启动</button>';
@@ -1085,6 +1208,325 @@ async function init(){
   setInterval(refreshPipeline,5000);
   setInterval(updateWatchdogUI,30000);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// API 直调测试面板
+// ═══════════════════════════════════════════════════════════════
+
+// Vision 模式切换
+document.getElementById('api-vision').addEventListener('change', function(){
+  document.getElementById('api-vision-url-box').style.display = this.checked ? 'block' : 'none';
+});
+
+// 对话请求
+async function apiChatSend(){
+  const model = document.getElementById('api-model').value;
+  const prompt = document.getElementById('api-prompt').value.trim();
+  const isStream = document.getElementById('api-stream').checked;
+  const isVision = document.getElementById('api-vision').checked;
+  const imageUrl = document.getElementById('api-image-url').value.trim();
+
+  if(!prompt){alert('请输入对话内容');return;}
+
+  const resultDiv = document.getElementById('api-chat-result');
+  const streamDiv = document.getElementById('api-chat-stream');
+  const metaDiv = document.getElementById('api-chat-meta');
+
+  // 构建 messages
+  let messages;
+  if(isVision && imageUrl){
+    messages = [{role:'user',content:[
+      {type:'text',text:prompt},
+      {type:'image_url',image_url:{url:imageUrl}}
+    ]}];
+  } else {
+    messages = [{role:'user',content:prompt}];
+  }
+
+  const payload = {model, messages, stream:isStream, temperature:0.7};
+  const startTime = Date.now();
+
+  if(isStream){
+    resultDiv.style.display='none';
+    streamDiv.style.display='block';
+    streamDiv.textContent='[流式接收中...]\n';
+    metaDiv.style.display='block';
+    metaDiv.textContent='连接中...';
+
+    try{
+      const resp = await fetch(LITELLM+'/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload),
+      });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText='';
+      let chunkCount=0;
+
+      while(true){
+        const {done,value} = await reader.read();
+        if(done) break;
+        const chunk = decoder.decode(value,{stream:true});
+        const lines = chunk.split('\n');
+        for(const line of lines){
+          if(line.startsWith('data: ')){
+            const data = line.slice(6).trim();
+            if(data === '[DONE]') continue;
+            try{
+              const j = JSON.parse(data);
+              const delta = j.choices?.[0]?.delta?.content || '';
+              if(delta){
+                fullText += delta;
+                chunkCount++;
+                streamDiv.textContent = fullText;
+                metaDiv.textContent = `流式: ${chunkCount} chunks, ${fullText.length} chars, ${Date.now()-startTime}ms`;
+              }
+            }catch(e){}
+          }
+        }
+      }
+      streamDiv.textContent = fullText;
+      metaDiv.textContent = `完成: ${chunkCount} chunks, ${fullText.length} chars, ${Date.now()-startTime}ms`;
+    }catch(e){
+      streamDiv.textContent = '[错误] '+e.message;
+      metaDiv.textContent = '失败: '+e.message;
+    }
+  } else {
+    streamDiv.style.display='none';
+    resultDiv.style.display='block';
+    resultDiv.textContent='[请求中...]';
+    metaDiv.style.display='block';
+    metaDiv.textContent='请求中...';
+
+    try{
+      const resp = await fetch(LITELLM+'/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      const elapsed = Date.now()-startTime;
+      const content = data.choices?.[0]?.message?.content || JSON.stringify(data,null,2);
+      resultDiv.textContent = content;
+      const usage = data.usage || {};
+      metaDiv.textContent = `model=${data.model||model} | ${elapsed}ms | tokens: prompt=${usage.prompt_tokens||'?'} completion=${usage.completion_tokens||'?'} total=${usage.total_tokens||'?'}`;
+    }catch(e){
+      resultDiv.textContent = '[错误] '+e.message;
+      metaDiv.textContent = '失败: '+e.message;
+    }
+  }
+}
+
+function apiChatClear(){
+  document.getElementById('api-chat-result').style.display='none';
+  document.getElementById('api-chat-stream').style.display='none';
+  document.getElementById('api-chat-meta').style.display='none';
+}
+
+// 多模态附件请求
+async function apiMultimodalSend(){
+  const prompt = document.getElementById('api-mm-prompt').value.trim();
+  const model = document.getElementById('api-mm-model').value;
+  let attachments;
+  try{
+    attachments = JSON.parse(document.getElementById('api-mm-attachments').value);
+  }catch(e){alert('附件 JSON 格式错误');return;}
+
+  if(!prompt){alert('请输入提示词');return;}
+
+  const resultDiv = document.getElementById('api-mm-result');
+  const metaDiv = document.getElementById('api-mm-meta');
+  resultDiv.style.display='block';
+  resultDiv.textContent='[请求中...]';
+  metaDiv.style.display='block';
+  metaDiv.textContent='请求中...';
+
+  const startTime = Date.now();
+  const payload = {
+    prompt: prompt,
+    model: model,
+    attachments: attachments,
+    stream: false,
+    temperature: 0.7,
+  };
+
+  try{
+    const resp = await fetch(LITELLM+'/v1/multimodal/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    const elapsed = Date.now()-startTime;
+    if(data.detail){
+      resultDiv.textContent = '[错误] ' + data.detail;
+      metaDiv.textContent = `失败 | ${elapsed}ms`;
+    } else {
+      const content = data.choices?.[0]?.message?.content || JSON.stringify(data,null,2);
+      resultDiv.textContent = content;
+      const usage = data.usage || {};
+      metaDiv.textContent = `model=${data.model||model} | ${elapsed}ms | attachments=${attachments.length} | tokens: prompt=${usage.prompt_tokens||'?'} completion=${usage.completion_tokens||'?'}`;
+    }
+  }catch(e){
+    resultDiv.textContent = '[错误] '+e.message;
+    metaDiv.textContent = '失败: '+e.message;
+  }
+}
+
+// 多模态快捷测试
+function mmQuickTest(type){
+  const promptEl = document.getElementById('api-mm-prompt');
+  const attachEl = document.getElementById('api-mm-attachments');
+  const modelEl = document.getElementById('api-mm-model');
+  const BASE = 'http://127.0.0.1:9000';
+
+  const presets = {
+    image: {
+      prompt: '请描述这张图片的内容',
+      model: 'auto',
+      attachments: [{type:'image', url: BASE+'/test.png'}],
+    },
+    pdf: {
+      prompt: '请总结这份文档的关键信息',
+      model: 'auto',
+      attachments: [{type:'pdf', url: BASE+'/test.pdf'}],
+    },
+    audio: {
+      prompt: '请转写这段音频内容',
+      model: 'auto',
+      attachments: [{type:'audio', url: BASE+'/speech_test.wav'}],
+    },
+    mixed: {
+      prompt: '请分析图片和音频的内容，分别说明',
+      model: 'auto',
+      attachments: [
+        {type:'image', url: BASE+'/test.png'},
+        {type:'audio', url: BASE+'/speech_test.wav'},
+      ],
+    },
+  };
+
+  const preset = presets[type];
+  if(!preset) return;
+  promptEl.value = preset.prompt;
+  modelEl.value = preset.model;
+  attachEl.value = JSON.stringify(preset.attachments, null, 2);
+
+  // 自动发送
+  apiMultimodalSend();
+}
+
+function mmClear(){
+  document.getElementById('api-mm-result').style.display='none';
+  document.getElementById('api-mm-meta').style.display='none';
+}
+
+// SSE 推流
+let _sseController=null;
+async function apiSSESend(){
+  const prompt = document.getElementById('api-sse-prompt').value.trim();
+  if(!prompt){alert('请输入推流请求');return;}
+
+  const resultDiv = document.getElementById('api-sse-result');
+  resultDiv.style.display='block';
+  resultDiv.textContent='[推流接收中...]\n';
+  document.getElementById('api-sse-stop').disabled=false;
+
+  _sseController = new AbortController();
+  const startTime = Date.now();
+
+  try{
+    const resp = await fetch(LITELLM+'/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      signal:_sseController.signal,
+      body:JSON.stringify({
+        model:'qwen2.5:3b',
+        messages:[{role:'user',content:prompt}],
+        stream:true,
+        temperature:0.7,
+      }),
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText='';
+
+    while(true){
+      const {done,value} = await reader.read();
+      if(done) break;
+      const chunk = decoder.decode(value,{stream:true});
+      const lines = chunk.split('\n');
+      for(const line of lines){
+        if(line.startsWith('data: ')){
+          const data = line.slice(6).trim();
+          if(data === '[DONE]') continue;
+          try{
+            const j = JSON.parse(data);
+            const delta = j.choices?.[0]?.delta?.content || '';
+            if(delta) fullText += delta;
+          }catch(e){
+            // 可能是纯文本
+            if(data && data !== '[DONE]') fullText += data;
+          }
+        }
+      }
+      resultDiv.textContent = fullText;
+    }
+    resultDiv.textContent = fullText + '\n\n--- 推流完成 (' + (Date.now()-startTime) + 'ms) ---';
+  }catch(e){
+    if(e.name !== 'AbortError'){
+      resultDiv.textContent += '\n[错误] '+e.message;
+    }
+  }
+  document.getElementById('api-sse-stop').disabled=true;
+  _sseController=null;
+}
+
+function apiSSEStop(){
+  if(_sseController){_sseController.abort();_sseController=null;}
+  document.getElementById('api-sse-stop').disabled=true;
+}
+
+// 模型列表
+async function apiListModels(){
+  const div = document.getElementById('api-models-list');
+  div.style.display='block';
+  div.textContent='[加载中...]';
+
+  try{
+    const resp = await fetch(LITELLM+'/v1/models');
+    const data = await resp.json();
+    const models = data.data || [];
+    div.textContent = models.map(m => m.id || m.name || JSON.stringify(m)).join('\n') || '无可用模型';
+  }catch(e){
+    div.textContent = '[错误] '+e.message;
+  }
+}
+
+// Embedding
+async function apiEmbedding(){
+  const input = document.getElementById('api-emb-input').value.trim();
+  if(!input){alert('请输入文本');return;}
+
+  const div = document.getElementById('api-emb-result');
+  div.style.display='block';
+  div.textContent='[请求中...]';
+
+  try{
+    const resp = await fetch(LITELLM+'/v1/embeddings',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'nomic-embed-text',input:input}),
+    });
+    const data = await resp.json();
+    const emb = data.data?.[0]?.embedding || [];
+    div.textContent = `维度: ${emb.length}\n前10维: [${emb.slice(0,10).map(v=>v.toFixed(4)).join(', ')}...]`;
+  }catch(e){
+    div.textContent = '[错误] '+e.message;
+  }
+}
+
 init();
 </script>
 </body>
