@@ -2,20 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 安装系统依赖
+# 安装最小系统依赖（仅 curl 用于健康检查）
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ffmpeg && \
+    apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir fastapi uvicorn httpx pydantic python-dotenv websockets
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    fastapi uvicorn httpx pydantic python-dotenv websockets python-multipart \
+    PyMuPDF python-docx minio
 
-# 复制 Stream Service 代码
-COPY ../stream_service ./stream_service
+# 复制项目代码
+COPY hermes ./hermes
 
 EXPOSE 8084
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8084/health || exit 1
 
-CMD ["python", "-m", "stream_service.server"]
+CMD ["python", "-m", "hermes.stream_service"]

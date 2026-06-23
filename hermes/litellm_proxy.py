@@ -468,7 +468,7 @@ async def call_litellm_chat(payload: dict):
     """
     if EXTERNAL_LITELLM_URL:
         headers = _get_proxy_headers()
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
                 f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
                 json=payload,
@@ -493,7 +493,7 @@ async def call_litellm_chat(payload: dict):
     if payload.get("max_tokens"):
         ollama_payload["options"]["num_predict"] = payload["max_tokens"]
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         resp = await client.post(
             f"{OLLAMA_URL}/v1/chat/completions",
             json=ollama_payload,
@@ -588,9 +588,8 @@ async def chat_completions(request: ChatCompletionRequest):
             logger.info("[ChatAPI] [%s] 检测到图片内容, 自动切换模型: %s → %s",
                         request_id, request.model, model)
 
-        # Ollama 直连模式: 需要将外部 URL 转为 base64
-        if not EXTERNAL_LITELLM_URL:
-            msg_dicts = await _resolve_image_urls(msg_dicts)
+        # 始终将外部图片 URL 转为 base64，避免 LiteLLM Proxy 容器内无法下载
+        msg_dicts = await _resolve_image_urls(msg_dicts)
 
     # 构建 payload
     payload = {
@@ -647,7 +646,7 @@ async def completions(request: dict):
     """OpenAI 兼容的 Completions 接口。"""
     if EXTERNAL_LITELLM_URL:
         headers = _get_proxy_headers()
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             try:
                 resp = await client.post(
                     f"{EXTERNAL_LITELLM_URL}/v1/completions",
@@ -669,7 +668,7 @@ async def completions(request: dict):
         "stream": False,
         "options": {"temperature": request.get("temperature", 0.7)},
     }
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         resp = await client.post(f"{OLLAMA_URL}/v1/completions", json=ollama_payload)
         resp.raise_for_status()
         return resp.json()
@@ -845,6 +844,116 @@ async def minio_presign(request: Request):
         raise HTTPException(status_code=501, detail="minio 包未安装，请运行: pip install minio")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"MinIO 预签名失败: {e}")
+
+
+@litellm_router.post("/chat", summary="统一入口 — 根据 type 字段自动路由到对应端点")
+async def unified_chat(request: Request):
+    """统一入口接口 — 前端只需调用 /v1/chat，根据 type 自动路由。
+
+    请求体:
+    {
+      "type": "chat|vision|asr|multimodal|stream_asr",
+      "model": "auto",
+      "messages": [{"role": "user", "content": "..."}],
+      "attachments": [{"type": "image", "url": "..."}],
+      "prompt": "...",            // multimodal 模式的提示词
+      "stream": false,
+      "temperature": 0.7,
+      "auto_llm": false,         // stream_asr 模式: ASR 后自动 LLM 回复
+      "file": "http://...",       // asr 模式: 音频文件 URL
+    }
+
+    路由规则:
+      - type=chat       → /v1/chat/completions (纯文本对话)
+      - type=vision     → /v1/chat/completions (自动切换 vision 模型)
+      - type=asr        → /v1/audio/transcriptions (语音识别)
+      - type=multimodal → /v1/multimodal/chat (多模态混合)
+      - type=stream_asr → 返回 stream-service 的 WebSocket 地址提示
+      - type 缺失/空    → 根据 attachments 自动判断
+    """
+    body = await request.json()
+    req_type = body.get("type", "")
+    stream = body.get("stream", False)
+    temperature = body.get("temperature", 0.7)
+
+    # type 缺失时根据 attachments 自动推断
+    if not req_type:
+        attachments = body.get("attachments", [])
+        if attachments:
+            types = {a.get("type", "") for a in attachments}
+            if "image" in types:
+                req_type = "vision"
+            elif "audio" in types:
+                req_type = "asr"
+            else:
+                req_type = "multimodal"
+        else:
+            req_type = "chat"
+
+    # ── chat / vision → chat/completions ──
+    if req_type in ("chat", "vision"):
+        messages = body.get("messages", [])
+        model = body.get("model", "auto")
+        attachments = body.get("attachments")
+
+        # vision 模式: 确保模型切换到 vision
+        if req_type == "vision" and model in ("auto", DEFAULT_CHAT_MODEL):
+            model = DEFAULT_VISION_MODEL
+
+        chat_request = ChatCompletionRequest(
+            model=model if model != "auto" else DEFAULT_CHAT_MODEL,
+            messages=[ChatMessage(role=m.get("role", "user"), content=m.get("content", ""))
+                      for m in messages],
+            temperature=temperature,
+            stream=stream,
+            attachments=attachments,
+        )
+        return await chat_completions(chat_request)
+
+    # ── asr → audio/transcriptions ──
+    elif req_type == "asr":
+        file_url = body.get("file", "")
+        if file_url:
+            text = await _transcribe_audio(file_url)
+            return {"type": "asr", "text": text, "model": "funasr"}
+        # 没有 file URL，返回错误
+        return {"type": "asr", "error": "缺少 file 字段 (音频文件 URL)", "text": ""}
+
+    # ── multimodal → multimodal/chat ──
+    elif req_type == "multimodal":
+        mm_body = {
+            "prompt": body.get("prompt", ""),
+            "model": body.get("model", "auto"),
+            "attachments": body.get("attachments", []),
+            "stream": stream,
+            "temperature": temperature,
+        }
+        # 构造 Request 对象并调用 multimodal_chat
+        from starlette.requests import Request as StarletteRequest
+        mock_request = StarletteRequest({
+            "type": "http",
+            "method": "POST",
+            "headers": [],
+            "query_string": b"",
+        })
+        mock_request._body = json.dumps(mm_body).encode()
+        return await multimodal_chat(mock_request)
+
+    # ── stream_asr → 返回 WebSocket 地址 ──
+    elif req_type == "stream_asr":
+        return {
+            "type": "stream_asr",
+            "protocol": "websocket",
+            "url": "/v1/stream/asr",
+            "hint": "请使用 WebSocket 连接 ws://<host>/v1/stream/asr 进行流式语音转写",
+            "config": {
+                "auto_llm": body.get("auto_llm", False),
+                "model": body.get("model", DEFAULT_CHAT_MODEL),
+            },
+        }
+
+    else:
+        raise HTTPException(status_code=400, detail=f"未知的 type: {req_type}")
 
 
 @litellm_router.get("/models", summary="可用模型列表")

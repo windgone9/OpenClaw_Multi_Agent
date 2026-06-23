@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装最小系统依赖（仅 curl 用于健康检查）
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# 先安装 torch CPU 版本（体积小，约200MB vs 完整版2GB+）
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# 再安装 FunASR 及其他依赖（利用 Docker 缓存层）
+RUN pip install --no-cache-dir \
+    funasr modelscope \
+    fastapi uvicorn python-multipart
+
+# 预下载 SenseVoice 模型（避免每次启动都下载）
+RUN python -c "from funasr import AutoModel; AutoModel(model='sensevoice')" || true
+
+EXPOSE 8199
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=5 --start-period=120s \
+    CMD curl -f http://localhost:8199/health || exit 1
+
+CMD ["funasr-server", "--device", "cpu", "--model", "sensevoice", "--host", "0.0.0.0", "--port", "8199"]

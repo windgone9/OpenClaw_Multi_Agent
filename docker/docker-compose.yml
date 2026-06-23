@@ -17,49 +17,84 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # GPU 预留仅在有 NVIDIA GPU 的机器上启用
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+        reservations:
+          memory: 1G
 
   # ==================== LiteLLM Proxy (可水平扩展) ====================
+  # LiteLLM 数据库
+  litellm-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm_db_pass
+    volumes:
+      - litellm_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    build:
+      context: .
+      dockerfile: Dockerfile.litellm
+    image: openclaw-litellm:latest
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-local}
+      - DATABASE_URL=postgresql://litellm:litellm_db_pass@litellm-db:5432/litellm
+      - STORE_MODEL_IN_DB=True
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
       - DOUBAO_ASR_KEY=${DOUBAO_ASR_KEY:-}
+      - FUNASR_URL=http://funasr:8199
+      - FUNASR_MODEL=sensevoice
+      - LITELLM_MODE=PRODUCTION
+      - DROP_PARAMS=True
+      - LITELLM_LOCAL_MODEL_COST_MAP=True
     volumes:
       - ./litellm_config.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "4"]
-    expose:
-      - "4000"
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    ports:
+      - "4000:4000"
     depends_on:
+      litellm-db:
+        condition: service_healthy
       ollama:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test: ["CMD", "/app/.venv/bin/python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:4000/health',headers={'Authorization':'Bearer sk-litellm-local'}))"]
       interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     deploy:
-      replicas: 3
+      replicas: 1
       resources:
         limits:
-          memory: 1G
+          memory: 2G
         reservations:
           memory: 512M
 
@@ -68,7 +103,7 @@ services:
     image: nginx:1.25-alpine
     container_name: nginx-lb
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -94,6 +129,10 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - HERMES_PORT=8082
       - QUEUE_BACKEND=inprocess
+      - LITELLM_INTERNAL_URL=http://litellm:4000
+      - STREAM_INTERNAL_URL=http://stream-service:8084
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-local}
+      - FUNASR_URL=http://funasr:8199
     ports:
       - "8082:8082"
     depends_on:
@@ -107,19 +146,19 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # ==================== OpenClaw Gateway ====================
-  openclaw-gw:
-    image: node:20-alpine
-    container_name: openclaw-gw
-    working_dir: /app
-    environment:
-      - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
-    ports:
-      - "3005:3005"
-    volumes:
-      - ${OPENCLAW_PATH:-../openclaw}:/app:ro
-    command: ["node", "openclaw.mjs", "gateway", "--port", "3005", "--force", "--allow-unconfigured"]
-    restart: unless-stopped
+  # ==================== OpenClaw Gateway (可选) ====================
+  # openclaw-gw:
+  #   image: node:20-alpine
+  #   container_name: openclaw-gw
+  #   working_dir: /app
+  #   environment:
+  #     - OPENCLAW_TOKEN=${OPENCLAW_TOKEN:-}
+  #   ports:
+  #     - "3005:3005"
+  #   volumes:
+  #     - ${OPENCLAW_PATH:-../openclaw}:/app:ro
+  #   command: ["node", "openclaw.mjs", "gateway", "--port", "3005", "--force", "--allow-unconfigured"]
+  #   restart: unless-stopped
 
   # ==================== Stream Service (实时推流) ====================
   stream-service:
@@ -128,12 +167,18 @@ services:
       dockerfile: docker/Dockerfile.stream
     environment:
       - OLLAMA_URL=http://ollama:11434
+      - EXTERNAL_LITELLM_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sk-litellm-local}
       - DOUBAO_ASR_KEY=${DOUBAO_ASR_KEY:-}
+      - FUNASR_URL=http://funasr:8199
+      - FUNASR_MODEL=sensevoice
       - STREAM_PORT=8084
     expose:
       - "8084"
     depends_on:
       ollama:
+        condition: service_healthy
+      litellm:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
@@ -143,7 +188,59 @@ services:
       start_period: 15s
     restart: unless-stopped
     deploy:
-      replicas: 2
+      replicas: 1
+
+  # ==================== MinIO 对象存储 ====================
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ==================== FunASR 本地语音识别 ====================
+  funasr:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.funasr
+    container_name: funasr
+    command: ["funasr-server", "--device", "cpu", "--model", "sensevoice", "--host", "0.0.0.0", "--port", "8199"]
+    expose:
+      - "8199"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8199/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
 
 volumes:
   ollama_data:
+  litellm_db_data:
+  minio_data:

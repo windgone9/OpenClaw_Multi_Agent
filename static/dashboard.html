@@ -425,6 +425,48 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans S
       <div id="api-sse-result" style="margin-top:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;max-height:250px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;display:none"></div>
     </div>
 
+    <!-- FunASR 流式语音转文字 -->
+    <div class="svc-card" style="grid-column:1/2">
+      <div class="svc-card-title"><span class="svc-dot" id="dot-funasr" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></span> FunASR 流式语音转文字 /v1/stream/asr</div>
+      <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--text3);display:flex;align-items:center;gap:4px"><input type="checkbox" id="asr-auto-llm" checked> 自动LLM回复</label>
+        <select id="asr-llm-model" style="background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:4px 8px;font-size:11px">
+          <option value="qwen2.5:3b">qwen2.5:3b</option>
+          <option value="llava:7b">llava:7b</option>
+        </select>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <label style="font-size:12px;color:var(--text3)"><input type="radio" name="asr-mode" value="file" checked onchange="asrModeChange()"> 上传文件</label>
+          <label style="font-size:12px;color:var(--text3)"><input type="radio" name="asr-mode" value="url"> 音频URL</label>
+          <label style="font-size:12px;color:var(--text3)"><input type="radio" name="asr-mode" value="mic"> 麦克风</label>
+        </div>
+        <div id="asr-file-input" style="display:flex;gap:8px;align-items:center">
+          <input type="file" id="asr-upload" accept="audio/*,.wav,.mp3,.ogg,.flac" style="font-size:12px;color:var(--text2)">
+        </div>
+        <div id="asr-url-input" style="display:none">
+          <input id="asr-audio-url" type="text" placeholder="音频文件URL" value="http://127.0.0.1:9000/speech_test.wav" style="width:100%;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px">
+        </div>
+        <div id="asr-mic-input" style="display:none;font-size:12px;color:var(--text3)">
+          点击"开始识别"后浏览器会请求麦克风权限
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" id="asr-start-btn" onclick="asrStart()">开始识别</button>
+        <button class="btn btn-ghost" id="asr-stop-btn" onclick="asrStop()" disabled>停止</button>
+        <button class="btn btn-ghost" onclick="asrClear()">清空</button>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">ASR 识别结果</div>
+        <div id="asr-result" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;min-height:40px;max-height:150px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:var(--cyan)">等待连接...</div>
+      </div>
+      <div style="margin-top:8px">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">LLM 回复</div>
+        <div id="asr-llm-result" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:13px;min-height:40px;max-height:200px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:var(--green);display:none"></div>
+      </div>
+      <div id="asr-status" style="margin-top:6px;font-size:11px;color:var(--text3)"></div>
+    </div>
+
     <!-- 模型列表 & Embedding -->
     <div class="svc-card" style="grid-column:2/3">
       <div class="svc-card-title"><span class="svc-dot ok" style="background:var(--orange);box-shadow:0 0 8px var(--orange)"></span> 模型列表 / Embedding</div>
@@ -1486,6 +1528,238 @@ async function apiSSESend(){
 function apiSSEStop(){
   if(_sseController){_sseController.abort();_sseController=null;}
   document.getElementById('api-sse-stop').disabled=true;
+}
+
+// FunASR 流式语音转文字
+let _asrWs=null, _asrMicStream=null, _asrMicCtx=null, _asrMicProc=null, _asrAllText='';
+
+function asrModeChange(){
+  const mode=document.querySelector('input[name="asr-mode"]:checked').value;
+  document.getElementById('asr-file-input').style.display=mode==='file'?'flex':'none';
+  document.getElementById('asr-url-input').style.display=mode==='url'?'block':'none';
+  document.getElementById('asr-mic-input').style.display=mode==='mic'?'block':'none';
+}
+
+async function asrStart(){
+  const resultDiv=document.getElementById('asr-result');
+  const llmDiv=document.getElementById('asr-llm-result');
+  const statusDiv=document.getElementById('asr-status');
+  const mode=document.querySelector('input[name="asr-mode"]:checked').value;
+  const autoLlm=document.getElementById('asr-auto-llm').checked;
+  const llmModel=document.getElementById('asr-llm-model').value;
+
+  _asrAllText='';
+  resultDiv.textContent='[连接中...]';
+  llmDiv.style.display='none';
+  llmDiv.textContent='';
+  statusDiv.textContent='';
+  document.getElementById('asr-start-btn').disabled=true;
+  document.getElementById('asr-stop-btn').disabled=false;
+
+  // 文件上传模式：直接用 HTTP POST，不走 WebSocket
+  if(mode==='file'){
+    const fileInput=document.getElementById('asr-upload');
+    if(!fileInput.files.length){
+      statusDiv.textContent='请选择音频文件';
+      document.getElementById('asr-start-btn').disabled=false;
+      document.getElementById('asr-stop-btn').disabled=true;
+      return;
+    }
+    resultDiv.textContent='[上传中...]';
+    statusDiv.textContent='上传音频文件到 FunASR...';
+    try{
+      const formData=new FormData();
+      formData.append('file',fileInput.files[0]);
+      const resp=await fetch(STREAM+'/v1/stream/asr/file',{method:'POST',body:formData});
+      const data=await resp.json();
+      if(data.text){
+        resultDiv.textContent=data.text;
+        resultDiv.textContent+='\n--- 识别完成 (provider='+data.provider+', size='+data.size+') ---';
+        statusDiv.textContent='ASR 完成';
+        // 如果开启了自动LLM，调用Chat
+        if(autoLlm){
+          llmDiv.style.display='block';
+          llmDiv.textContent='[LLM 回复中...]';
+          try{
+            const chatResp=await fetch(LITELLM+'/v1/chat/completions',{
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({
+                model:llmModel,
+                messages:[{role:'user',content:data.text}],
+                stream:true,
+                temperature:0.7,
+              }),
+            });
+            const reader=chatResp.body.getReader();
+            const decoder=new TextDecoder();
+            let fullText='';
+            llmDiv.textContent='';
+            while(true){
+              const {done,value}=await reader.read();
+              if(done)break;
+              const chunk=decoder.decode(value,{stream:true});
+              const lines=chunk.split('\n');
+              for(const line of lines){
+                if(line.startsWith('data: ')){
+                  const d=line.slice(6).trim();
+                  if(d==='[DONE]')continue;
+                  try{const j=JSON.parse(d);const delta=j.choices?.[0]?.delta?.content||'';if(delta)fullText+=delta;}catch{}
+                }
+              }
+              llmDiv.textContent=fullText;
+            }
+            statusDiv.textContent='ASR + LLM 完成';
+          }catch(e){
+            llmDiv.textContent='[LLM错误] '+e.message;
+          }
+        }
+      }else{
+        resultDiv.textContent='[无识别结果]';
+        statusDiv.textContent='FunASR 返回空文本 (provider='+data.provider+')';
+      }
+    }catch(e){
+      resultDiv.textContent='[错误] '+e.message;
+      statusDiv.textContent='上传失败';
+    }
+    document.getElementById('asr-start-btn').disabled=false;
+    document.getElementById('asr-stop-btn').disabled=true;
+    return;
+  }
+
+  // URL 和 麦克风模式：走 WebSocket
+  try{
+    const wsUrl=STREAM.replace('http','ws')+'/v1/stream/asr';
+    _asrWs=new WebSocket(wsUrl);
+
+    _asrWs.onopen=async()=>{
+      _asrWs.send(JSON.stringify({type:'config',auto_llm:autoLlm,model:llmModel}));
+      statusDiv.textContent='已连接，发送配置...';
+
+      if(mode==='mic'){
+        try{
+          _asrMicStream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true}});
+          _asrMicCtx=new AudioContext({sampleRate:16000});
+          const source=_asrMicCtx.createMediaStreamSource(_asrMicStream);
+          _asrMicProc=_asrMicCtx.createScriptProcessor(4096,1,1);
+          _asrMicProc.onaudioprocess=(e)=>{
+            if(_asrWs&&_asrWs.readyState===WebSocket.OPEN){
+              const pcm=e.inputBuffer.getChannelData(0);
+              const int16=new Int16Array(pcm.length);
+              for(let i=0;i<pcm.length;i++){
+                const s=Math.max(-1,Math.min(1,pcm[i]));
+                int16[i]=s<0?s*0x8000:s*0x7FFF;
+              }
+              _asrWs.send(int16.buffer);
+            }
+          };
+          source.connect(_asrMicProc);
+          _asrMicProc.connect(_asrMicCtx.destination);
+          statusDiv.textContent='麦克风录音中...';
+        }catch(e){
+          statusDiv.textContent='麦克风访问失败: '+e.message;
+          asrStop();
+          return;
+        }
+      }else{
+        // URL 模式
+        const audioUrl=document.getElementById('asr-audio-url').value.trim();
+        if(!audioUrl){statusDiv.textContent='请输入音频URL';asrStop();return;}
+        try{
+          statusDiv.textContent='下载音频文件...';
+          const resp=await fetch(audioUrl);
+          const arrayBuf=await resp.arrayBuffer();
+          const pcmData=arrayBuf.slice(44);
+          const chunkSize=32000;
+          const totalChunks=Math.ceil(pcmData.byteLength/chunkSize);
+          statusDiv.textContent='发送音频: '+totalChunks+' 块...';
+          for(let i=0;i<totalChunks;i++){
+            if(!_asrWs||_asrWs.readyState!==WebSocket.OPEN)break;
+            const chunk=pcmData.slice(i*chunkSize,(i+1)*chunkSize);
+            _asrWs.send(chunk);
+            await new Promise(r=>setTimeout(r,100));
+          }
+          statusDiv.textContent='音频发送完成，等待识别结果...';
+        }catch(e){
+          statusDiv.textContent='音频下载失败: '+e.message;
+        }
+      }
+    };
+
+    _asrWs.onmessage=(e)=>{
+      try{
+        const data=JSON.parse(e.data);
+        const type=data.type||'';
+        if(type==='connected'){
+          statusDiv.textContent='已连接 session='+data.session_id+' provider='+data.asr_provider;
+          resultDiv.textContent='[等待音频...]';
+        }else if(type==='config_ack'){
+          statusDiv.textContent='配置确认 auto_llm='+data.auto_llm+' model='+data.model;
+        }else if(type==='asr_partial'){
+          const content=data.content||'';
+          _asrAllText+=content;
+          resultDiv.textContent=_asrAllText;
+          statusDiv.textContent='ASR 识别中... ('+data.buffer_ms+'ms)';
+        }else if(type==='asr_final'){
+          const content=data.content||'';
+          if(content)_asrAllText+=content;
+          resultDiv.textContent=_asrAllText+'\n--- 识别完成 (segments='+data.segments+') ---';
+          statusDiv.textContent='ASR 完成';
+        }else if(type==='llm_chunk'){
+          llmDiv.style.display='block';
+          llmDiv.textContent+=data.content||'';
+        }else if(type==='llm_done'){
+          statusDiv.textContent='LLM 回复完成';
+        }else if(type==='error'){
+          statusDiv.textContent='错误: '+data.content;
+        }
+      }catch{}
+    };
+
+    _asrWs.onerror=()=>{
+      resultDiv.textContent+='[WebSocket错误]';
+      statusDiv.textContent='连接错误';
+      document.getElementById('asr-start-btn').disabled=false;
+      document.getElementById('asr-stop-btn').disabled=true;
+    };
+
+    _asrWs.onclose=()=>{
+      statusDiv.textContent+=' [连接关闭]';
+      document.getElementById('asr-start-btn').disabled=false;
+      document.getElementById('asr-stop-btn').disabled=true;
+      asrCleanupMic();
+    };
+  }catch(e){
+    resultDiv.textContent='[错误] '+e.message;
+    document.getElementById('asr-start-btn').disabled=false;
+    document.getElementById('asr-stop-btn').disabled=true;
+  }
+}
+
+function asrStop(){
+  if(_asrWs&&_asrWs.readyState===WebSocket.OPEN){
+    _asrWs.send(JSON.stringify({type:'stop'}));
+  }
+  asrCleanupMic();
+  setTimeout(()=>{
+    if(_asrWs){_asrWs.close();_asrWs=null;}
+    document.getElementById('asr-start-btn').disabled=false;
+    document.getElementById('asr-stop-btn').disabled=true;
+  },500);
+}
+
+function asrCleanupMic(){
+  if(_asrMicProc){_asrMicProc.disconnect();_asrMicProc=null;}
+  if(_asrMicCtx){_asrMicCtx.close();_asrMicCtx=null;}
+  if(_asrMicStream){_asrMicStream.getTracks().forEach(t=>t.stop());_asrMicStream=null;}
+}
+
+function asrClear(){
+  document.getElementById('asr-result').textContent='等待连接...';
+  document.getElementById('asr-llm-result').style.display='none';
+  document.getElementById('asr-llm-result').textContent='';
+  document.getElementById('asr-status').textContent='';
+  _asrAllText='';
 }
 
 // 模型列表

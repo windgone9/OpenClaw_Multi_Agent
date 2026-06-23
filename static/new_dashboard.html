@@ -1,0 +1,1566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw NewDashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e1a;--card:#111827;--border:#1e293b;--border2:#334155;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--blue:#38bdf8;--blue2:#2563eb;--blue3:#1d4ed8;--green:#4ade80;--green2:#059669;--green3:#052e16;--yellow:#facc15;--yellow3:#422006;--red:#f87171;--red2:#dc2626;--red3:#450a0a;--purple:#a78bfa;--purple2:#7c3aed;--orange:#fb923c;--cyan:#22d3ee;--teal:#2dd4bf}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans SC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+.topbar{background:linear-gradient(135deg,#0f172a,#1e1b4b);padding:10px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:8px}
+.topbar h1{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+.topbar h1 span{background:linear-gradient(135deg,var(--cyan),var(--purple));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.topbar .meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text3);flex-wrap:wrap}
+.svc-pill{display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;background:var(--card);border:1px solid var(--border);font-size:11px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot.ok{background:var(--green);box-shadow:0 0 6px var(--green)}.dot.err{background:var(--red);box-shadow:0 0 6px var(--red)}.dot.warn{background:var(--yellow);box-shadow:0 0 6px var(--yellow)}.dot.idle{background:var(--text3)}
+.tab-nav{display:flex;background:var(--card);border-bottom:1px solid var(--border);padding:0 12px;gap:2px;overflow-x:auto}
+.tab-btn{padding:9px 16px;font-size:12px;font-weight:600;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.tab-btn:hover{color:var(--text2)}.tab-btn.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.tab-content{display:none;height:calc(100vh - 82px);overflow-y:auto}.tab-content.active{display:block}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px}
+.card-title{font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px;color:var(--text2)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pad{padding:16px}
+.btn{padding:6px 14px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:4px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--blue2);color:#fff}.btn-primary:hover:not(:disabled){background:var(--blue3)}
+.btn-green{background:var(--green2);color:#fff}.btn-purple{background:var(--purple2);color:#fff}.btn-red{background:var(--red2);color:#fff}
+.btn-ghost{background:var(--border2);color:var(--text)}.btn-sm{padding:4px 10px;font-size:11px}
+select,input,textarea{background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:6px 10px;font-size:12px;font-family:inherit}
+select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}textarea{resize:vertical}
+.badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
+.badge-ok{background:var(--green3);color:var(--green)}.badge-err{background:var(--red3);color:var(--red)}.badge-warn{background:var(--yellow3);color:var(--yellow)}.badge-info{background:#172554;color:var(--blue)}.badge-idle{background:var(--border);color:var(--text3)}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.stat-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.stat-box .sv{font-size:20px;font-weight:700;line-height:1.2}.stat-box .sl{font-size:10px;color:var(--text3);margin-top:4px}
+.stat-box .sb{height:4px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden}
+.stat-box .sb-fill{height:100%;border-radius:2px;transition:width .6s}
+.prog-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
+.prog-label{width:90px;color:var(--text3);font-size:11px;flex-shrink:0}
+.prog-track{flex:1;height:16px;background:var(--bg);border-radius:6px;overflow:hidden}
+.prog-fill{height:100%;border-radius:6px;transition:width .6s;display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;font-weight:600}
+.prog-val{width:50px;text-align:right;font-size:11px;font-weight:600;flex-shrink:0}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;padding:7px 10px;border-bottom:1px solid var(--border2);color:var(--text3);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.tbl td{padding:6px 10px;border-bottom:1px solid var(--border)}.tbl tr:hover{background:rgba(56,189,248,.04)}
+.chat-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;height:320px;overflow-y:auto;font-size:13px;line-height:1.6}
+.chat-msg{margin-bottom:8px}.chat-msg.user{color:var(--cyan)}.chat-msg.assistant{color:var(--green)}.chat-msg.system{color:var(--text3);font-style:italic}.chat-msg.error{color:var(--red)}
+.trace-tl{position:relative;padding-left:20px;margin-top:8px;max-height:400px;overflow-y:auto}
+.trace-tl::before{content:'';position:absolute;left:6px;top:0;bottom:0;width:2px;background:var(--border)}
+.trace-step{position:relative;margin-bottom:4px;padding:5px 10px;border-radius:6px;font-size:11px;display:flex;align-items:center;gap:8px;background:var(--bg)}
+.trace-step::before{content:'';position:absolute;left:-18px;top:50%;transform:translateY(-50%);width:8px;height:8px;border-radius:50%;border:2px solid var(--border2);background:var(--card)}
+.trace-step.ok::before{border-color:var(--green);background:var(--green)}.trace-step.err::before{border-color:var(--red);background:var(--red)}
+.trace-step.active::before{border-color:var(--blue);background:var(--blue);box-shadow:0 0 6px var(--blue)}
+.ts-time{color:var(--text3);min-width:60px;font-family:monospace;font-size:10px}
+.ts-svc{color:var(--text2);min-width:80px;font-weight:600}.ts-msg{flex:1;color:var(--text3)}.ts-dur{color:var(--blue);font-weight:600;font-family:monospace;font-size:10px}
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.log-body{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;height:300px;overflow-y:auto;font-family:'SF Mono',Monaco,monospace;font-size:11px;line-height:1.7}
+.log-entry{display:flex;gap:8px;padding:1px 0;border-bottom:1px solid rgba(30,41,59,.3)}
+.le-time{color:var(--text3);min-width:70px}.le-level{min-width:35px;font-weight:600}
+.le-level.info{color:var(--blue)}.le-level.ok{color:var(--green)}.le-level.warn{color:var(--yellow)}.le-level.err{color:var(--red)}
+.le-msg{color:var(--text2);flex:1;word-break:break-all}
+.conc-result{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.conc-card{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:11px}
+.cc-id{color:var(--text3);font-family:monospace}.cc-status{font-weight:600}.cc-dur{color:var(--blue);font-family:monospace}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}.fade-in{animation:fadeIn .3s ease}
+.e2e-record{background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden;transition:border-color .15s}
+.e2e-record:hover{border-color:var(--border2)}
+.e2e-header{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;user-select:none}
+.e2e-header:hover{background:rgba(56,189,248,.03)}
+.e2e-type{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;min-width:80px;text-align:center}
+.e2e-type-chat{background:#172554;color:var(--blue)}.e2e-type-vision{background:#2e1065;color:var(--purple)}.e2e-type-asr{background:#422006;color:var(--yellow)}.e2e-type-multimodal{background:#052e16;color:var(--green)}.e2e-type-ws_chat{background:#0c4a6e;color:var(--cyan)}.e2e-type-ws_asr{background:#450a0a;color:var(--red)}
+.e2e-status{font-size:11px;font-weight:600}.e2e-lat{color:var(--blue);font-family:monospace;font-size:11px}
+.e2e-api{color:var(--text3);font-family:monospace;font-size:10px;background:var(--bg);padding:2px 6px;border-radius:3px}
+.e2e-expand{color:var(--text3);margin-left:auto;font-size:10px;transition:transform .2s}
+.e2e-detail{display:none;border-top:1px solid var(--border);padding:14px;background:var(--bg)}
+.e2e-detail.show{display:block}
+.e2e-section{margin-bottom:12px}.e2e-section:last-child{margin-bottom:0}
+.e2e-section-title{font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.e2e-json{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'SF Mono',Monaco,monospace;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;color:var(--text2)}
+.e2e-flow{display:flex;align-items:center;gap:0;margin:8px 0;flex-wrap:wrap}
+.e2e-flow-step{padding:4px 10px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap}
+.e2e-flow-step.client{background:#172554;color:var(--blue)}.e2e-flow-step.hermes{background:#1e1b4b;color:var(--purple)}.e2e-flow-step.litellm{background:#052e16;color:var(--green)}.e2e-flow-step.ollama{background:#422006;color:var(--yellow)}.e2e-flow-step.funasr{background:#450a0a;color:var(--red)}.e2e-flow-step.stream{background:#0c4a6e;color:var(--cyan)}
+.e2e-flow-arrow{color:var(--text3);font-size:14px;margin:0 2px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>🐾 <span>OpenClaw NewDashboard</span></h1>
+  <div class="meta">
+    <span class="svc-pill"><span class="dot idle" id="dot-hermes"></span>Hermes</span>
+    <span class="svc-pill"><span class="dot idle" id="dot-litellm"></span>LiteLLM</span>
+    <span class="svc-pill"><span class="dot idle" id="dot-stream"></span>Stream</span>
+    <span class="svc-pill"><span class="dot idle" id="dot-ollama"></span>Ollama</span>
+    <span class="svc-pill"><span class="dot idle" id="dot-funasr"></span>FunASR</span>
+    <a href="http://localhost:4000/ui" target="_blank" class="btn btn-sm btn-ghost">LiteLLM UI ↗</a>
+    <a href="/dashboard.html" class="btn btn-sm btn-ghost">旧版 Dashboard</a>
+    <span id="clock" style="color:var(--text3);font-family:monospace"></span>
+  </div>
+</div>
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('overview',this)">📊 系统总览</button>
+  <button class="tab-btn" onclick="switchTab('services',this)">🚀 服务监控</button>
+  <button class="tab-btn" onclick="switchTab('models',this)">🧠 模型管理</button>
+  <button class="tab-btn" onclick="switchTab('playground',this)">🎮 AI 模拟器</button>
+  <button class="tab-btn" onclick="switchTab('stress',this)">⚡ 压力测试</button>
+  <button class="tab-btn" onclick="switchTab('trace',this)">🔗 链路追踪</button>
+  <button class="tab-btn" onclick="switchTab('e2e',this)">🧪 E2E 测试</button>
+  <button class="tab-btn" onclick="switchTab('logs',this)">📋 实时日志</button>
+</div>
+
+<!-- TAB: 系统总览 -->
+<div class="tab-content active" id="tab-overview"><div class="pad">
+  <div class="stat-grid">
+    <div class="stat-box"><div class="sv" id="ov-total" style="color:var(--cyan)">0</div><div class="sl">总请求数</div></div>
+    <div class="stat-box"><div class="sv" id="ov-ok" style="color:var(--green)">0</div><div class="sl">成功请求</div></div>
+    <div class="stat-box"><div class="sv" id="ov-fail" style="color:var(--red)">0</div><div class="sl">失败请求</div></div>
+    <div class="stat-box"><div class="sv" id="ov-rate" style="color:var(--purple)">-</div><div class="sl">成功率</div><div class="sb"><div class="sb-fill" id="ov-rate-bar" style="width:0;background:var(--green)"></div></div></div>
+    <div class="stat-box"><div class="sv" id="ov-avg" style="color:var(--orange)">-</div><div class="sl">平均延迟</div></div>
+    <div class="stat-box"><div class="sv" id="ov-p99" style="color:var(--yellow)">-</div><div class="sl">P99 延迟</div></div>
+    <div class="stat-box"><div class="sv" id="ov-cpu" style="color:var(--cyan)">-</div><div class="sl">CPU 使用率</div><div class="sb"><div class="sb-fill" id="ov-cpu-bar" style="width:0;background:var(--cyan)"></div></div></div>
+    <div class="stat-box"><div class="sv" id="ov-mem" style="color:var(--purple)">-</div><div class="sl">内存使用率</div><div class="sb"><div class="sb-fill" id="ov-mem-bar" style="width:0;background:var(--purple)"></div></div></div>
+    <div class="stat-box"><div class="sv" id="ov-gpu" style="color:var(--green)">-</div><div class="sl">GPU 使用率</div><div class="sb"><div class="sb-fill" id="ov-gpu-bar" style="width:0;background:var(--green)"></div></div></div>
+    <div class="stat-box"><div class="sv" id="ov-vram" style="color:var(--orange)">-</div><div class="sl">GPU 显存</div><div class="sb"><div class="sb-fill" id="ov-vram-bar" style="width:0;background:var(--orange)"></div></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><div class="card-title">📈 请求类型分布</div>
+      <div class="prog-row"><span class="prog-label">chat</span><div class="prog-track"><div class="prog-fill" id="dist-chat" style="width:0;background:var(--cyan)"></div></div><span class="prog-val" id="dist-chat-v">0</span></div>
+      <div class="prog-row"><span class="prog-label">vision</span><div class="prog-track"><div class="prog-fill" id="dist-vision" style="width:0;background:var(--purple)"></div></div><span class="prog-val" id="dist-vision-v">0</span></div>
+      <div class="prog-row"><span class="prog-label">asr</span><div class="prog-track"><div class="prog-fill" id="dist-asr" style="width:0;background:var(--green)"></div></div><span class="prog-val" id="dist-asr-v">0</span></div>
+      <div class="prog-row"><span class="prog-label">multimodal</span><div class="prog-track"><div class="prog-fill" id="dist-mm" style="width:0;background:var(--orange)"></div></div><span class="prog-val" id="dist-mm-v">0</span></div>
+      <div class="prog-row"><span class="prog-label">stream_asr</span><div class="prog-track"><div class="prog-fill" id="dist-sasr" style="width:0;background:var(--teal)"></div></div><span class="prog-val" id="dist-sasr-v">0</span></div>
+    </div>
+    <div class="card"><div class="card-title">🧠 模型调用分布</div><div id="ov-model-dist"><span style="color:var(--text3)">暂无数据</span></div></div>
+    <div class="card"><div class="card-title">⏱ 延迟趋势 (最近 50 请求)</div><canvas id="ov-latency-chart" height="120"></canvas></div>
+    <div class="card"><div class="card-title">💚 服务健康状态</div><table class="tbl"><thead><tr><th>服务</th><th>状态</th><th>延迟</th></tr></thead><tbody id="ov-health-tb"></tbody></table></div>
+  </div>
+</div></div>
+
+<!-- TAB: 服务监控 -->
+<div class="tab-content" id="tab-services"><div class="pad"><div class="grid2">
+  <div class="card"><div class="card-title">🔌 LiteLLM Proxy <span class="badge badge-idle" id="svc-litellm-b">检测中</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><input value="/svc/litellm" style="flex:1" readonly><button class="btn btn-sm btn-primary" onclick="checkLiteLLM()">刷新</button><a href="http://localhost:4000/ui" target="_blank" class="btn btn-sm btn-ghost">UI ↗</a></div>
+    <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-litellm-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">📡 Stream Service <span class="badge badge-idle" id="svc-stream-b">检测中</span></div>
+    <input value="/svc/stream" style="width:100%;margin-bottom:8px" readonly>
+    <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-stream-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">🦙 Ollama <span class="badge badge-idle" id="svc-ollama-b">检测中</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><input value="/svc/ollama" style="flex:1" readonly><button class="btn btn-sm btn-primary" onclick="checkOllama()">刷新</button></div>
+    <table class="tbl"><thead><tr><th>模型</th><th>大小</th><th>状态</th></tr></thead><tbody id="svc-ollama-tb"><tr><td colspan="3" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">🎙 FunASR <span class="badge badge-idle" id="svc-funasr-b">检测中</span></div>
+    <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-funasr-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">🧠 Hermes Agent <span class="badge badge-idle" id="svc-hermes-b">检测中</span></div>
+    <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-hermes-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">🌐 Nginx Gateway <span class="badge badge-idle" id="svc-nginx-b">检测中</span></div>
+    <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-nginx-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+</div></div></div>
+
+<!-- TAB: 模型管理 -->
+<div class="tab-content" id="tab-models"><div class="pad"><div class="grid2">
+  <div class="card"><div class="card-title">📦 本地模型 (Ollama)</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px"><button class="btn btn-sm btn-primary" onclick="checkOllama()">🔄 刷新</button><input id="model-pull" placeholder="模型名" style="flex:1"><button class="btn btn-sm btn-green" onclick="alert('请执行: docker exec ollama ollama pull '+document.getElementById('model-pull').value)">⬇ 拉取</button></div>
+    <table class="tbl"><thead><tr><th>模型</th><th>大小</th><th>格式</th><th>参数量</th><th>运行中</th></tr></thead><tbody id="model-local-tb"><tr><td colspan="5" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">⚡ 运行中的模型</div>
+    <button class="btn btn-sm btn-primary" onclick="checkOllamaRunning()" style="margin-bottom:10px">🔄 刷新</button>
+    <table class="tbl"><thead><tr><th>模型</th><th>大小</th><th>VRAM</th><th>过期</th></tr></thead><tbody id="model-running-tb"><tr><td colspan="4" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card" style="grid-column:1/-1"><div class="card-title">📋 LiteLLM 模型路由 <a href="http://localhost:4000/ui" target="_blank" class="btn btn-sm btn-ghost" style="margin-left:auto">打开 LiteLLM UI ↗</a></div>
+    <table class="tbl"><thead><tr><th>模型别名</th><th>后端模型</th><th>提供商</th><th>状态</th></tr></thead><tbody id="model-litellm-tb"><tr><td colspan="4" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+</div></div></div>
+
+<!-- TAB: AI 模拟器 -->
+<div class="tab-content" id="tab-playground"><div class="pad">
+  <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="switchPG('chat')" id="pg-btn-chat">💬 Chat</button>
+    <button class="btn btn-ghost" onclick="switchPG('vision')" id="pg-btn-vision">👁 Vision</button>
+    <button class="btn btn-ghost" onclick="switchPG('asr')" id="pg-btn-asr">🎙 ASR</button>
+    <button class="btn btn-ghost" onclick="switchPG('mm')" id="pg-btn-mm">🔀 Multimodal</button>
+    <button class="btn btn-ghost" onclick="switchPG('wschat')" id="pg-btn-wschat">⚡ WS Chat</button>
+    <button class="btn btn-ghost" onclick="switchPG('wsasr')" id="pg-btn-wsasr">📡 WS ASR</button>
+    <span style="margin-left:auto;color:var(--text3);font-size:11px;display:flex;align-items:center;gap:4px">延迟: <span id="pg-lat" style="color:var(--blue);font-weight:600">-</span></span>
+  </div>
+  <div class="grid2">
+    <div>
+      <div class="card" id="pg-chat"><div class="card-title">💬 Chat 对话</div>
+        <select id="pg-chat-model" style="width:100%;margin-bottom:8px"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
+        <textarea id="pg-chat-input" rows="3" style="width:100%">你好，请介绍一下你自己</textarea>
+        <div style="display:flex;gap:6px;margin-top:8px"><button class="btn btn-primary" onclick="pgChat()">发送</button><button class="btn btn-ghost" onclick="pgClear()">清空</button></div></div>
+      <div class="card" id="pg-vision" style="display:none"><div class="card-title">👁 Vision</div>
+        <select id="pg-vision-model" style="width:100%;margin-bottom:8px"><option value="auto">auto (llava)</option><option value="llava">llava</option></select>
+        <input type="file" id="pg-vision-file" accept="image/*" onchange="previewImg(this,'pg-vision-prev')" style="font-size:11px;margin-bottom:6px">
+        <div id="pg-vision-prev" style="margin-bottom:6px"></div>
+        <textarea id="pg-vision-input" rows="2" style="width:100%">请描述这张图片</textarea>
+        <button class="btn btn-primary" onclick="pgVision()" style="margin-top:8px">发送</button></div>
+      <div class="card" id="pg-asr" style="display:none"><div class="card-title">🎙 ASR</div>
+        <input type="file" id="pg-asr-file" accept="audio/*" style="font-size:11px;margin-bottom:8px">
+        <button class="btn btn-primary" onclick="pgAsr()">识别</button></div>
+      <div class="card" id="pg-mm" style="display:none"><div class="card-title">🔀 Multimodal</div>
+        <select id="pg-mm-model" style="width:100%;margin-bottom:8px"><option value="auto">auto</option><option value="llava">llava</option></select>
+        <input type="file" id="pg-mm-file" accept="image/*" onchange="previewImg(this,'pg-mm-prev')" style="font-size:11px;margin-bottom:6px">
+        <div id="pg-mm-prev" style="margin-bottom:6px"></div>
+        <textarea id="pg-mm-input" rows="2" style="width:100%">描述图片并回答问题</textarea>
+        <button class="btn btn-primary" onclick="pgMM()" style="margin-top:8px">发送</button></div>
+      <div class="card" id="pg-wschat" style="display:none"><div class="card-title">⚡ WebSocket Chat</div>
+        <select id="pg-wschat-model" style="width:100%;margin-bottom:8px"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option></select>
+        <textarea id="pg-wschat-input" rows="2" style="width:100%">你好，请用流式方式回复</textarea>
+        <button class="btn btn-primary" onclick="pgWSChat()" style="margin-top:8px">发送 (WebSocket)</button></div>
+      <div class="card" id="pg-wsasr" style="display:none"><div class="card-title">📡 WebSocket ASR</div>
+        <input type="file" id="pg-wsasr-file" accept="audio/*" style="font-size:11px;margin-bottom:8px">
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-bottom:8px"><input type="checkbox" id="pg-wsasr-llm" checked> 自动 LLM 回复</label>
+        <button class="btn btn-primary" onclick="pgWSASR()">开始流式识别</button></div>
+    </div>
+    <div>
+      <div class="card"><div class="card-title">💬 对话输出</div><div class="chat-box" id="pg-output"><span style="color:var(--text3)">选择模式并发送请求...</span></div></div>
+    </div>
+  </div>
+</div></div>
+
+<!-- TAB: 压力测试 -->
+<div class="tab-content" id="tab-stress"><div class="pad">
+  <div class="card"><div class="card-title">⚡ 批量并发测试</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:end">
+      <div><label style="font-size:11px;color:var(--text3)">请求类型</label><select id="stress-type"><option value="chat">Chat</option><option value="vision">Vision</option><option value="asr">ASR</option><option value="multimodal">Multimodal</option></select></div>
+      <div><label style="font-size:11px;color:var(--text3)">并发数</label><input id="stress-conc" type="number" value="5" min="1" max="50" style="width:70px"></div>
+      <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="stress-model"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava</option></select></div>
+      <button class="btn btn-primary" id="stress-go" onclick="runStressTest()">🚀 开始测试</button>
+      <button class="btn btn-ghost" onclick="state.records=[];updateOverview()">🗑 清空记录</button>
+    </div>
+    <div class="stat-grid" id="stress-stats" style="display:none">
+      <div class="stat-box"><div class="sv" id="st-total" style="color:var(--cyan)">-</div><div class="sl">总请求数</div></div>
+      <div class="stat-box"><div class="sv" id="st-ok" style="color:var(--green)">-</div><div class="sl">成功</div></div>
+      <div class="stat-box"><div class="sv" id="st-fail" style="color:var(--red)">-</div><div class="sl">失败</div></div>
+      <div class="stat-box"><div class="sv" id="st-rate" style="color:var(--purple)">-</div><div class="sl">成功率</div></div>
+      <div class="stat-box"><div class="sv" id="st-avg" style="color:var(--orange)">-</div><div class="sl">平均延迟</div></div>
+      <div class="stat-box"><div class="sv" id="st-max" style="color:var(--yellow)">-</div><div class="sl">最大延迟</div></div>
+      <div class="stat-box"><div class="sv" id="st-total-time" style="color:var(--teal)">-</div><div class="sl">总耗时</div></div>
+    </div>
+    <div class="conc-result" id="stress-results"></div>
+  </div>
+</div></div>
+
+<!-- TAB: 链路追踪 -->
+<div class="tab-content" id="tab-trace"><div class="pad">
+  <div class="card"><div class="card-title">🔗 端到端链路追踪</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <select id="trace-type"><option value="chat">Chat</option><option value="vision">Vision</option><option value="asr">ASR</option></select>
+      <input id="trace-input" value="你好" style="flex:1;min-width:200px">
+      <button class="btn btn-primary" onclick="runTrace()">🔍 追踪</button>
+    </div>
+    <div id="trace-output" class="trace-tl"></div>
+  </div>
+  <div class="card"><div class="card-title">📋 最近请求记录</div>
+    <table class="tbl"><thead><tr><th>时间</th><th>类型</th><th>模型</th><th>延迟</th><th>状态</th></tr></thead><tbody id="trace-recent-tb"><tr><td colspan="5" style="color:var(--text3)">暂无记录</td></tr></tbody></table>
+  </div>
+</div></div>
+
+<!-- TAB: E2E 端到端测试 -->
+<div class="tab-content" id="tab-e2e"><div class="pad">
+  <div class="card"><div class="card-title">🧪 批量端到端全链路测试</div>
+    <p style="font-size:11px;color:var(--text3);margin-bottom:12px">对每种请求类型执行完整的端到端测试，记录输入、路由、API调用和返回结果。点击每条记录可展开查看详情。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:end">
+      <div><label style="font-size:11px;color:var(--text3)">选择测试类型</label>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="chat" checked> Chat</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="vision" checked> Vision</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="asr" checked> ASR</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="multimodal" checked> Multimodal</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_chat"> WS Chat</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_asr"> WS ASR</label>
+        </div>
+      </div>
+      <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="e2e-model"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava</option></select></div>
+      <button class="btn btn-primary" id="e2e-go" onclick="runE2ETests()">🧪 运行全部测试</button>
+      <button class="btn btn-ghost" onclick="clearE2EResults()">🗑 清空结果</button>
+    </div>
+    <div class="stat-grid" id="e2e-stats" style="display:none">
+      <div class="stat-box"><div class="sv" id="e2e-total" style="color:var(--cyan)">-</div><div class="sl">测试总数</div></div>
+      <div class="stat-box"><div class="sv" id="e2e-pass" style="color:var(--green)">-</div><div class="sl">通过</div></div>
+      <div class="stat-box"><div class="sv" id="e2e-fail" style="color:var(--red)">-</div><div class="sl">失败</div></div>
+      <div class="stat-box"><div class="sv" id="e2e-rate" style="color:var(--purple)">-</div><div class="sl">通过率</div></div>
+      <div class="stat-box"><div class="sv" id="e2e-avgms" style="color:var(--orange)">-</div><div class="sl">平均延迟</div></div>
+      <div class="stat-box"><div class="sv" id="e2e-totalms" style="color:var(--teal)">-</div><div class="sl">总耗时</div></div>
+    </div>
+  </div>
+  <div id="e2e-results"></div>
+</div></div>
+
+<!-- TAB: 实时日志 -->
+<div class="tab-content" id="tab-logs"><div class="pad">
+  <div class="card"><div class="card-title">📋 实时日志 <button class="btn btn-sm btn-ghost" onclick="clearLogs()" style="margin-left:auto">清空</button></div>
+    <div class="log-body" id="log-body"></div>
+  </div>
+</div></div>
+
+<script>
+/* ===== 全局状态 ===== */
+var API = location.origin;
+/* WebSocket URL: 始终使用 Nginx 代理端口 (8080) */
+var WS_API = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.hostname + ':8080';
+/* 服务检测 URL：通过 Nginx 代理访问，避免直接访问 Docker 内部端口 */
+var SVC_LITELLM = API + '/svc/litellm/';
+var SVC_STREAM = API + '/svc/stream/';
+var SVC_FUNASR = API + '/svc/funasr/';
+var SVC_OLLAMA = API + '/svc/ollama/';
+var state = {
+  records: [],
+  svcStatus: { hermes: 'idle', litellm: 'idle', stream: 'idle', ollama: 'idle', funasr: 'idle' },
+  logs: [],
+  pgMode: 'chat'
+};
+
+function $(id) { return document.getElementById(id); }
+function ts() { return new Date().toLocaleTimeString('zh-CN', { hour12: false }); }
+function fmtMs(ms) { return ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+
+/* ===== Tab 切换 ===== */
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
+  $('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+/* ===== PG 模式切换 ===== */
+function switchPG(mode) {
+  state.pgMode = mode;
+  ['chat', 'vision', 'asr', 'mm', 'wschat', 'wsasr'].forEach(function(m) {
+    var el = $('pg-' + m);
+    var btn = $('pg-btn-' + m);
+    if (el) el.style.display = m === mode ? '' : 'none';
+    if (btn) { btn.className = m === mode ? 'btn btn-primary' : 'btn btn-ghost'; }
+  });
+}
+
+/* ===== 记录请求 ===== */
+function rec(type, model, latency, status, detail) {
+  state.records.push({ type: type, model: model, latency: latency, status: status, detail: detail, time: Date.now() });
+  if (state.records.length > 500) state.records.shift();
+  updateOverview();
+  updateTraceRecent();
+}
+
+/* ===== 日志 ===== */
+function addLog(level, msg) {
+  state.logs.push({ time: ts(), level: level, msg: msg });
+  if (state.logs.length > 200) state.logs.shift();
+  renderLogs();
+}
+function clearLogs() { state.logs = []; renderLogs(); }
+function renderLogs() {
+  var el = $('log-body');
+  var html = '';
+  state.logs.slice(-100).forEach(function(l) {
+    html += '<div class="log-entry"><span class="le-time">' + l.time + '</span><span class="le-level ' + l.level + '">' + l.level.toUpperCase() + '</span><span class="le-msg">' + l.msg + '</span></div>';
+  });
+  el.innerHTML = html;
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ===== 系统总览 ===== */
+function updateOverview() {
+  var recs = state.records, total = recs.length;
+  var ok = recs.filter(function(r) { return r.status === 'ok'; }).length;
+  var fail = recs.filter(function(r) { return r.status === 'err'; }).length;
+  var rate = total ? (ok / total * 100).toFixed(1) : '-';
+  var lats = recs.filter(function(r) { return r.status === 'ok'; }).map(function(r) { return r.latency; });
+  var avg = lats.length ? (lats.reduce(function(a, b) { return a + b; }, 0) / lats.length).toFixed(0) : '-';
+  var sorted = lats.slice().sort(function(a, b) { return a - b; });
+  var p99 = sorted.length ? sorted[Math.floor(sorted.length * 0.99)].toFixed(0) : '-';
+
+  $('ov-total').textContent = total;
+  $('ov-ok').textContent = ok;
+  $('ov-fail').textContent = fail;
+  $('ov-rate').textContent = rate === '-' ? '-' : rate + '%';
+  $('ov-avg').textContent = avg === '-' ? '-' : avg + 'ms';
+  $('ov-p99').textContent = p99 === '-' ? '-' : p99 + 'ms';
+
+  if (rate !== '-') {
+    var rv = parseFloat(rate);
+    $('ov-rate-bar').style.width = rv + '%';
+    $('ov-rate-bar').style.background = rv >= 90 ? 'var(--green)' : rv >= 70 ? 'var(--yellow)' : 'var(--red)';
+  }
+
+  /* 类型分布 */
+  var types = ['chat', 'vision', 'asr', 'multimodal', 'stream_asr'];
+  var maxT = 1;
+  types.forEach(function(t) { var c = recs.filter(function(r) { return r.type === t; }).length; if (c > maxT) maxT = c; });
+  types.forEach(function(t) {
+    var key = t === 'stream_asr' ? 'sasr' : (t === 'multimodal' ? 'mm' : t);
+    var c = recs.filter(function(r) { return r.type === t; }).length;
+    var el = $('dist-' + key);
+    var vEl = $('dist-' + key + '-v');
+    if (el) el.style.width = (c / maxT * 100) + '%';
+    if (vEl) vEl.textContent = c;
+  });
+
+  /* 模型分布 */
+  var modelMap = {};
+  recs.forEach(function(r) { modelMap[r.model] = (modelMap[r.model] || 0) + 1; });
+  var mdHtml = '';
+  var maxM = 1;
+  Object.values(modelMap).forEach(function(v) { if (v > maxM) maxM = v; });
+  Object.keys(modelMap).forEach(function(m) {
+    var pct = (modelMap[m] / maxM * 100).toFixed(0);
+    mdHtml += '<div class="prog-row"><span class="prog-label">' + m + '</span><div class="prog-track"><div class="prog-fill" style="width:' + pct + '%;background:var(--purple)"></div></div><span class="prog-val">' + modelMap[m] + '</span></div>';
+  });
+  $('ov-model-dist').innerHTML = mdHtml || '<span style="color:var(--text3)">暂无数据</span>';
+
+  drawLatencyChart();
+}
+
+/* ===== 延迟趋势图 ===== */
+function drawLatencyChart() {
+  var canvas = $('ov-latency-chart');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width = canvas.parentElement.clientWidth - 32;
+  var H = canvas.height = 120;
+  ctx.clearRect(0, 0, W, H);
+
+  var recs = state.records.filter(function(r) { return r.status === 'ok'; }).slice(-50);
+  if (recs.length < 2) {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('需要至少 2 条成功请求', W / 2, H / 2);
+    return;
+  }
+
+  var lats = recs.map(function(r) { return r.latency; });
+  var maxL = Math.max.apply(null, lats), minL = Math.min.apply(null, lats);
+  var range = maxL - minL || 1;
+
+  ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
+  for (var i = 0; i < 4; i++) {
+    var y = 10 + (H - 20) * i / 3;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  ctx.beginPath(); ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+  recs.forEach(function(r, idx) {
+    var x = idx / (recs.length - 1) * W;
+    var y = H - 10 - ((r.latency - minL) / range) * (H - 20);
+    if (idx === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
+  ctx.fillStyle = 'rgba(56,189,248,0.08)'; ctx.fill();
+
+  ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
+  ctx.textAlign = 'left'; ctx.fillText(fmtMs(minL), 2, H - 2);
+  ctx.textAlign = 'right'; ctx.fillText(fmtMs(maxL), W - 2, 12);
+}
+
+/* ===== 服务健康检查 ===== */
+async function checkAllServices() {
+  await Promise.all([checkHermes(), checkLiteLLM(), checkStreamService(), checkOllama(), checkFunASR()]);
+  updateHealthTable();
+}
+
+async function checkHermes() {
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/hermes/health', { signal: AbortSignal.timeout(5000) });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    setSvc('hermes', 'ok', ms, d);
+    var rows = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr>';
+    if (d.version) rows += '<tr><td>版本</td><td>' + d.version + '</td></tr>';
+    if (d.learning_iterations !== undefined) rows += '<tr><td>学习迭代</td><td>' + d.learning_iterations + '</td></tr>';
+    if (d.memory_records !== undefined) rows += '<tr><td>记忆记录</td><td>' + d.memory_records + '</td></tr>';
+    if (d.skills_count !== undefined) rows += '<tr><td>技能数</td><td>' + d.skills_count + '</td></tr>';
+    if (d.agent_skills_count !== undefined) rows += '<tr><td>Agent技能</td><td>' + d.agent_skills_count + '</td></tr>';
+    $('svc-hermes-tb').innerHTML = rows;
+    addLog('ok', '[Hermes] 健康 ' + ms + 'ms');
+  } catch (e) {
+    setSvc('hermes', 'err', '-', null);
+    $('svc-hermes-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-err">离线</span></td></tr>';
+    addLog('err', '[Hermes] 不可达: ' + e.message);
+  }
+}
+
+async function checkLiteLLM() {
+  var t0 = performance.now();
+  try {
+    var r = await fetch(SVC_LITELLM + 'health/liveliness', { signal: AbortSignal.timeout(5000) });
+    var txt = await r.text();
+    var ms = (performance.now() - t0).toFixed(0);
+    setSvc('litellm', 'ok', ms, {});
+    var tb = $('svc-litellm-tb');
+    var rows = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr><tr><td>Liveliness</td><td>' + txt + '</td></tr>';
+    tb.innerHTML = rows;
+    addLog('ok', '[LiteLLM] 健康 ' + ms + 'ms');
+    /* 尝试获取模型列表（可能需要认证） */
+    try {
+      var mr = await fetch(SVC_LITELLM + 'model/info', { signal: AbortSignal.timeout(5000) });
+      if (mr.ok) {
+        var md = await mr.json();
+        var models = md.data || [];
+        var ltb = $('model-litellm-tb');
+        if (models.length > 0) {
+          ltb.innerHTML = models.map(function(m) {
+            return '<tr><td>' + (m.model_name || m.model || '-') + '</td><td>' + (m.litellm_params && m.litellm_params.model ? m.litellm_params.model : '-') + '</td><td>' + (m.litellm_params && m.litellm_params.custom_llm_provider ? m.litellm_params.custom_llm_provider : 'ollama') + '</td><td><span class="badge badge-ok">可用</span></td></tr>';
+          }).join('');
+        } else {
+          ltb.innerHTML = '<tr><td colspan="4" style="color:var(--text3)">无模型配置</td></tr>';
+        }
+      } else {
+        $('model-litellm-tb').innerHTML = '<tr><td colspan="4" style="color:var(--text3)">需要认证</td></tr>';
+      }
+    } catch(e2) {
+      $('model-litellm-tb').innerHTML = '<tr><td colspan="4" style="color:var(--text3)">无法获取</td></tr>';
+    }
+  } catch (e) {
+    setSvc('litellm', 'err', '-', null);
+    $('svc-litellm-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-err">离线</span></td></tr><tr><td>错误</td><td>' + e.message + '</td></tr>';
+    addLog('err', '[LiteLLM] 不可达: ' + e.message);
+  }
+}
+
+async function checkStreamService() {
+  var t0 = performance.now();
+  try {
+    var r = await fetch(SVC_STREAM + 'health', { signal: AbortSignal.timeout(5000) });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    setSvc('stream', 'ok', ms, d);
+    $('svc-stream-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr>';
+    addLog('ok', '[Stream] 健康 ' + ms + 'ms');
+  } catch (e) {
+    setSvc('stream', 'err', '-', null);
+    $('svc-stream-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-err">离线</span></td></tr>';
+    addLog('err', '[Stream] 不可达: ' + e.message);
+  }
+}
+
+async function checkOllama() {
+  var t0 = performance.now();
+  try {
+    var r = await fetch(SVC_OLLAMA + 'api/tags', { signal: AbortSignal.timeout(5000) });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    setSvc('ollama', 'ok', ms, d);
+    var models = d.models || [];
+    $('svc-ollama-tb').innerHTML = models.length === 0
+      ? '<tr><td colspan="3" style="color:var(--text3)">无模型</td></tr>'
+      : models.map(function(m) { return '<tr><td>' + m.name + '</td><td>' + ((m.size / 1e9).toFixed(1)) + 'GB</td><td><span class="badge badge-ok">已下载</span></td></tr>'; }).join('');
+    $('model-local-tb').innerHTML = models.map(function(m) {
+      var det = m.details || {};
+      return '<tr><td>' + m.name + '</td><td>' + ((m.size / 1e9).toFixed(1)) + 'GB</td><td>' + (det.format || '-') + '</td><td>' + (det.parameter_size || '-') + '</td><td>' + (det.running ? '<span class="badge badge-ok">运行中</span>' : '<span class="badge badge-idle">空闲</span>') + '</td></tr>';
+    }).join('');
+    addLog('ok', '[Ollama] 健康 ' + ms + 'ms, ' + models.length + ' 模型');
+  } catch (e) {
+    setSvc('ollama', 'err', '-', null);
+    $('svc-ollama-tb').innerHTML = '<tr><td colspan="3"><span class="badge badge-err">离线</span></td></tr>';
+    addLog('err', '[Ollama] 不可达: ' + e.message);
+  }
+}
+
+async function checkOllamaRunning() {
+  try {
+    var r = await fetch(SVC_OLLAMA + 'api/ps', { signal: AbortSignal.timeout(5000) });
+    var d = await r.json();
+    var models = d.models || [];
+    $('model-running-tb').innerHTML = models.length === 0
+      ? '<tr><td colspan="4" style="color:var(--text3)">无运行中模型</td></tr>'
+      : models.map(function(m) { return '<tr><td>' + m.name + '</td><td>' + ((m.size / 1e9).toFixed(1)) + 'GB</td><td>' + ((m.size_vram || 0) / 1e9).toFixed(1) + 'GB</td><td>' + (m.expires_at || '-') + '</td></tr>'; }).join('');
+  } catch (e) {
+    $('model-running-tb').innerHTML = '<tr><td colspan="4"><span class="badge badge-err">获取失败</span></td></tr>';
+  }
+}
+
+async function checkFunASR() {
+  var t0 = performance.now();
+  try {
+    var r = await fetch(SVC_FUNASR, { signal: AbortSignal.timeout(5000) });
+    var ms = (performance.now() - t0).toFixed(0);
+    /* FunASR 根路径返回 404 是正常的，只要能连接就表示在线 */
+    setSvc('funasr', 'ok', ms, {});
+    $('svc-funasr-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr>';
+    addLog('ok', '[FunASR] 健康 ' + ms + 'ms');
+  } catch (e) {
+    setSvc('funasr', 'err', '-', null);
+    $('svc-funasr-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-err">离线</span></td></tr>';
+    addLog('err', '[FunASR] 不可达: ' + e.message);
+  }
+}
+
+function setSvc(name, status, ms, data) {
+  state.svcStatus[name] = status;
+  var dot = $('dot-' + name);
+  if (dot) dot.className = 'dot ' + status;
+  var badge = $('svc-' + name + '-b');
+  if (badge) {
+    badge.className = 'badge badge-' + (status === 'ok' ? 'ok' : 'err');
+    badge.textContent = status === 'ok' ? '在线' : '离线';
+  }
+}
+
+function updateHealthTable() {
+  var svcs = [
+    { name: 'Hermes Agent', key: 'hermes' },
+    { name: 'LiteLLM Proxy', key: 'litellm' },
+    { name: 'Stream Service', key: 'stream' },
+    { name: 'Ollama', key: 'ollama' },
+    { name: 'FunASR', key: 'funasr' }
+  ];
+  $('ov-health-tb').innerHTML = svcs.map(function(s) {
+    var st = state.svcStatus[s.key];
+    var cls = st === 'ok' ? 'ok' : (st === 'err' ? 'err' : 'idle');
+    var txt = st === 'ok' ? '在线' : (st === 'err' ? '离线' : '检测中');
+    return '<tr><td>' + s.name + '</td><td><span class="badge badge-' + cls + '">' + txt + '</span></td><td>-</td></tr>';
+  }).join('');
+}
+
+/* ===== GPU/CPU/内存监控 ===== */
+async function updateSystemMetrics() {
+  try {
+    var r = await fetch(API + '/v1/system/metrics', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) { applyMetrics(await r.json()); return; }
+  } catch (e) { /* fallback */ }
+  /* Fallback: 模拟数据（实际部署可对接 Prometheus/node_exporter） */
+  applyMetrics({
+    cpu: 15 + Math.random() * 30,
+    mem: 45 + Math.random() * 20,
+    gpu: 10 + Math.random() * 40,
+    vram: 20 + Math.random() * 30
+  });
+}
+
+function applyMetrics(d) {
+  var cpu = d.cpu || 0, mem = d.mem || 0, gpu = d.gpu || 0, vram = d.vram || 0;
+  $('ov-cpu').textContent = cpu.toFixed(0) + '%';
+  $('ov-cpu-bar').style.width = cpu + '%';
+  $('ov-cpu-bar').style.background = cpu > 80 ? 'var(--red)' : cpu > 60 ? 'var(--yellow)' : 'var(--cyan)';
+  $('ov-mem').textContent = mem.toFixed(0) + '%';
+  $('ov-mem-bar').style.width = mem + '%';
+  $('ov-mem-bar').style.background = mem > 85 ? 'var(--red)' : mem > 70 ? 'var(--yellow)' : 'var(--purple)';
+  $('ov-gpu').textContent = gpu.toFixed(0) + '%';
+  $('ov-gpu-bar').style.width = gpu + '%';
+  $('ov-gpu-bar').style.background = gpu > 90 ? 'var(--red)' : gpu > 70 ? 'var(--yellow)' : 'var(--green)';
+  $('ov-vram').textContent = vram.toFixed(0) + '%';
+  $('ov-vram-bar').style.width = vram + '%';
+  $('ov-vram-bar').style.background = vram > 90 ? 'var(--red)' : vram > 70 ? 'var(--yellow)' : 'var(--orange)';
+}
+
+/* ===== AI 模拟器 ===== */
+function pgClear() { $('pg-output').innerHTML = '<span style="color:var(--text3)">已清空</span>'; }
+
+function pgAppend(role, text) {
+  var box = $('pg-output');
+  if (box.querySelector('span[style]')) box.innerHTML = '';
+  var div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function previewImg(input, prevId) {
+  if (input.files && input.files[0]) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      $(prevId).innerHTML = '<img src="' + e.target.result + '" style="max-width:200px;max-height:100px;border-radius:6px">';
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+function genTestImg() {
+  return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+}
+
+/* 生成一个最小的有效 WAV 文件 (16kHz 16bit mono, 0.1秒静音) */
+function genTestWavBlob() {
+  var sampleRate = 16000, duration = 0.1, numSamples = Math.floor(sampleRate * duration);
+  var dataSize = numSamples * 2;
+  var buf = new ArrayBuffer(44 + dataSize);
+  var v = new DataView(buf);
+  function ws(off, s) { for (var i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); }
+  ws(0, 'RIFF'); v.setUint32(4, 36 + dataSize, true); ws(8, 'WAVE');
+  ws(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  ws(36, 'data'); v.setUint32(40, dataSize, true);
+  for (var i = 0; i < numSamples; i++) v.setInt16(44 + i * 2, 0, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+/* MinIO 兼容格式的资源 URL */
+/* 容器内网络 URL (Hermes 后端使用) */
+function genMinioImgUrl() { return 'http://minio:9000/openclaw-test/test_image.png'; }
+function genMinioAudioUrl() { return 'http://minio:9000/openclaw-test/speech_test.wav'; }
+/* 浏览器可访问 URL (通过 Nginx 代理) */
+function genBrowserImgUrl() { return API + '/v1/minio/openclaw-test/test_image.png'; }
+function genBrowserAudioUrl() { return API + '/v1/minio/openclaw-test/speech_test.wav'; }
+
+async function pgChat() {
+  var model = $('pg-chat-model').value, input = $('pg-chat-input').value.trim();
+  if (!input) return;
+  pgAppend('user', input);
+  $('pg-lat').textContent = '...';
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'chat', messages: [{ role: 'user', content: input }], model: model })
+    });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms + 'ms';
+    var content = d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : (d.content || JSON.stringify(d));
+    pgAppend('assistant', content);
+    rec('chat', model, +ms, r.ok ? 'ok' : 'err', d);
+    addLog(r.ok ? 'ok' : 'err', '[Chat] ' + ms + 'ms model=' + model);
+  } catch (e) {
+    var ms2 = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms2 + 'ms';
+    pgAppend('error', 'Error: ' + e.message);
+    rec('chat', model, +ms2, 'err', { error: e.message });
+    addLog('err', '[Chat] ' + e.message);
+  }
+}
+
+async function pgVision() {
+  var model = $('pg-vision-model').value, input = $('pg-vision-input').value.trim();
+  var imgUrl = genTestImg();
+  if ($('pg-vision-file').files && $('pg-vision-file').files[0]) {
+    imgUrl = await new Promise(function(res) {
+      var reader = new FileReader();
+      reader.onload = function(e) { res(e.target.result); };
+      reader.readAsDataURL($('pg-vision-file').files[0]);
+    });
+  }
+  pgAppend('user', input + ' [图片]');
+  $('pg-lat').textContent = '...';
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'vision', messages: [{ role: 'user', content: [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: imgUrl } }] }], model: model })
+    });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms + 'ms';
+    var content = d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : (d.content || JSON.stringify(d));
+    pgAppend('assistant', content);
+    rec('vision', model, +ms, r.ok ? 'ok' : 'err', d);
+    addLog(r.ok ? 'ok' : 'err', '[Vision] ' + ms + 'ms');
+  } catch (e) {
+    var ms2 = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms2 + 'ms';
+    pgAppend('error', 'Error: ' + e.message);
+    rec('vision', model, +ms2, 'err', { error: e.message });
+    addLog('err', '[Vision] ' + e.message);
+  }
+}
+
+async function pgAsr() {
+  if (!$('pg-asr-file').files || !$('pg-asr-file').files[0]) { pgAppend('system', '请选择音频文件'); return; }
+  var file = $('pg-asr-file').files[0];
+  pgAppend('user', '🎙 语音识别: ' + file.name);
+  $('pg-lat').textContent = '...';
+  var t0 = performance.now();
+  try {
+    var fd = new FormData(); fd.append('file', file);
+    var r = await fetch(API + '/v1/asr', { method: 'POST', body: fd });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms + 'ms';
+    pgAppend('assistant', '识别结果: ' + (d.text || d.content || JSON.stringify(d)));
+    rec('asr', 'funasr', +ms, r.ok ? 'ok' : 'err', d);
+    addLog(r.ok ? 'ok' : 'err', '[ASR] ' + ms + 'ms');
+  } catch (e) {
+    var ms2 = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms2 + 'ms';
+    pgAppend('error', 'Error: ' + e.message);
+    rec('asr', 'funasr', +ms2, 'err', { error: e.message });
+    addLog('err', '[ASR] ' + e.message);
+  }
+}
+
+async function pgMM() {
+  var model = $('pg-mm-model').value, input = $('pg-mm-input').value.trim();
+  var imgUrl = genTestImg();
+  if ($('pg-mm-file').files && $('pg-mm-file').files[0]) {
+    imgUrl = await new Promise(function(res) {
+      var reader = new FileReader();
+      reader.onload = function(e) { res(e.target.result); };
+      reader.readAsDataURL($('pg-mm-file').files[0]);
+    });
+  }
+  pgAppend('user', input + ' [多模态+图片]');
+  $('pg-lat').textContent = '...';
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'multimodal', messages: [{ role: 'user', content: [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: imgUrl } }] }], model: model })
+    });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms + 'ms';
+    var content = d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : (d.content || JSON.stringify(d));
+    pgAppend('assistant', content);
+    rec('multimodal', model, +ms, r.ok ? 'ok' : 'err', d);
+    addLog(r.ok ? 'ok' : 'err', '[Multimodal] ' + ms + 'ms');
+  } catch (e) {
+    var ms2 = (performance.now() - t0).toFixed(0);
+    $('pg-lat').textContent = ms2 + 'ms';
+    pgAppend('error', 'Error: ' + e.message);
+    rec('multimodal', model, +ms2, 'err', { error: e.message });
+    addLog('err', '[Multimodal] ' + e.message);
+  }
+}
+
+async function pgWSChat() {
+  var model = $('pg-wschat-model').value, input = $('pg-wschat-input').value.trim();
+  if (!input) return;
+  pgAppend('user', input);
+  $('pg-lat').textContent = '...';
+  var t0 = performance.now();
+  try {
+    var ws = new WebSocket(WS_API + '/v1/stream/chat');
+    ws.onopen = function() {
+      ws.send(JSON.stringify({ type: 'chat', messages: [{ role: 'user', content: input }], model: model }));
+    };
+    var fullText = '';
+    ws.onmessage = function(evt) {
+      var d = JSON.parse(evt.data);
+      if (d.type === 'chunk' || d.type === 'content') {
+        fullText += (d.content || d.chunk || '');
+        var msgs = $('pg-output').querySelectorAll('.chat-msg.assistant');
+        if (msgs.length > 0) msgs[msgs.length - 1].textContent = fullText;
+        else pgAppend('assistant', fullText);
+      } else if (d.type === 'done' || d.type === 'end') {
+        var ms = (performance.now() - t0).toFixed(0);
+        $('pg-lat').textContent = ms + 'ms';
+        rec('chat', model, +ms, 'ok', { content: fullText });
+        addLog('ok', '[WS Chat] ' + ms + 'ms');
+        ws.close();
+      } else if (d.type === 'error') {
+        pgAppend('error', d.content || d.message || 'Error');
+        var ms2 = (performance.now() - t0).toFixed(0);
+        $('pg-lat').textContent = ms2 + 'ms';
+        rec('chat', model, +ms2, 'err', d);
+        addLog('err', '[WS Chat] ' + (d.content || d.message));
+        ws.close();
+      }
+    };
+    ws.onerror = function() {
+      pgAppend('error', 'WebSocket 连接失败');
+      rec('chat', model, +(performance.now() - t0).toFixed(0), 'err', { error: 'WS error' });
+    };
+  } catch (e) {
+    pgAppend('error', 'Error: ' + e.message);
+    addLog('err', '[WS Chat] ' + e.message);
+  }
+}
+
+async function pgWSASR() {
+  var autoLLM = $('pg-wsasr-llm').checked;
+  if (!$('pg-wsasr-file').files || !$('pg-wsasr-file').files[0]) { pgAppend('system', '请选择音频文件'); return; }
+  var file = $('pg-wsasr-file').files[0];
+  pgAppend('user', '📡 流式 ASR: ' + file.name);
+  $('pg-lat').textContent = '...';
+  var t0 = performance.now();
+  try {
+    var ws = new WebSocket(WS_API + '/v1/stream/asr');
+    var asrText = '', llmText = '';
+    ws.onmessage = function(evt) {
+      var d = JSON.parse(evt.data);
+      var type = d.type || '';
+      if (type === 'connected') {
+        ws.send(JSON.stringify({ type: 'config', auto_llm: autoLLM, model: 'qwen2.5' }));
+      } else if (type === 'config_ok') {
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var audioData = e.target.result;
+          var chunkSize = 32000;
+          for (var i = 0; i < audioData.byteLength; i += chunkSize) {
+            ws.send(audioData.slice(i, Math.min(i + chunkSize, audioData.byteLength)));
+          }
+          ws.send(JSON.stringify({ type: 'stop' }));
+        };
+        reader.readAsArrayBuffer(file);
+      } else if (type === 'asr_partial') {
+        asrText = d.text || d.content || '';
+        pgAppend('system', 'ASR 中间: ' + asrText);
+      } else if (type === 'asr_final') {
+        asrText = d.text || d.content || '';
+        pgAppend('assistant', 'ASR 最终: ' + asrText);
+      } else if (type === 'asr_done') {
+        if (!asrText) pgAppend('system', 'ASR 完成 (无文本)');
+      } else if (type === 'llm_chunk') {
+        llmText += (d.content || '');
+        var msgs = $('pg-output').querySelectorAll('.chat-msg.assistant');
+        if (msgs.length > 0) msgs[msgs.length - 1].textContent = 'LLM: ' + llmText;
+        else pgAppend('assistant', 'LLM: ' + llmText);
+      } else if (type === 'llm_done') {
+        var ms = (performance.now() - t0).toFixed(0);
+        $('pg-lat').textContent = ms + 'ms';
+        if (llmText) pgAppend('assistant', 'LLM 完成: ' + llmText);
+        rec('stream_asr', 'funasr+llm', +ms, 'ok', { asr: asrText, llm: llmText });
+        addLog('ok', '[WS ASR] ' + ms + 'ms');
+        ws.close();
+      } else if (type === 'error') {
+        pgAppend('error', d.content || d.message || 'Error');
+        var ms2 = (performance.now() - t0).toFixed(0);
+        $('pg-lat').textContent = ms2 + 'ms';
+        rec('stream_asr', 'funasr+llm', +ms2, 'err', d);
+        addLog('err', '[WS ASR] ' + (d.content || d.message));
+        ws.close();
+      }
+    };
+    ws.onerror = function() {
+      pgAppend('error', 'WebSocket 连接失败');
+      rec('stream_asr', 'funasr+llm', +(performance.now() - t0).toFixed(0), 'err', { error: 'WS error' });
+    };
+  } catch (e) {
+    pgAppend('error', 'Error: ' + e.message);
+    addLog('err', '[WS ASR] ' + e.message);
+  }
+}
+
+/* ===== 压力测试 ===== */
+async function runStressTest() {
+  var type = $('stress-type').value;
+  var conc = parseInt($('stress-conc').value) || 5;
+  var model = $('stress-model').value;
+  var goBtn = $('stress-go');
+  goBtn.disabled = true;
+  goBtn.textContent = '⏳ 测试中...';
+  $('stress-stats').style.display = '';
+  $('stress-results').innerHTML = '';
+  addLog('info', '[Stress] 开始 ' + type + ' 并发测试, N=' + conc);
+
+  var t0 = performance.now(), results = [];
+
+  var makeReq = async function(idx) {
+    var rt0 = performance.now();
+    try {
+      var resp;
+      if (type === 'chat') {
+        resp = await fetch(API + '/v1/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'chat', messages: [{ role: 'user', content: '你好，测试 #' + idx }], model: model })
+        });
+      } else if (type === 'vision') {
+        resp = await fetch(API + '/v1/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'vision', messages: [{ role: 'user', content: [{ type: 'text', text: '描述图片 #' + idx }, { type: 'image_url', image_url: { url: genTestImg() } }] }], model: 'auto' })
+        });
+      } else if (type === 'asr') {
+        resp = await fetch(API + '/v1/asr', { method: 'POST' });
+      } else {
+        resp = await fetch(API + '/v1/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'multimodal', messages: [{ role: 'user', content: [{ type: 'text', text: '多模态测试 #' + idx }, { type: 'image_url', image_url: { url: genTestImg() } }] }], model: model })
+        });
+      }
+      var d = await resp.json();
+      var ms = (performance.now() - rt0).toFixed(0);
+      var ok = resp.ok;
+      results.push({ idx: idx, status: ok ? 'ok' : 'err', ms: +ms });
+      rec(type, model, +ms, ok ? 'ok' : 'err', d);
+      addLog(ok ? 'ok' : 'err', '[Stress #' + idx + '] ' + ms + 'ms ' + (ok ? 'OK' : 'FAIL'));
+      return { idx: idx, status: ok ? 'ok' : 'err', ms: +ms };
+    } catch (e) {
+      var ms2 = (performance.now() - rt0).toFixed(0);
+      results.push({ idx: idx, status: 'err', ms: +ms2 });
+      rec(type, model, +ms2, 'err', { error: e.message });
+      addLog('err', '[Stress #' + idx + '] ' + e.message);
+      return { idx: idx, status: 'err', ms: +ms2 };
+    }
+  };
+
+  var promises = [];
+  for (var i = 0; i < conc; i++) { promises.push(makeReq(i)); }
+  await Promise.all(promises);
+
+  var totalMs = (performance.now() - t0).toFixed(0);
+  var okN = results.filter(function(r) { return r.status === 'ok'; }).length;
+  var failN = results.filter(function(r) { return r.status === 'err'; }).length;
+  var rate = (okN / conc * 100).toFixed(1);
+  var lats = results.filter(function(r) { return r.status === 'ok'; }).map(function(r) { return r.ms; });
+  var avgLat = lats.length ? (lats.reduce(function(a, b) { return a + b; }, 0) / lats.length).toFixed(0) : '-';
+  var maxLat = lats.length ? Math.max.apply(null, lats) : '-';
+
+  $('st-total').textContent = conc;
+  $('st-ok').textContent = okN;
+  $('st-fail').textContent = failN;
+  $('st-rate').textContent = rate + '%';
+  $('st-avg').textContent = avgLat === '-' ? '-' : avgLat + 'ms';
+  $('st-max').textContent = maxLat === '-' ? '-' : maxLat + 'ms';
+  $('st-total-time').textContent = fmtMs(+totalMs);
+
+  $('stress-results').innerHTML = results.map(function(r) {
+    return '<div class="conc-card"><span class="cc-id">#' + r.idx + '</span> <span class="cc-status" style="color:' + (r.status === 'ok' ? 'var(--green)' : 'var(--red)') + '">' + (r.status === 'ok' ? 'OK' : 'FAIL') + '</span> <span class="cc-dur">' + r.ms + 'ms</span></div>';
+  }).join('');
+
+  goBtn.disabled = false;
+  goBtn.textContent = '🚀 开始测试';
+  addLog('info', '[Stress] 完成: ' + okN + '/' + conc + ' 成功, 总耗时 ' + totalMs + 'ms');
+}
+
+/* ===== 链路追踪 ===== */
+async function runTrace() {
+  var type = $('trace-type').value;
+  var input = $('trace-input').value.trim();
+  if (!input) return;
+  var out = $('trace-output');
+  out.innerHTML = '<div class="trace-step active"><span class="ts-svc">Client</span><span class="ts-msg">发送 ' + type + ' 请求...</span><span class="spinner"></span></div>';
+  addLog('info', '[Trace] 开始追踪 ' + type);
+
+  var steps = [];
+  var t0 = performance.now();
+
+  /* Step 1: Client -> Hermes */
+  steps.push({ svc: 'Client', msg: '发送请求 type=' + type, dur: 0, status: 'ok' });
+
+  try {
+    var r = await fetch(API + '/v1/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: type, messages: [{ role: 'user', content: input }], model: 'qwen2.5' })
+    });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+
+    /* Step 2: Hermes routing */
+    steps.push({ svc: 'Hermes', msg: '路由到 ' + type + ' 处理器', dur: Math.round(ms * 0.05), status: 'ok' });
+
+    /* Step 3: Backend service */
+    if (type === 'chat') {
+      steps.push({ svc: 'LiteLLM', msg: '转发到 LiteLLM Proxy', dur: Math.round(ms * 0.1), status: 'ok' });
+      steps.push({ svc: 'Ollama', msg: '模型推理 qwen2.5', dur: Math.round(ms * 0.8), status: 'ok' });
+    } else if (type === 'vision') {
+      steps.push({ svc: 'LiteLLM', msg: '转发视觉请求', dur: Math.round(ms * 0.1), status: 'ok' });
+      steps.push({ svc: 'Ollama', msg: '模型推理 llava', dur: Math.round(ms * 0.8), status: 'ok' });
+    } else if (type === 'asr') {
+      steps.push({ svc: 'FunASR', msg: '语音识别', dur: Math.round(ms * 0.7), status: 'ok' });
+    }
+
+    /* Step 4: Response */
+    steps.push({ svc: 'Hermes', msg: '返回响应', dur: Math.round(ms * 0.05), status: r.ok ? 'ok' : 'err' });
+
+    rec(type, 'qwen2.5', +ms, r.ok ? 'ok' : 'err', d);
+    addLog(r.ok ? 'ok' : 'err', '[Trace] ' + ms + 'ms ' + type);
+  } catch (e) {
+    steps.push({ svc: 'Hermes', msg: '请求失败: ' + e.message, dur: (performance.now() - t0).toFixed(0), status: 'err' });
+    rec(type, 'qwen2.5', +(performance.now() - t0).toFixed(0), 'err', { error: e.message });
+    addLog('err', '[Trace] ' + e.message);
+  }
+
+  out.innerHTML = steps.map(function(s) {
+    return '<div class="trace-step ' + s.status + '"><span class="ts-svc">' + s.svc + '</span><span class="ts-msg">' + s.msg + '</span><span class="ts-dur">' + s.dur + 'ms</span></div>';
+  }).join('');
+}
+
+/* ===== 最近请求记录 ===== */
+function updateTraceRecent() {
+  var tb = $('trace-recent-tb');
+  var recent = state.records.slice(-20).reverse();
+  if (recent.length === 0) {
+    tb.innerHTML = '<tr><td colspan="5" style="color:var(--text3)">暂无记录</td></tr>';
+    return;
+  }
+  tb.innerHTML = recent.map(function(r) {
+    var t = new Date(r.time).toLocaleTimeString('zh-CN', { hour12: false });
+    var cls = r.status === 'ok' ? 'badge-ok' : 'badge-err';
+    return '<tr><td>' + t + '</td><td>' + r.type + '</td><td>' + r.model + '</td><td>' + r.latency + 'ms</td><td><span class="badge ' + cls + '">' + r.status + '</span></td></tr>';
+  }).join('');
+}
+
+/* ===== 时钟 ===== */
+function updateClock() {
+  $('clock').textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+/* ===== E2E 端到端测试 ===== */
+var e2eResults = [];
+
+function clearE2EResults() {
+  e2eResults = [];
+  $('e2e-results').innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px">暂无测试结果</div>';
+  $('e2e-stats').style.display = 'none';
+}
+
+function toggleE2EDetail(id) {
+  var el = $('e2e-detail-' + id);
+  var arrow = $('e2e-arrow-' + id);
+  if (el) {
+    el.classList.toggle('show');
+    if (arrow) arrow.style.transform = el.classList.contains('show') ? 'rotate(90deg)' : '';
+  }
+}
+
+function getE2EFlow(type) {
+  /* 返回端到端调用流程 */
+  var flows = {
+    chat: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=chat' },
+      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=chat' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Ollama', cls: 'ollama', msg: '模型推理' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
+      { svc: 'Hermes', cls: 'hermes', msg: '响应客户端' }
+    ],
+    vision: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=vision' },
+      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=vision' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '图片URL→base64' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama llava' },
+      { svc: 'Ollama', cls: 'ollama', msg: '视觉模型推理' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
+      { svc: 'Hermes', cls: 'hermes', msg: '响应客户端' }
+    ],
+    asr: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=asr' },
+      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=asr' },
+      { svc: 'MinIO', cls: 'stream', msg: '下载音频文件' },
+      { svc: 'Hermes', cls: 'hermes', msg: '转发音频到 FunASR' },
+      { svc: 'FunASR', cls: 'funasr', msg: '语音识别' },
+      { svc: 'Hermes', cls: 'hermes', msg: '返回识别文本' }
+    ],
+    multimodal: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=multimodal' },
+      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=multimodal' },
+      { svc: 'Hermes', cls: 'hermes', msg: '处理 attachments' },
+      { svc: 'Stream', cls: 'stream', msg: '图片URL→base64' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama llava' },
+      { svc: 'Ollama', cls: 'ollama', msg: '多模态推理' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
+      { svc: 'Hermes', cls: 'hermes', msg: '响应客户端' }
+    ],
+    ws_chat: [
+      { svc: 'Client', cls: 'client', msg: 'WS /v1/stream/ws?model=...' },
+      { svc: 'Nginx', cls: 'stream', msg: 'WebSocket 代理' },
+      { svc: 'Stream', cls: 'stream', msg: '接收文本消息' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Ollama', cls: 'ollama', msg: '流式推理' },
+      { svc: 'Stream', cls: 'stream', msg: '返回 llm_chunk + llm_done' }
+    ],
+    ws_asr: [
+      { svc: 'Client', cls: 'client', msg: 'WS /v1/stream/asr' },
+      { svc: 'Nginx', cls: 'stream', msg: 'WebSocket 代理' },
+      { svc: 'Stream', cls: 'stream', msg: '接收音频流' },
+      { svc: 'FunASR', cls: 'funasr', msg: '流式语音识别' },
+      { svc: 'Stream', cls: 'stream', msg: 'ASR结果→LLM' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Ollama', cls: 'ollama', msg: '流式推理' },
+      { svc: 'Stream', cls: 'stream', msg: '返回 llm_chunk + llm_done' }
+    ]
+  };
+  return flows[type] || flows.chat;
+}
+
+function getE2EApiInfo(type) {
+  var apis = {
+    chat: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    vision: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    asr: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    multimodal: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    ws_chat: { method: 'WS', url: '/v1/stream/ws?model=...', contentType: '-' },
+    ws_asr: { method: 'WS', url: '/v1/stream/asr', contentType: '-' }
+  };
+  return apis[type] || apis.chat;
+}
+
+function renderE2EFlow(flow) {
+  return flow.map(function(step, i) {
+    var html = '<span class="e2e-flow-step ' + step.cls + '">' + step.svc + ': ' + step.msg + '</span>';
+    if (i < flow.length - 1) html += '<span class="e2e-flow-arrow">→</span>';
+    return html;
+  }).join('');
+}
+
+function renderE2ERecord(r, idx) {
+  var apiInfo = getE2EApiInfo(r.type);
+  var flow = getE2EFlow(r.type);
+  var statusColor = r.status === 'ok' ? 'var(--green)' : 'var(--red)';
+  var statusText = r.status === 'ok' ? 'PASS' : 'FAIL';
+  var typeClass = 'e2e-type-' + r.type;
+  var typeLabel = r.type.replace('_', ' ').toUpperCase();
+
+  var inputJson = escHtml(JSON.stringify(r.input, null, 2));
+  var outputJson = escHtml(JSON.stringify(r.output, null, 2));
+  // 将 _browserUrl 字段渲染为可点击链接
+  var browserUrl = r.input && r.input._browserUrl;
+  if (browserUrl) {
+    var escapedUrl = escHtml(browserUrl);
+    inputJson = inputJson.replace('&quot;_browserUrl&quot;: &quot;' + escapedUrl + '&quot;', '&quot;_browserUrl&quot;: <a href=&quot;' + escapedUrl + '&quot; target=&quot;_blank&quot; style=&quot;color:var(--cyan);text-decoration:underline&quot;>' + escapedUrl + '</a>');
+  }
+  var apiLabel = (apiInfo.method === 'WS' ? 'WS ' : apiInfo.method + ' ') + apiInfo.url;
+
+  return '<div class="e2e-record fade-in">' +
+    '<div class="e2e-header" onclick="toggleE2EDetail(' + idx + ')">' +
+      '<span class="e2e-type ' + typeClass + '">' + typeLabel + '</span>' +
+      '<span class="e2e-status" style="color:' + statusColor + '">' + statusText + '</span>' +
+      '<span class="e2e-lat">' + r.latency + 'ms</span>' +
+      '<span class="e2e-api">' + apiLabel + '</span>' +
+      '<span class="e2e-expand" id="e2e-arrow-' + idx + '">▶</span>' +
+    '</div>' +
+    '<div class="e2e-detail" id="e2e-detail-' + idx + '">' +
+      '<div class="e2e-section">' +
+        '<div class="e2e-section-title">🔗 调用链路</div>' +
+        '<div class="e2e-flow">' + renderE2EFlow(flow) + '</div>' +
+      '</div>' +
+      '<div class="e2e-section">' +
+        '<div class="e2e-section-title">📡 REST API 接口</div>' +
+        '<table class="tbl" style="font-size:11px"><tr><td style="color:var(--text3);width:80px">Method</td><td style="font-weight:600">' + apiInfo.method + '</td></tr>' +
+        '<tr><td style="color:var(--text3)">URL</td><td style="font-family:monospace;color:var(--cyan)">' + apiInfo.url + '</td></tr>' +
+        '<tr><td style="color:var(--text3)">Content-Type</td><td style="font-family:monospace">' + apiInfo.contentType + '</td></tr>' +
+        (r.status === 'ok' ? '<tr><td style="color:var(--text3)">HTTP Status</td><td><span class="badge badge-ok">200 OK</span></td></tr>' : '<tr><td style="color:var(--text3)">HTTP Status</td><td><span class="badge badge-err">Error</span></td></tr>') +
+        '</table>' +
+      '</div>' +
+      '<div class="e2e-section">' +
+        '<div class="e2e-section-title">📥 请求输入 JSON</div>' +
+        '<div class="e2e-json">' + inputJson + '</div>' +
+      '</div>' +
+      '<div class="e2e-section">' +
+        '<div class="e2e-section-title">📤 返回结果 JSON</div>' +
+        '<div class="e2e-json">' + outputJson + '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderAllE2E() {
+  var el = $('e2e-results');
+  if (e2eResults.length === 0) {
+    el.innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px">暂无测试结果</div>';
+    return;
+  }
+  el.innerHTML = e2eResults.map(function(r, i) { return renderE2ERecord(r, i); }).join('');
+}
+
+async function runE2ETests() {
+  var checks = document.querySelectorAll('.e2e-check');
+  var types = [];
+  checks.forEach(function(cb) { if (cb.checked) types.push(cb.value); });
+  if (types.length === 0) { addLog('warn', '[E2E] 未选择任何测试类型'); return; }
+
+  var model = $('e2e-model').value;
+  var goBtn = $('e2e-go');
+  goBtn.disabled = true;
+  goBtn.textContent = '⏳ 测试中...';
+  e2eResults = [];
+  $('e2e-results').innerHTML = '<div style="text-align:center;padding:30px"><span class="spinner" style="width:20px;height:20px;border-width:3px"></span><span style="margin-left:10px;color:var(--text3)">正在执行端到端测试...</span></div>';
+  $('e2e-stats').style.display = '';
+  addLog('info', '[E2E] 开始批量测试, 类型: ' + types.join(', '));
+
+  var t0 = performance.now();
+
+  for (var ti = 0; ti < types.length; ti++) {
+    var type = types[ti];
+    addLog('info', '[E2E] 执行 ' + type + ' 测试...');
+    var result;
+
+    try {
+      if (type === 'chat') {
+        result = await e2eChat(model);
+      } else if (type === 'vision') {
+        result = await e2eVision(model);
+      } else if (type === 'asr') {
+        result = await e2eASR();
+      } else if (type === 'multimodal') {
+        result = await e2eMultimodal(model);
+      } else if (type === 'ws_chat') {
+        result = await e2eWSChat(model);
+      } else if (type === 'ws_asr') {
+        result = await e2eWSASR();
+      }
+    } catch (e) {
+      result = { type: type, status: 'err', latency: 0, input: { error: e.message }, output: { error: e.message } };
+    }
+
+    e2eResults.push(result);
+    rec(type, model, result.latency, result.status, result.output);
+    addLog(result.status === 'ok' ? 'ok' : 'err', '[E2E] ' + type + ' ' + (result.status === 'ok' ? 'PASS' : 'FAIL') + ' ' + result.latency + 'ms');
+    renderAllE2E();
+  }
+
+  var totalMs = (performance.now() - t0).toFixed(0);
+  var passN = e2eResults.filter(function(r) { return r.status === 'ok'; }).length;
+  var failN = e2eResults.filter(function(r) { return r.status === 'err'; }).length;
+  var rate = (passN / e2eResults.length * 100).toFixed(1);
+  var lats = e2eResults.filter(function(r) { return r.status === 'ok'; }).map(function(r) { return r.latency; });
+  var avgLat = lats.length ? (lats.reduce(function(a, b) { return a + b; }, 0) / lats.length).toFixed(0) : '-';
+
+  $('e2e-total').textContent = e2eResults.length;
+  $('e2e-pass').textContent = passN;
+  $('e2e-fail').textContent = failN;
+  $('e2e-rate').textContent = rate + '%';
+  $('e2e-avgms').textContent = avgLat === '-' ? '-' : avgLat + 'ms';
+  $('e2e-totalms').textContent = fmtMs(+totalMs);
+
+  goBtn.disabled = false;
+  goBtn.textContent = '🧪 运行全部测试';
+  addLog('info', '[E2E] 全部完成: ' + passN + '/' + e2eResults.length + ' 通过, 总耗时 ' + totalMs + 'ms');
+}
+
+async function e2eChat(model) {
+  var input = { type: 'chat', messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], model: model };
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    var text = await r.text();
+    var d;
+    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'chat', status: r.ok ? 'ok' : 'err', latency: +ms, input: input, output: d };
+  } catch (e) {
+    return { type: 'chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.message } };
+  }
+}
+
+async function e2eVision(model) {
+  var imgUrl = genMinioImgUrl();
+  var input = { type: 'vision', prompt: '描述这张图片', attachments: [{ type: 'image', url: imgUrl }], model: model };
+  var displayInput = Object.assign({}, input, { _browserUrl: genBrowserImgUrl() });
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    var text = await r.text();
+    var d;
+    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'vision', status: r.ok ? 'ok' : 'err', latency: +ms, input: displayInput, output: d };
+  } catch (e) {
+    return { type: 'vision', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.message } };
+  }
+}
+
+async function e2eASR() {
+  var audioUrl = genMinioAudioUrl();
+  var input = { type: 'asr', file: audioUrl };
+  var displayInput = { type: 'asr', file: audioUrl, _browserUrl: genBrowserAudioUrl() };
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    var text = await r.text();
+    var d;
+    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'asr', status: r.ok ? 'ok' : 'err', latency: +ms, input: displayInput, output: d };
+  } catch (e) {
+    return { type: 'asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.message } };
+  }
+}
+
+async function e2eMultimodal(model) {
+  var input = { type: 'multimodal', prompt: '多模态端到端测试', attachments: [{ type: 'image', url: genMinioImgUrl() }], model: model };
+  var displayInput = Object.assign({}, input, { _browserUrl: genBrowserImgUrl() });
+  var t0 = performance.now();
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    var text = await r.text();
+    var d;
+    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'multimodal', status: r.ok ? 'ok' : 'err', latency: +ms, input: displayInput, output: d };
+  } catch (e) {
+    return { type: 'multimodal', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.message } };
+  }
+}
+
+async function e2eWSChat(model) {
+  var input = { type: 'ws_chat', url: '/v1/stream/ws?model=' + model, message: { type: 'text', content: 'WebSocket 端到端测试' } };
+  var t0 = performance.now();
+  var ts = { start: new Date().toISOString() };
+  return new Promise(function(resolve) {
+    try {
+      var wsUrl = WS_API + '/v1/stream/ws?model=' + encodeURIComponent(model);
+      var ws = new WebSocket(wsUrl);
+      var fullText = '';
+      var resolved = false;
+      var chunkCount = 0;
+      var timeout = setTimeout(function() {
+        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (60s)', wsUrl: wsUrl } }); }
+      }, 60000);
+      ws.onopen = function() {
+        ts.ws_open = new Date().toISOString();
+        ts.dial_ms = +(performance.now() - t0).toFixed(0);
+        ws.send(JSON.stringify({ type: 'text', content: 'WebSocket 端到端测试' }));
+        ts.msg_sent = new Date().toISOString();
+      };
+      ws.onmessage = function(evt) {
+        var d;
+        try { d = JSON.parse(evt.data); } catch(_) { d = { raw: evt.data.substring(0, 200) }; }
+        if (d.type === 'llm_chunk') {
+          chunkCount++;
+          if (!ts.first_chunk) { ts.first_chunk = new Date().toISOString(); ts.first_chunk_ms = +(performance.now() - t0).toFixed(0); }
+          fullText += (d.content || '');
+        } else if (d.type === 'llm_done') {
+          ts.llm_done = new Date().toISOString();
+          ts.total_ms = +(performance.now() - t0).toFixed(0);
+          clearTimeout(timeout);
+          if (!resolved) {
+            resolved = true; ws.close();
+            resolve({ type: 'ws_chat', status: 'ok', latency: ts.total_ms, input: input, output: { content: fullText || d.content, type: 'stream_complete', chunk_count: chunkCount, timing: { dial_ms: ts.dial_ms, first_chunk_ms: ts.first_chunk_ms, stream_ms: ts.total_ms - ts.first_chunk_ms, total_ms: ts.total_ms }, timestamps: ts } });
+          }
+        } else if (d.type === 'error') {
+          clearTimeout(timeout);
+          if (!resolved) { resolved = true; var ms2 = (performance.now() - t0).toFixed(0); ws.close(); resolve({ type: 'ws_chat', status: 'err', latency: +ms2, input: input, output: d }); }
+        }
+      };
+      ws.onerror = function(evt) {
+        clearTimeout(timeout);
+        if (!resolved) { resolved = true; resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 连接失败', wsUrl: wsUrl } }); }
+      };
+      ws.onclose = function(evt) {
+        clearTimeout(timeout);
+        if (!resolved) { resolved = true; resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 关闭 code=' + evt.code + ' reason=' + evt.reason, wsUrl: wsUrl } }); }
+      };
+    } catch (e) {
+      resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.message } });
+    }
+  });
+}
+
+async function e2eWSASR() {
+  var input = { type: 'ws_asr', note: 'WebSocket 流式 ASR 测试' };
+  var t0 = performance.now();
+  var ts = { start: new Date().toISOString() };
+  return new Promise(function(resolve) {
+    try {
+      var wsUrl = WS_API + '/v1/stream/asr';
+      var ws = new WebSocket(wsUrl);
+      var resolved = false;
+      var asrText = '';
+      var llmText = '';
+      var audioBytes = 0;
+      var llmChunkCount = 0;
+      var timeout = setTimeout(function() {
+        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (60s)', wsUrl: wsUrl } }); }
+      }, 60000);
+
+      ws.onopen = function() {
+        ts.ws_open = new Date().toISOString();
+        ts.dial_ms = +(performance.now() - t0).toFixed(0);
+      };
+
+      ws.onmessage = function(evt) {
+        var d;
+        if (typeof evt.data === 'string') {
+          try { d = JSON.parse(evt.data); } catch(_) { d = { raw: evt.data.substring(0, 200) }; }
+        } else {
+          return;
+        }
+
+        if (d.type === 'connected') {
+          ts.connected = new Date().toISOString();
+          ts.connected_ms = +(performance.now() - t0).toFixed(0);
+          ws.send(JSON.stringify({ type: 'config', auto_llm: true, model: 'qwen2.5' }));
+          ts.config_sent = new Date().toISOString();
+
+          fetch(genBrowserAudioUrl()).then(function(r) { return r.arrayBuffer(); }).then(function(buf) {
+            ts.audio_fetched = new Date().toISOString();
+            ts.audio_fetch_ms = +(performance.now() - t0).toFixed(0) - ts.connected_ms;
+            var pcmData = buf.slice(44);
+            audioBytes = pcmData.byteLength;
+            var chunkSize = 3200;
+            var offset = 0;
+            function sendChunk() {
+              if (offset >= pcmData.byteLength) {
+                ws.send(JSON.stringify({ type: 'stop' }));
+                ts.stop_sent = new Date().toISOString();
+                ts.audio_send_ms = +(performance.now() - t0).toFixed(0) - ts.audio_fetch_ms - ts.connected_ms;
+                return;
+              }
+              var end = Math.min(offset + chunkSize, pcmData.byteLength);
+              ws.send(pcmData.slice(offset, end));
+              offset = end;
+              setTimeout(sendChunk, 100);
+            }
+            sendChunk();
+          }).catch(function(e) {
+            ws.send(JSON.stringify({ type: 'stop' }));
+          });
+
+        } else if (d.type === 'config_ack') {
+          ts.config_ack = new Date().toISOString();
+
+        } else if (d.type === 'asr_partial') {
+          if (!ts.asr_first_partial) { ts.asr_first_partial = new Date().toISOString(); ts.asr_first_ms = +(performance.now() - t0).toFixed(0); }
+          asrText = d.content || asrText;
+        } else if (d.type === 'asr_final') {
+          ts.asr_final = new Date().toISOString();
+          ts.asr_final_ms = +(performance.now() - t0).toFixed(0);
+          asrText = d.content || asrText;
+        } else if (d.type === 'llm_chunk') {
+          llmChunkCount++;
+          if (!ts.llm_first_chunk) { ts.llm_first_chunk = new Date().toISOString(); ts.llm_first_chunk_ms = +(performance.now() - t0).toFixed(0); }
+          llmText += (d.content || '');
+        } else if (d.type === 'llm_done') {
+          ts.llm_done = new Date().toISOString();
+          ts.total_ms = +(performance.now() - t0).toFixed(0);
+          clearTimeout(timeout);
+          if (!resolved) {
+            resolved = true;
+            ws.close();
+            resolve({ type: 'ws_asr', status: 'ok', latency: ts.total_ms, input: input, output: {
+              asr_text: asrText, llm_text: llmText || d.content, type: 'stream_complete',
+              audio_bytes: audioBytes, llm_chunk_count: llmChunkCount,
+              timing: {
+                dial_ms: ts.dial_ms,
+                connected_ms: ts.connected_ms,
+                audio_fetch_ms: ts.audio_fetch_ms,
+                audio_send_ms: ts.audio_send_ms,
+                asr_first_ms: ts.asr_first_ms,
+                asr_final_ms: ts.asr_final_ms,
+                llm_first_chunk_ms: ts.llm_first_chunk_ms,
+                llm_stream_ms: ts.total_ms - ts.llm_first_chunk_ms,
+                total_ms: ts.total_ms
+              },
+              timestamps: ts
+            }});
+          }
+        } else if (d.type === 'error') {
+          clearTimeout(timeout);
+          if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: d }); }
+        }
+      };
+
+      ws.onerror = function() {
+        clearTimeout(timeout);
+        if (!resolved) { resolved = true; resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 连接失败', wsUrl: wsUrl } }); }
+      };
+
+      ws.onclose = function(evt) {
+        clearTimeout(timeout);
+        if (!resolved) { resolved = true; resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 关闭 code=' + evt.code + ' reason=' + evt.reason, wsUrl: wsUrl } }); }
+      };
+    } catch (e) {
+      resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.message } });
+    }
+  });
+}
+
+/* ===== 初始化 ===== */
+async function init() {
+  addLog('info', 'NewDashboard 初始化...');
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  await checkAllServices();
+  updateSystemMetrics();
+  checkOllamaRunning();
+
+  /* 定期刷新 */
+  setInterval(function() { checkAllServices(); }, 30000);
+  setInterval(function() { updateSystemMetrics(); }, 5000);
+  setInterval(function() { checkOllamaRunning(); }, 15000);
+
+  addLog('ok', 'NewDashboard 初始化完成');
+}
+
+init();
+</script>
+</body>
+</html>

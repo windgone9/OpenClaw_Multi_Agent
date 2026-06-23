@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Multi-Agent 架构图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    color: #94a3b8;
+    margin-bottom: 30px;
+    font-size: 14px;
+  }
+  .arch-container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* Layer */
+  .layer {
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    position: relative;
+    background: #1e293b;
+  }
+  .layer-label {
+    position: absolute;
+    top: -10px;
+    left: 20px;
+    background: #1e293b;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Service boxes */
+  .services-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .svc {
+    border-radius: 10px;
+    padding: 16px;
+    min-width: 200px;
+    max-width: 280px;
+    flex: 1;
+    position: relative;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .svc:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  }
+  .svc-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .svc-port {
+    font-size: 11px;
+    background: rgba(255,255,255,0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 400;
+  }
+  .svc-desc {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 10px;
+  }
+  .svc-items {
+    list-style: none;
+    font-size: 12px;
+  }
+  .svc-items li {
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+    color: #cbd5e1;
+  }
+  .svc-items li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Color themes */
+  .svc-frontend { background: linear-gradient(135deg, #1e3a5f, #1e293b); border: 1px solid #2563eb40; }
+  .svc-frontend .svc-items li::before { background: #3b82f6; }
+
+  .svc-nginx { background: linear-gradient(135deg, #1a3333, #1e293b); border: 1px solid #14b8a640; }
+  .svc-nginx .svc-items li::before { background: #14b8a6; }
+
+  .svc-litellm { background: linear-gradient(135deg, #2d1b4e, #1e293b); border: 1px solid #a855f740; }
+  .svc-litellm .svc-items li::before { background: #a855f7; }
+
+  .svc-stream { background: linear-gradient(135deg, #1b2e1b, #1e293b); border: 1px solid #22c55e40; }
+  .svc-stream .svc-items li::before { background: #22c55e; }
+
+  .svc-hermes { background: linear-gradient(135deg, #3b1b1b, #1e293b); border: 1px solid #f9731640; }
+  .svc-hermes .svc-items li::before { background: #f97316; }
+
+  .svc-ollama { background: linear-gradient(135deg, #1b1b3b, #1e293b); border: 1px solid #6366f140; }
+  .svc-ollama .svc-items li::before { background: #6366f1; }
+
+  .svc-funasr { background: linear-gradient(135deg, #3b2b1b, #1e293b); border: 1px solid #eab30840; }
+  .svc-funasr .svc-items li::before { background: #eab308; }
+
+  .svc-minio { background: linear-gradient(135deg, #1b2b3b, #1e293b); border: 1px solid #38bdf840; }
+  .svc-minio .svc-items li::before { background: #38bdf8; }
+
+  /* Arrows */
+  .arrow-section {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .arrow-down {
+    width: 2px;
+    height: 24px;
+    background: #475569;
+    position: relative;
+  }
+  .arrow-down::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: -4px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #475569;
+  }
+  .arrow-label {
+    font-size: 11px;
+    color: #64748b;
+    text-align: center;
+    margin-top: 2px;
+  }
+
+  /* Route table */
+  .route-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 20px;
+  }
+  .route-table th {
+    background: #334155;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: #e2e8f0;
+    border-bottom: 2px solid #475569;
+  }
+  .route-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid #1e293b;
+    color: #cbd5e1;
+  }
+  .route-table tr:hover td {
+    background: #1e293b;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-yes { background: #22c55e20; color: #4ade80; }
+  .badge-no { background: #ef444420; color: #f87171; }
+  .badge-partial { background: #eab30820; color: #facc15; }
+  .badge-lb { background: #a855f720; color: #c084fc; }
+  .badge-direct { background: #38bdf820; color: #7dd3fc; }
+
+  /* Unified API */
+  .unified-box {
+    background: linear-gradient(135deg, #1e3a5f, #2d1b4e);
+    border: 1px solid #6366f140;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+  }
+  .unified-box h3 {
+    font-size: 16px;
+    margin-bottom: 12px;
+    color: #c084fc;
+  }
+  .api-examples {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .api-item {
+    background: #0f172a;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #334155;
+  }
+  .api-item .type-tag {
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .api-item code {
+    font-size: 11px;
+    color: #94a3b8;
+    display: block;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .type-chat { color: #a855f7; }
+  .type-vision { color: #3b82f6; }
+  .type-asr { color: #eab308; }
+  .type-multimodal { color: #22c55e; }
+  .type-stream { color: #f97316; }
+
+  /* Flow diagram */
+  .flow-container {
+    margin-top: 20px;
+    background: #1e293b;
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid #334155;
+  }
+  .flow-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #e2e8f0;
+  }
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .flow-node {
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .flow-arrow {
+    color: #475569;
+    font-size: 16px;
+  }
+  .fn-client { background: #2563eb30; color: #60a5fa; border: 1px solid #2563eb50; }
+  .fn-nginx { background: #14b8a630; color: #5eead4; border: 1px solid #14b8a650; }
+  .fn-hermes { background: #f9731630; color: #fdba74; border: 1px solid #f9731650; }
+  .fn-litellm { background: #a855f730; color: #d8b4fe; border: 1px solid #a855f750; }
+  .fn-stream { background: #22c55e30; color: #86efac; border: 1px solid #22c55e50; }
+  .fn-funasr { background: #eab30830; color: #fde047; border: 1px solid #eab30850; }
+  .fn-ollama { background: #6366f130; color: #a5b4fc; border: 1px solid #6366f150; }
+  .flow-label {
+    font-size: 11px;
+    color: #64748b;
+    margin-left: 4px;
+  }
+
+  @media print {
+    body { background: white; color: #1e293b; }
+    .svc { border: 1px solid #e2e8f0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="arch-container">
+
+<h1>OpenClaw Multi-Agent 架构图</h1>
+<p class="subtitle">LiteLLM Proxy + Hermes Agent + Stream Service 混合架构 | Docker Compose 容器化部署</p>
+
+<!-- Layer 1: Frontend -->
+<div class="layer">
+  <span class="layer-label">Frontend Layer</span>
+  <div class="services-row">
+    <div class="svc svc-frontend">
+      <div class="svc-title">🖥️ 前端 AI 应用 / Dashboard</div>
+      <div class="svc-desc">统一入口: POST /v1/chat (根据 type 字段路由)</div>
+      <ul class="svc-items">
+        <li>统一入口 <code>/v1/chat</code></li>
+        <li>对话 <code>/v1/chat/completions</code></li>
+        <li>流式ASR <code>ws:///v1/stream/asr</code></li>
+        <li>多模态 <code>/v1/multimodal/chat</code></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-section">
+  <div>
+    <div class="arrow-down" style="margin:0 auto"></div>
+    <div class="arrow-label">HTTP / WebSocket</div>
+  </div>
+</div>
+
+<!-- Layer 2: Nginx -->
+<div class="layer">
+  <span class="layer-label">Gateway Layer</span>
+  <div class="services-row">
+    <div class="svc svc-nginx" style="max-width:100%">
+      <div class="svc-title">🔀 Nginx 反向代理 <span class="svc-port">:8080</span></div>
+      <div class="svc-desc">统一入口、负载均衡、协议适配</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px">
+        <div style="background:#0f172a;border-radius:8px;padding:10px;font-size:12px">
+          <div style="color:#5eead4;font-weight:600;margin-bottom:4px">upstream 配置</div>
+          <div style="color:#94a3b8">litellm_backend → <code style="color:#d8b4fe">litellm:4000</code> (least_conn)</div>
+          <div style="color:#94a3b8">hermes_backend → <code style="color:#fdba74">hermes:8082</code> (least_conn)</div>
+          <div style="color:#94a3b8">stream_backend → <code style="color:#86efac">stream:8084</code> (ip_hash)</div>
+        </div>
+        <div style="background:#0f172a;border-radius:8px;padding:10px;font-size:12px">
+          <div style="color:#5eead4;font-weight:600;margin-bottom:4px">路由规则</div>
+          <div style="color:#94a3b8"><code style="color:#fdba74">= /v1/chat</code> → hermes (统一入口)</div>
+          <div style="color:#94a3b8"><code style="color:#d8b4fe">/v1/chat/completions</code> → litellm</div>
+          <div style="color:#94a3b8"><code style="color:#86efac">/v1/stream/asr</code> → stream (WS)</div>
+          <div style="color:#94a3b8"><code style="color:#86efac">/v1/stream/ws</code> → stream (WS)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-section">
+  <div style="display:flex;gap:80px;justify-content:center">
+    <div>
+      <div class="arrow-down" style="margin:0 auto"></div>
+      <div class="arrow-label">/v1/chat</div>
+    </div>
+    <div>
+      <div class="arrow-down" style="margin:0 auto"></div>
+      <div class="arrow-label">/v1/chat/completions</div>
+    </div>
+    <div>
+      <div class="arrow-down" style="margin:0 auto"></div>
+      <div class="arrow-label">/v1/stream/*</div>
+    </div>
+  </div>
+</div>
+
+<!-- Layer 3: Services -->
+<div class="layer">
+  <span class="layer-label">Service Layer</span>
+  <div class="services-row">
+
+    <div class="svc svc-hermes">
+      <div class="svc-title">🧭 Hermes Agent <span class="svc-port">:8082</span></div>
+      <div class="svc-desc">统一入口路由 + 智能调度</div>
+      <ul class="svc-items">
+        <li>统一入口 <code>/v1/chat</code> (type 路由)</li>
+        <li>智能路由决策</li>
+        <li>K8S AIWorkload 调度</li>
+        <li>服务编排 & 队列</li>
+        <li>Dashboard 面板</li>
+      </ul>
+    </div>
+
+    <div class="svc svc-litellm">
+      <div class="svc-title">⚡ LiteLLM Proxy <span class="svc-port">:4000</span></div>
+      <div class="svc-desc">模型路由 + 负载均衡 + API Key 管理</div>
+      <ul class="svc-items">
+        <li>OpenAI 兼容接口</li>
+        <li>模型路由 (qwen2.5/llava/deepseek)</li>
+        <li>负载均衡 (latency-based)</li>
+        <li>限流 / 降级 / 重试</li>
+        <li>API Key 管理</li>
+      </ul>
+    </div>
+
+    <div class="svc svc-stream">
+      <div class="svc-title">🌊 Stream Service <span class="svc-port">:8084</span></div>
+      <div class="svc-desc">流式推流 + 多模态预处理</div>
+      <ul class="svc-items">
+        <li>WebSocket 实时聊天</li>
+        <li>流式 ASR (FunASR)</li>
+        <li>音频缓冲管理</li>
+        <li>ASR → LLM 自动链路</li>
+        <li>多模态附件预处理</li>
+        <li>SSE 推流</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div class="arrow-section">
+  <div style="display:flex;gap:60px;justify-content:center">
+    <div>
+      <div class="arrow-down" style="margin:0 auto"></div>
+      <div class="arrow-label">模型调用</div>
+    </div>
+    <div>
+      <div class="arrow-down" style="margin:0 auto"></div>
+      <div class="arrow-label">ASR 调用</div>
+    </div>
+    <div>
+      <div class="arrow-down" style="margin:0 auto"></div>
+      <div class="arrow-label">模型调用</div>
+    </div>
+  </div>
+</div>
+
+<!-- Layer 4: Infrastructure -->
+<div class="layer">
+  <span class="layer-label">Infrastructure Layer</span>
+  <div class="services-row">
+
+    <div class="svc svc-ollama">
+      <div class="svc-title">🦙 Ollama <span class="svc-port">:11434</span></div>
+      <div class="svc-desc">本地 LLM 推理引擎</div>
+      <ul class="svc-items">
+        <li>qwen2.5:7b (对话)</li>
+        <li>llava:7b (视觉)</li>
+        <li>nomic-embed-text (向量)</li>
+      </ul>
+    </div>
+
+    <div class="svc svc-funasr">
+      <div class="svc-title">🎤 FunASR <span class="svc-port">:8199</span></div>
+      <div class="svc-desc">阿里语音识别服务 (CPU)</div>
+      <ul class="svc-items">
+        <li>SenseVoice 模型</li>
+        <li>流式/批量转写</li>
+        <li>中文语音识别</li>
+      </ul>
+    </div>
+
+    <div class="svc svc-minio">
+      <div class="svc-title">📦 MinIO <span class="svc-port">:9000</span></div>
+      <div class="svc-desc">对象存储服务</div>
+      <ul class="svc-items">
+        <li>文件存储 (图片/音频/PDF)</li>
+        <li>预签名 URL 生成</li>
+        <li>Bucket 管理</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<!-- Request Flow -->
+<div class="flow-container">
+  <div class="flow-title">请求流转路径</div>
+
+  <div style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;color:#a855f7;margin-bottom:8px">1. 纯文本对话</div>
+    <div class="flow-row">
+      <span class="flow-node fn-client">Client</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-nginx">Nginx :8080</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-hermes">Hermes /v1/chat</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-litellm">LiteLLM</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-ollama">Ollama qwen2.5</span>
+      <span class="flow-label">type=chat</span>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;color:#3b82f6;margin-bottom:8px">2. 图片理解 (Vision)</div>
+    <div class="flow-row">
+      <span class="flow-node fn-client">Client</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-nginx">Nginx :8080</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-hermes">Hermes /v1/chat</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-stream">Stream Svc</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-litellm">LiteLLM</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-ollama">Ollama llava</span>
+      <span class="flow-label">type=vision, 自动切换模型</span>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;color:#eab308;margin-bottom:8px">3. 语音识别 (ASR)</div>
+    <div class="flow-row">
+      <span class="flow-node fn-client">Client</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-nginx">Nginx :8080</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-hermes">Hermes /v1/chat</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-stream">Stream Svc</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-funasr">FunASR SenseVoice</span>
+      <span class="flow-label">type=asr, 下载音频→上传转写</span>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px">
+    <div style="font-size:13px;font-weight:600;color:#22c55e;margin-bottom:8px">4. 多模态混合</div>
+    <div class="flow-row">
+      <span class="flow-node fn-client">Client</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-nginx">Nginx :8080</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-hermes">Hermes /v1/chat</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-stream">Stream Svc (预处理)</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-litellm">LiteLLM</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-ollama">Ollama (按内容路由)</span>
+      <span class="flow-label">type=multimodal, 附件预处理后路由</span>
+    </div>
+  </div>
+
+  <div>
+    <div style="font-size:13px;font-weight:600;color:#f97316;margin-bottom:8px">5. 流式语音转写 (WebSocket)</div>
+    <div class="flow-row">
+      <span class="flow-node fn-client">Client (WS)</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-nginx">Nginx :8080</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-stream">Stream Svc /v1/stream/asr</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-node fn-funasr">FunASR (ASR)</span>
+      <span style="color:#475569">|</span>
+      <span class="flow-node fn-litellm">LiteLLM (LLM)</span>
+      <span class="flow-label">type=stream_asr, 实时音频流+自动回复</span>
+    </div>
+  </div>
+</div>
+
+<!-- LiteLLM Load Balance Analysis -->
+<div class="flow-container">
+  <div class="flow-title">LiteLLM 负载均衡分析</div>
+  <table class="route-table">
+    <thead>
+      <tr>
+        <th>请求类型</th>
+        <th>经过 LiteLLM?</th>
+        <th>负载均衡方式</th>
+        <th>实际路径</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>纯文本对话</td>
+        <td><span class="badge badge-yes">是</span></td>
+        <td><span class="badge badge-lb">LiteLLM 负载均衡</span></td>
+        <td>Nginx → Hermes → LiteLLM → Ollama</td>
+      </tr>
+      <tr>
+        <td>图片理解 (Vision)</td>
+        <td><span class="badge badge-yes">是</span></td>
+        <td><span class="badge badge-lb">LiteLLM 负载均衡</span></td>
+        <td>Nginx → Hermes → Stream → LiteLLM → Ollama</td>
+      </tr>
+      <tr>
+        <td>语音识别 (HTTP ASR)</td>
+        <td><span class="badge badge-no">否</span></td>
+        <td><span class="badge badge-direct">直连 FunASR</span></td>
+        <td>Nginx → Hermes → Stream → FunASR</td>
+      </tr>
+      <tr>
+        <td>流式语音转写 (WS ASR)</td>
+        <td><span class="badge badge-partial">部分</span></td>
+        <td><span class="badge badge-direct">ASR 直连, LLM 经 LiteLLM</span></td>
+        <td>Nginx → Stream → FunASR (ASR) + LiteLLM (LLM)</td>
+      </tr>
+      <tr>
+        <td>多模态混合</td>
+        <td><span class="badge badge-yes">是</span></td>
+        <td><span class="badge badge-lb">LiteLLM 负载均衡</span></td>
+        <td>Nginx → Hermes → Stream → LiteLLM → Ollama</td>
+      </tr>
+      <tr>
+        <td>Embedding</td>
+        <td><span class="badge badge-yes">是</span></td>
+        <td><span class="badge badge-lb">LiteLLM 负载均衡</span></td>
+        <td>Nginx → LiteLLM → Ollama</td>
+      </tr>
+      <tr>
+        <td>MinIO 预签名</td>
+        <td><span class="badge badge-no">否</span></td>
+        <td><span class="badge badge-direct">Stream Svc 直连</span></td>
+        <td>Nginx → Stream → MinIO</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Unified API -->
+<div class="unified-box">
+  <h3>🔗 统一入口 API — POST /v1/chat</h3>
+  <p style="font-size:13px;color:#94a3b8;margin-bottom:14px">
+    前端只需调用一个端点，根据 <code style="color:#c084fc">type</code> 字段自动路由到对应后端服务。
+    type 缺失时根据 attachments 自动推断。
+  </p>
+  <div class="api-examples">
+    <div class="api-item">
+      <div class="type-tag type-chat">type: "chat"</div>
+      <code>{"type":"chat",
+ "messages":[...],
+ "model":"qwen2.5"}</code>
+    </div>
+    <div class="api-item">
+      <div class="type-tag type-vision">type: "vision"</div>
+      <code>{"type":"vision",
+ "messages":[...],
+ "model":"auto"}</code>
+    </div>
+    <div class="api-item">
+      <div class="type-tag type-asr">type: "asr"</div>
+      <code>{"type":"asr",
+ "file":"http://minio/audio.wav"}</code>
+    </div>
+    <div class="api-item">
+      <div class="type-tag type-multimodal">type: "multimodal"</div>
+      <code>{"type":"multimodal",
+ "prompt":"描述图片",
+ "attachments":[...]}</code>
+    </div>
+    <div class="api-item">
+      <div class="type-tag type-stream">type: "stream_asr"</div>
+      <code>{"type":"stream_asr",
+ "auto_llm":true,
+ "model":"qwen2.5"}</code>
+    </div>
+    <div class="api-item">
+      <div class="type-tag" style="color:#94a3b8">自动推断 (无 type)</div>
+      <code>{"messages":[...],
+ "attachments":[
+  {"type":"image","url":"..."}
+ ]}</code>
+    </div>
+  </div>
+</div>
+
+<!-- Nginx Role -->
+<div class="flow-container" style="margin-top:20px">
+  <div class="flow-title">Nginx 三大核心角色</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+    <div style="background:#0f172a;border-radius:8px;padding:16px;border:1px solid #14b8a630">
+      <div style="font-size:14px;font-weight:700;color:#5eead4;margin-bottom:8px">1. 统一入口 & 反向代理</div>
+      <div style="font-size:12px;color:#94a3b8">
+        前端只需访问 <code style="color:#5eead4">localhost:8080</code>，Nginx 按路径路由到不同后端服务，隐藏内部拓扑。
+      </div>
+    </div>
+    <div style="background:#0f172a;border-radius:8px;padding:16px;border:1px solid #14b8a630">
+      <div style="font-size:14px;font-weight:700;color:#5eead4;margin-bottom:8px">2. 负载均衡</div>
+      <div style="font-size:12px;color:#94a3b8">
+        <code style="color:#d8b4fe">least_conn</code> — 对话/路由 (长请求最少连接)<br>
+        <code style="color:#86efac">ip_hash</code> — WebSocket (会话亲和，连接保持)<br>
+        <code style="color:#fdba74">least_conn</code> — Hermes Agent
+      </div>
+    </div>
+    <div style="background:#0f172a;border-radius:8px;padding:16px;border:1px solid #14b8a630">
+      <div style="font-size:14px;font-weight:700;color:#5eead4;margin-bottom:8px">3. 协议适配</div>
+      <div style="font-size:12px;color:#94a3b8">
+        WebSocket 升级 (<code style="color:#86efac">Upgrade</code> 头)<br>
+        SSE 流式 (<code style="color:#86efac">proxy_buffering off</code>)<br>
+        大文件上传 (<code style="color:#86efac">client_max_body_size 100m</code>)
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</body>
+</html>

@@ -30,8 +30,13 @@ from hermes.message_queue import (
     QUEUE_FEEDBACK,
 )
 from hermes.dispatch_worker import DispatchWorker
+import httpx as _httpx
 
 logger = logging.getLogger(__name__)
+
+# ── 统一入口内部路由配置 ─────────────────────────────────────────
+_LITELLM_INTERNAL = os.getenv("LITELLM_INTERNAL_URL", "http://litellm:4000")
+_STREAM_INTERNAL = os.getenv("STREAM_INTERNAL_URL", "http://stream-service:8084")
 
 # Note: Actual logging configuration is set in __main__ via uvicorn log_config.
 # This early basicConfig ensures logs are visible during module import phase.
@@ -178,6 +183,14 @@ if STATIC_DIR.exists():
     @app.get("/dashboard.html")
     async def dashboard():
         return FileResponse(STATIC_DIR / "dashboard.html", media_type="text/html")
+
+    @app.get("/new_dashboard.html")
+    async def new_dashboard():
+        return FileResponse(
+            STATIC_DIR / "new_dashboard.html",
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -389,6 +402,201 @@ async def _execute_routing(request: HermesDispatchRequest, routing: dict):
         raise RuntimeError(f"Unknown route path: {path}")
 
 
+@app.post("/v1/chat", summary="统一入口 — 根据 type 字段自动路由到对应后端服务")
+async def unified_chat_entry(request: Request):
+    """统一入口接口 — 前端只需调用 POST /v1/chat，根据 type 自动路由。
+
+    请求体:
+    {
+      "type": "chat|vision|asr|multimodal|stream_asr",
+      "model": "auto",
+      "messages": [{"role": "user", "content": "..."}],
+      "attachments": [{"type": "image", "url": "..."}],
+      "prompt": "...",
+      "stream": false,
+      "temperature": 0.7,
+      "auto_llm": false,
+      "file": "http://..."
+    }
+
+    路由规则:
+      - chat/vision/asr/multimodal → LiteLLM Proxy
+      - stream_asr → Stream Service (返回 WebSocket 地址)
+      - type 缺失 → 根据 attachments 自动推断
+    """
+    body = await request.json()
+    req_type = body.get("type", "")
+
+    # type 缺失时根据 attachments 自动推断
+    if not req_type:
+        attachments = body.get("attachments", [])
+        if attachments:
+            types = {a.get("type", "") for a in attachments}
+            if "image" in types:
+                req_type = "vision"
+            elif "audio" in types:
+                req_type = "asr"
+            else:
+                req_type = "multimodal"
+        else:
+            req_type = "chat"
+
+    # ── chat / vision → LiteLLM /v1/chat/completions ──
+    if req_type in ("chat", "vision"):
+        messages = body.get("messages", [])
+        model = body.get("model", "qwen2.5")
+        if req_type == "vision" and model in ("auto", "qwen2.5"):
+            model = "llava"
+        prompt = body.get("prompt", "")
+        attachments = body.get("attachments", [])
+
+        # 处理 attachments: 下载图片并转为 base64 data URI
+        if attachments:
+            image_urls = []
+            for att in attachments:
+                if att.get("type") == "image" and att.get("url"):
+                    url = att["url"]
+                    if url.startswith("data:"):
+                        image_urls.append(url)
+                    else:
+                        try:
+                            async with _httpx.AsyncClient(timeout=30.0) as dl_client:
+                                img_resp = await dl_client.get(url)
+                                img_resp.raise_for_status()
+                                import base64
+                                b64 = base64.b64encode(img_resp.content).decode("utf-8")
+                                ct = img_resp.headers.get("content-type", "image/png")
+                                image_urls.append(f"data:{ct};base64,{b64}")
+                        except Exception as e:
+                            return {"type": req_type, "error": f"下载图片失败: {e}"}
+            if image_urls:
+                content_parts = [{"type": "text", "text": prompt or "描述这张图片"}]
+                for iu in image_urls:
+                    content_parts.append({"type": "image_url", "image_url": {"url": iu}})
+                messages = [{"role": "user", "content": content_parts}]
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": body.get("stream", False),
+            "temperature": body.get("temperature", 0.7),
+        }
+        headers = {"Content-Type": "application/json"}
+        litellm_key = os.getenv("LITELLM_MASTER_KEY", "sk-litellm-local")
+        if litellm_key:
+            headers["Authorization"] = f"Bearer {litellm_key}"
+
+        target_url = f"{_LITELLM_INTERNAL}/v1/chat/completions"
+
+        async with _httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(target_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    # ── asr → stream-service /v1/stream/asr/file ──
+    elif req_type == "asr":
+        file_url = body.get("file", "")
+        if not file_url:
+            return {"type": "asr", "error": "缺少 file 字段 (音频文件 URL)", "text": ""}
+
+        # 下载音频文件后转发到 stream-service 的 ASR 文件上传接口
+        try:
+            async with _httpx.AsyncClient(timeout=60.0) as client:
+                # 下载音频文件
+                audio_resp = await client.get(file_url)
+                audio_resp.raise_for_status()
+                audio_bytes = audio_resp.content
+
+                # 上传到 stream-service
+                files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+                asr_resp = await client.post(
+                    f"{_STREAM_INTERNAL}/v1/stream/asr/file",
+                    files=files,
+                )
+                asr_resp.raise_for_status()
+                result = asr_resp.json()
+                return {"type": "asr", "text": result.get("text", ""), "model": result.get("provider", "funasr")}
+        except Exception as e:
+            return {"type": "asr", "error": str(e), "text": ""}
+
+    # ── multimodal → LiteLLM /v1/chat/completions (处理 attachments) ──
+    elif req_type == "multimodal":
+        messages = body.get("messages", [])
+        prompt = body.get("prompt", "")
+        attachments = body.get("attachments", [])
+        model = body.get("model", "qwen2.5")
+
+        # 如果有 prompt 但没有 messages，构造 messages
+        if prompt and not messages:
+            messages = [{"role": "user", "content": prompt}]
+
+        # 处理 attachments: 下载图片并转为 base64 data URI
+        if attachments:
+            image_urls = []
+            for att in attachments:
+                if att.get("type") == "image" and att.get("url"):
+                    url = att["url"]
+                    if url.startswith("data:"):
+                        image_urls.append(url)
+                    else:
+                        try:
+                            async with _httpx.AsyncClient(timeout=30.0) as dl_client:
+                                img_resp = await dl_client.get(url)
+                                img_resp.raise_for_status()
+                                import base64
+                                b64 = base64.b64encode(img_resp.content).decode("utf-8")
+                                ct = img_resp.headers.get("content-type", "image/png")
+                                image_urls.append(f"data:{ct};base64,{b64}")
+                        except Exception as e:
+                            return {"type": "multimodal", "error": f"下载图片失败: {e}"}
+            if image_urls:
+                content_parts = [{"type": "text", "text": prompt or "请处理以下附件"}]
+                for iu in image_urls:
+                    content_parts.append({"type": "image_url", "image_url": {"url": iu}})
+                messages = [{"role": "user", "content": content_parts}]
+
+        # 检测是否需要切换 vision 模型
+        has_image = any(a.get("type") == "image" for a in attachments)
+        if has_image and model in ("auto", "qwen2.5"):
+            model = "llava"
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": body.get("stream", False),
+            "temperature": body.get("temperature", 0.7),
+        }
+
+        headers = {"Content-Type": "application/json"}
+        litellm_key = os.getenv("LITELLM_MASTER_KEY", "sk-litellm-local")
+        if litellm_key:
+            headers["Authorization"] = f"Bearer {litellm_key}"
+        async with _httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{_LITELLM_INTERNAL}/v1/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    # ── stream_asr → 返回 Stream Service WebSocket 地址 ──
+    elif req_type == "stream_asr":
+        return {
+            "type": "stream_asr",
+            "protocol": "websocket",
+            "url": "/v1/stream/asr",
+            "hint": "请使用 WebSocket 连接 ws://<host>/v1/stream/asr 进行流式语音转写",
+            "config": {
+                "auto_llm": body.get("auto_llm", False),
+                "model": body.get("model", "qwen2.5"),
+            },
+        }
+
+    else:
+        raise HTTPException(status_code=400, detail=f"未知的 type: {req_type}")
+
+
 @app.get("/health", summary="Hermes health check")
 async def health():
     return {
@@ -406,6 +614,44 @@ async def health():
         "hermes_agent_enabled": hermes_agent.enabled,
         "agent_skills_count": len(hermes_agent.skills),
     }
+
+
+@app.get("/v1/system/metrics", summary="System resource metrics for Dashboard")
+async def system_metrics():
+    """返回 CPU、内存、GPU 使用率等系统指标"""
+    try:
+        cpu = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        mem_pct = mem.percent
+        # 尝试获取 GPU 信息
+        gpu_pct = 0
+        vram_pct = 0
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+                 "--format=csv,nounits,noheader"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                parts = result.stdout.strip().split(", ")
+                if len(parts) >= 3:
+                    gpu_pct = float(parts[0])
+                    vram_used = float(parts[1])
+                    vram_total = float(parts[2])
+                    vram_pct = (vram_used / vram_total * 100) if vram_total > 0 else 0
+        except Exception:
+            pass
+        return {
+            "cpu": cpu,
+            "mem": mem_pct,
+            "gpu": gpu_pct,
+            "vram": vram_pct,
+            "mem_total_gb": round(mem.total / (1024**3), 1),
+            "mem_used_gb": round(mem.used / (1024**3), 1),
+        }
+    except Exception as e:
+        return {"cpu": 0, "mem": 0, "gpu": 0, "vram": 0, "error": str(e)}
 
 
 @app.get("/state", summary="Hermes learning state")

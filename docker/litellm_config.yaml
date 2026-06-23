@@ -7,11 +7,6 @@ model_list:
   # ---------- 本地对话模型 ----------
   - model_name: qwen2.5
     litellm_params:
-      model: ollama/qwen2.5:3b
-      api_base: http://ollama:11434
-      timeout: 120
-  - model_name: qwen2.5
-    litellm_params:
       model: ollama/qwen2.5:7b
       api_base: http://ollama:11434
       timeout: 180
@@ -43,6 +38,13 @@ model_list:
       api_key: os.environ/DOUBAO_ASR_KEY
       timeout: 60
 
+  # ---------- FunASR 本地语音识别 ----------
+  - model_name: funasr
+    litellm_params:
+      model: openai/whisper-1
+      api_base: http://funasr:8199/v1
+      timeout: 60
+
   # ---------- Embedding ----------
   - model_name: bge-embedding
     litellm_params:
@@ -60,7 +62,8 @@ router_settings:
   model_group_alias:
     chat: qwen2.5
     vision: llava
-    asr: doubao-asr
+    asr: funasr
+    asr-cloud: doubao-asr
     embedding: bge-embedding
 
 general_settings:

@@ -274,6 +274,10 @@ spec:
                   name: openclaw-secrets
                   key: doubao-asr-key
                   optional: true
+            - name: FUNASR_URL
+              value: "http://funasr:8199"
+            - name: FUNASR_MODEL
+              value: "sensevoice"
           resources:
             requests:
               memory: "256Mi"
@@ -337,6 +341,62 @@ spec:
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 600  # WebSocket 需要更长的稳定窗口
+
+---
+# ==================== FunASR Deployment ====================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: funasr
+  namespace: openclaw
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: funasr
+  template:
+    metadata:
+      labels:
+        app: funasr
+    spec:
+      containers:
+        - name: funasr
+          image: registry.cn-hangzhou.aliyuncs.com/funasr/funasr:latest
+          command: ["python", "-m", "funasr_server", "--device", "cpu", "--model", "sensevoice", "--port", "8199"]
+          ports:
+            - containerPort: 8199
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8199
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8199
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: funasr
+  namespace: openclaw
+spec:
+  selector:
+    app: funasr
+  ports:
+    - port: 8199
+      targetPort: 8199
+  type: ClusterIP
 
 ---
 # ==================== Ollama Deployment (GPU) ====================

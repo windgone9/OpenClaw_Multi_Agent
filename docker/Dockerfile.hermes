@@ -8,14 +8,15 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖
-COPY ../hermes/requirements.txt ./hermes-requirements.txt 2>/dev/null || true
-RUN pip install --no-cache-dir fastapi uvicorn httpx pydantic python-dotenv
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    fastapi uvicorn httpx pydantic python-dotenv psutil \
+    PyMuPDF python-docx minio
 
 # 复制项目代码
-COPY ../hermes ./hermes
-COPY ../.hermes ./.hermes
-
-WORKDIR /app
+COPY hermes ./hermes
+COPY .hermes ./.hermes
+COPY static ./static
 
 EXPOSE 8082
 
