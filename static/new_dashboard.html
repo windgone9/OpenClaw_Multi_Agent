@@ -1374,7 +1374,7 @@ async function runE2ETests() {
 }
 
 async function e2eChat(model) {
-  var input = { type: 'chat', messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], model: model };
+  var input = { type: 'chat', messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], model: model, max_tokens: 64 };
   var t0 = performance.now();
   try {
     var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });

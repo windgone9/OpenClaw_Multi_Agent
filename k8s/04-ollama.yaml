@@ -43,6 +43,8 @@ spec:
           env:
             - name: OLLAMA_HOST
               value: "0.0.0.0"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "30m"
           livenessProbe:
             httpGet:
               path: /api/tags

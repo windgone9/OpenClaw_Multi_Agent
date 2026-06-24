@@ -480,7 +480,12 @@ async def unified_chat_entry(request: Request):
             "messages": messages,
             "stream": body.get("stream", False),
             "temperature": body.get("temperature", 0.7),
+            "max_tokens": body.get("max_tokens", 256),
+            "max_completion_tokens": body.get("max_completion_tokens"),
         }
+        # 清理 None 值（Ollama 不接受 null 的 max_completion_tokens）
+        payload = {k: v for k, v in payload.items() if v is not None}
+
         headers = {"Content-Type": "application/json"}
         litellm_key = os.getenv("LITELLM_MASTER_KEY", "sk-litellm-local")
         if litellm_key:
