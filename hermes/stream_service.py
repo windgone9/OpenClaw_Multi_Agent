@@ -31,6 +31,41 @@ from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)
 
+# ── 持久 HTTP 客户端（连接池复用）──────────────────────────────────────
+_funasr_client: httpx.AsyncClient | None = None
+_litellm_stream_client: httpx.AsyncClient | None = None
+_ollama_stream_client: httpx.AsyncClient | None = None
+_download_client: httpx.AsyncClient | None = None
+
+
+async def _init_persistent_clients():
+    """初始化持久 HTTP 客户端（在 FastAPI lifespan 中调用）。"""
+    global _funasr_client, _litellm_stream_client, _ollama_stream_client, _download_client
+    _funasr_client = httpx.AsyncClient(
+        timeout=60.0,
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+    _litellm_stream_client = httpx.AsyncClient(
+        timeout=120.0,
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=3),
+    )
+    _ollama_stream_client = httpx.AsyncClient(
+        timeout=120.0,
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+    _download_client = httpx.AsyncClient(
+        timeout=30.0,
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+
+
+async def _close_persistent_clients():
+    """关闭持久 HTTP 客户端（在 FastAPI lifespan 退出时调用）。"""
+    for name, client in [("funasr", _funasr_client), ("litellm", _litellm_stream_client),
+                         ("ollama", _ollama_stream_client), ("download", _download_client)]:
+        if client:
+            await client.aclose()
+
 # ── 配置 ──────────────────────────────────────────────────────────
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -79,19 +114,18 @@ async def transcribe_with_funasr(audio_chunk: bytes) -> str:
     if not FUNASR_URL:
         raise RuntimeError("FUNASR_URL 未配置")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        files = {"file": ("audio.wav", audio_chunk, "audio/wav")}
-        data = {"model": FUNASR_MODEL, "response_format": "json"}
-        resp = await client.post(
-            f"{FUNASR_URL}/v1/audio/transcriptions",
-            files=files, data=data,
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        text = result.get("text", "")
-        if text:
-            return _clean_funasr_text(text)
-        return ""
+    files = {"file": ("audio.wav", audio_chunk, "audio/wav")}
+    data = {"model": FUNASR_MODEL, "response_format": "json"}
+    resp = await _funasr_client.post(
+        f"{FUNASR_URL}/v1/audio/transcriptions",
+        files=files, data=data,
+    )
+    resp.raise_for_status()
+    result = resp.json()
+    text = result.get("text", "")
+    if text:
+        return _clean_funasr_text(text)
+    return ""
 
 
 async def transcribe_with_doubao(audio_chunk: bytes, format: str = "wav") -> str:
@@ -105,16 +139,15 @@ async def transcribe_with_doubao(audio_chunk: bytes, format: str = "wav") -> str
     }
     params = {"format": format, "rate": "16000"}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            DOUBAO_ASR_URL,
-            content=audio_chunk,
-            headers=headers,
-            params=params,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("result", {}).get("text", "")
+    resp = await _download_client.post(
+        DOUBAO_ASR_URL,
+        content=audio_chunk,
+        headers=headers,
+        params=params,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("result", {}).get("text", "")
 
 
 async def transcribe_with_ollama(audio_chunk: bytes) -> str:
@@ -128,15 +161,14 @@ async def transcribe_with_ollama(audio_chunk: bytes) -> str:
         "audio": audio_b64,
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            resp = await client.post(f"{OLLAMA_URL}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("response", "")
-        except Exception as e:
-            logger.warning("[ASR] Ollama Whisper 失败: %s", e)
-            return ""
+    try:
+        resp = await _ollama_stream_client.post(f"{OLLAMA_URL}/api/generate", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("response", "")
+    except Exception as e:
+        logger.warning("[ASR] Ollama Whisper 失败: %s", e)
+        return ""
 
 
 async def transcribe_audio(audio_chunk: bytes, format: str = "wav") -> str:
@@ -217,38 +249,36 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
             headers["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
         try:
             # 先做非流式请求检查连通性，避免流式挂起
-            async with httpx.AsyncClient(timeout=30.0) as probe_client:
-                probe_resp = await probe_client.post(
-                    f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
-                    json={**payload, "stream": False, "max_tokens": 1},
-                    headers=headers,
+            probe_resp = await _litellm_stream_client.post(
+                f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
+                json={**payload, "stream": False, "max_tokens": 1},
+                headers=headers,
+            )
+            if probe_resp.status_code == 401:
+                logger.warning("[StreamLLM] LiteLLM 返回 401 Unauthorized, 检查 LITELLM_MASTER_KEY 配置")
+                raise httpx.HTTPStatusError(
+                    "LiteLLM 401 Unauthorized",
+                    request=probe_resp.request,
+                    response=probe_resp,
                 )
-                if probe_resp.status_code == 401:
-                    logger.warning("[StreamLLM] LiteLLM 返回 401 Unauthorized, 检查 LITELLM_MASTER_KEY 配置")
-                    raise httpx.HTTPStatusError(
-                        "LiteLLM 401 Unauthorized",
-                        request=probe_resp.request,
-                        response=probe_resp,
-                    )
-                # 其他非2xx也抛异常触发fallback
-                probe_resp.raise_for_status()
+            # 其他非2xx也抛异常触发fallback
+            probe_resp.raise_for_status()
             logger.info("[StreamLLM] LiteLLM 连通性检查通过, 开始流式请求")
 
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
-                    json=payload,
-                    headers=headers,
-                ) as resp:
-                    resp.raise_for_status()
-                    logger.info("[StreamLLM] LiteLLM 流式响应开始, status=%d", resp.status_code)
-                    line_count = 0
-                    async for line in resp.aiter_lines():
-                        if line.startswith("data: "):
-                            line_count += 1
-                            yield line + "\n\n"
-                    logger.info("[StreamLLM] LiteLLM 流式响应结束, lines=%d", line_count)
+            async with _litellm_stream_client.stream(
+                "POST",
+                f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
+                json=payload,
+                headers=headers,
+            ) as resp:
+                resp.raise_for_status()
+                logger.info("[StreamLLM] LiteLLM 流式响应开始, status=%d", resp.status_code)
+                line_count = 0
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        line_count += 1
+                        yield line + "\n\n"
+                logger.info("[StreamLLM] LiteLLM 流式响应结束, lines=%d", line_count)
             return
         except Exception as e:
             logger.warning("[StreamLLM] 外部 LiteLLM 失败, fallback 到 Ollama: %s", e)
@@ -261,16 +291,15 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
         "stream": True,
     }
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{OLLAMA_URL}/v1/chat/completions",
-                json=ollama_payload,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if line.startswith("data: "):
-                        yield line + "\n\n"
+        async with _ollama_stream_client.stream(
+            "POST",
+            f"{OLLAMA_URL}/v1/chat/completions",
+            json=ollama_payload,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if line.startswith("data: "):
+                    yield line + "\n\n"
     except Exception as e:
         logger.error("[StreamLLM] Ollama 直连也失败: %s", e)
         yield f"data: {{\"error\": \"LLM 调用失败: {e}\"}}\n\n"
@@ -808,10 +837,19 @@ async def stream_health():
 
 def create_app() -> FastAPI:
     """创建 Stream Service 独立 FastAPI 应用。"""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app):
+        await _init_persistent_clients()
+        yield
+        await _close_persistent_clients()
+
     app = FastAPI(
         title="Stream Service",
         description="实时推流服务 — WebSocket/SSE + FunASR/豆包 ASR",
         version="2.0.0",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,

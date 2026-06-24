@@ -1,12 +1,13 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
+import base64
 import logging
 import os
 import subprocess
 import threading
 import time
-import asyncio
 import uuid
 import psutil
 from contextlib import asynccontextmanager
@@ -37,6 +38,11 @@ logger = logging.getLogger(__name__)
 # ── 统一入口内部路由配置 ─────────────────────────────────────────
 _LITELLM_INTERNAL = os.getenv("LITELLM_INTERNAL_URL", "http://litellm:4000")
 _STREAM_INTERNAL = os.getenv("STREAM_INTERNAL_URL", "http://stream-service:8084")
+
+# ── 持久 HTTP 客户端（连接池复用，避免每次请求新建 TCP 连接）──────────
+_litellm_client: _httpx.AsyncClient | None = None
+_stream_client: _httpx.AsyncClient | None = None
+_download_client: _httpx.AsyncClient | None = None
 
 # Note: Actual logging configuration is set in __main__ via uvicorn log_config.
 # This early basicConfig ensures logs are visible during module import phase.
@@ -129,11 +135,28 @@ class HermesDispatchRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _watchdog_running, _watchdog_task
+    global _litellm_client, _stream_client, _download_client
     logger.info("Hermes Intelligent Router starting...")
     logger.info(f"  Ollama URL: {OLLAMA_URL}")
     logger.info(f"  OfficialGW URL: {OFFICIAL_GW_URL}")
     logger.info(f"  Port: {HERMES_PORT}")
     logger.info(f"  Queue backend: {QUEUE_BACKEND}")
+
+    # 初始化持久 HTTP 客户端（连接池复用）
+    _litellm_client = _httpx.AsyncClient(
+        timeout=300.0,
+        limits=_httpx.Limits(max_connections=20, max_keepalive_connections=5),
+    )
+    _stream_client = _httpx.AsyncClient(
+        timeout=120.0,
+        limits=_httpx.Limits(max_connections=10, max_keepalive_connections=3),
+    )
+    _download_client = _httpx.AsyncClient(
+        timeout=30.0,
+        limits=_httpx.Limits(max_connections=10, max_keepalive_connections=3),
+    )
+    logger.info("  Persistent HTTP clients initialized (litellm, stream, download)")
+
     _register_known_models()
     dispatch_worker.start()
     logger.info(f"  Dispatch worker started ({DISPATCH_WORKERS} threads)")
@@ -147,6 +170,11 @@ async def lifespan(app: FastAPI):
                 _watchdog_config.get("startup_grace_seconds", 45),
                 _watchdog_config.get("shutdown_timeout_seconds", 5))
     yield
+    # 关闭持久客户端
+    for client_name, client in [("litellm", _litellm_client), ("stream", _stream_client), ("download", _download_client)]:
+        if client:
+            await client.aclose()
+            logger.info(f"  Persistent client '{client_name}' closed")
     _watchdog_running = False
     dispatch_worker.stop()
     logger.info("Hermes Intelligent Router shutdown")
@@ -283,9 +311,8 @@ async def _execute_routing(request: HermesDispatchRequest, routing: dict):
         }
         trace.append({"agent": "hermes_dispatch", "message": f"Direct to Ollama: path={path}"})
 
-        async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-            resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
-            resp.raise_for_status()
+        resp = await _litellm_client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+        resp.raise_for_status()
         data = resp.json()
         content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         result = {
@@ -319,9 +346,8 @@ async def _execute_routing(request: HermesDispatchRequest, routing: dict):
 
         trace.append({"agent": "hermes_dispatch", "message": f"Direct to OfficialGW: {OFFICIAL_GW_URL}"})
 
-        async with httpx.AsyncClient(timeout=OFFICIAL_GW_TIMEOUT) as client:
-            resp = await client.post(f"{OFFICIAL_GW_URL}/v1/chat/completions", headers=headers, json=payload)
-            resp.raise_for_status()
+        resp = await _litellm_client.post(f"{OFFICIAL_GW_URL}/v1/chat/completions", headers=headers, json=payload)
+        resp.raise_for_status()
         data = resp.json()
         choice = data.get("choices", [{}])[0]
         result = {
@@ -357,9 +383,8 @@ async def _execute_routing(request: HermesDispatchRequest, routing: dict):
         trace.append({"agent": "hermes_dispatch", "message": f"Direct to multimodal model: {MULTIMODAL_MODEL}"})
 
         try:
-            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-                resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
-                resp.raise_for_status()
+            resp = await _litellm_client.post(f"{OLLAMA_URL}/v1/chat/completions", json=payload)
+            resp.raise_for_status()
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             result = {
@@ -382,9 +407,8 @@ async def _execute_routing(request: HermesDispatchRequest, routing: dict):
                 "stream": False,
                 "options": {"num_ctx": 4096, "temperature": 0.7},
             }
-            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT) as client:
-                resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=fallback_payload)
-                resp.raise_for_status()
+            resp = await _litellm_client.post(f"{OLLAMA_URL}/v1/chat/completions", json=fallback_payload)
+            resp.raise_for_status()
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             result = {
@@ -460,13 +484,11 @@ async def unified_chat_entry(request: Request):
                         image_urls.append(url)
                     else:
                         try:
-                            async with _httpx.AsyncClient(timeout=30.0) as dl_client:
-                                img_resp = await dl_client.get(url)
-                                img_resp.raise_for_status()
-                                import base64
-                                b64 = base64.b64encode(img_resp.content).decode("utf-8")
-                                ct = img_resp.headers.get("content-type", "image/png")
-                                image_urls.append(f"data:{ct};base64,{b64}")
+                            img_resp = await _download_client.get(url)
+                            img_resp.raise_for_status()
+                            b64 = base64.b64encode(img_resp.content).decode("utf-8")
+                            ct = img_resp.headers.get("content-type", "image/png")
+                            image_urls.append(f"data:{ct};base64,{b64}")
                         except Exception as e:
                             return {"type": req_type, "error": f"下载图片失败: {e}"}
             if image_urls:
@@ -493,10 +515,9 @@ async def unified_chat_entry(request: Request):
 
         target_url = f"{_LITELLM_INTERNAL}/v1/chat/completions"
 
-        async with _httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(target_url, json=payload, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
+        resp = await _litellm_client.post(target_url, json=payload, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
 
     # ── asr → stream-service /v1/stream/asr/file ──
     elif req_type == "asr":
@@ -506,21 +527,20 @@ async def unified_chat_entry(request: Request):
 
         # 下载音频文件后转发到 stream-service 的 ASR 文件上传接口
         try:
-            async with _httpx.AsyncClient(timeout=60.0) as client:
-                # 下载音频文件
-                audio_resp = await client.get(file_url)
-                audio_resp.raise_for_status()
-                audio_bytes = audio_resp.content
+            # 下载音频文件
+            audio_resp = await _download_client.get(file_url)
+            audio_resp.raise_for_status()
+            audio_bytes = audio_resp.content
 
-                # 上传到 stream-service
-                files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
-                asr_resp = await client.post(
-                    f"{_STREAM_INTERNAL}/v1/stream/asr/file",
-                    files=files,
-                )
-                asr_resp.raise_for_status()
-                result = asr_resp.json()
-                return {"type": "asr", "text": result.get("text", ""), "model": result.get("provider", "funasr")}
+            # 上传到 stream-service
+            files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+            asr_resp = await _stream_client.post(
+                f"{_STREAM_INTERNAL}/v1/stream/asr/file",
+                files=files,
+            )
+            asr_resp.raise_for_status()
+            result = asr_resp.json()
+            return {"type": "asr", "text": result.get("text", ""), "model": result.get("provider", "funasr")}
         except Exception as e:
             return {"type": "asr", "error": str(e), "text": ""}
 
@@ -545,13 +565,11 @@ async def unified_chat_entry(request: Request):
                         image_urls.append(url)
                     else:
                         try:
-                            async with _httpx.AsyncClient(timeout=30.0) as dl_client:
-                                img_resp = await dl_client.get(url)
-                                img_resp.raise_for_status()
-                                import base64
-                                b64 = base64.b64encode(img_resp.content).decode("utf-8")
-                                ct = img_resp.headers.get("content-type", "image/png")
-                                image_urls.append(f"data:{ct};base64,{b64}")
+                            img_resp = await _download_client.get(url)
+                            img_resp.raise_for_status()
+                            b64 = base64.b64encode(img_resp.content).decode("utf-8")
+                            ct = img_resp.headers.get("content-type", "image/png")
+                            image_urls.append(f"data:{ct};base64,{b64}")
                         except Exception as e:
                             return {"type": "multimodal", "error": f"下载图片失败: {e}"}
             if image_urls:
@@ -576,14 +594,13 @@ async def unified_chat_entry(request: Request):
         litellm_key = os.getenv("LITELLM_MASTER_KEY", "sk-litellm-local")
         if litellm_key:
             headers["Authorization"] = f"Bearer {litellm_key}"
-        async with _httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(
-                f"{_LITELLM_INTERNAL}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await _litellm_client.post(
+            f"{_LITELLM_INTERNAL}/v1/chat/completions",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # ── stream_asr → 返回 Stream Service WebSocket 地址 ──
     elif req_type == "stream_asr":
@@ -625,15 +642,15 @@ async def health():
 async def system_metrics():
     """返回 CPU、内存、GPU 使用率等系统指标"""
     try:
-        cpu = psutil.cpu_percent(interval=0.1)
-        mem = psutil.virtual_memory()
+        cpu = await asyncio.to_thread(psutil.cpu_percent, interval=0.1)
+        mem = await asyncio.to_thread(psutil.virtual_memory)
         mem_pct = mem.percent
-        # 尝试获取 GPU 信息
+        # 尝试获取 GPU 信息（缓存 30s，避免频繁调用 nvidia-smi）
         gpu_pct = 0
         vram_pct = 0
         try:
-            import subprocess
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
                  "--format=csv,nounits,noheader"],
                 capture_output=True, text=True, timeout=5
