@@ -1,0 +1,9 @@
+# ============================================
+# Namespace
+# ============================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openclaw
+  labels:
+    app.kubernetes.io/part-of: openclaw

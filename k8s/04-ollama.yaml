@@ -1,0 +1,95 @@
+# ============================================
+# Ollama — 本地 LLM 推理服务
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: openclaw
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # 单副本，确保 PV 不会冲突
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "12Gi"
+              cpu: "4"
+          # GPU 支持（远程服务器启用）
+          # resources:
+          #   limits:
+          #     nvidia.com/gpu: 1
+          env:
+            - name: OLLAMA_HOST
+              value: "0.0.0.0"
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: ollama-data
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+      # GPU 节点调度（远程服务器启用）
+      # nodeSelector:
+      #   nvidia.com/gpu.present: "true"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: openclaw
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+  type: ClusterIP
+
+---
+# NodePort 暴露（调试用，Kind 通过 extraPortMappings 映射）
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-external
+  namespace: openclaw
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434
+      nodePort: 31143
+  type: NodePort

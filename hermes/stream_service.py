@@ -216,7 +216,25 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
         if LITELLM_MASTER_KEY:
             headers["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
+            # 先做非流式请求检查连通性，避免流式挂起
+            async with httpx.AsyncClient(timeout=30.0) as probe_client:
+                probe_resp = await probe_client.post(
+                    f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
+                    json={**payload, "stream": False, "max_tokens": 1},
+                    headers=headers,
+                )
+                if probe_resp.status_code == 401:
+                    logger.warning("[StreamLLM] LiteLLM 返回 401 Unauthorized, 检查 LITELLM_MASTER_KEY 配置")
+                    raise httpx.HTTPStatusError(
+                        "LiteLLM 401 Unauthorized",
+                        request=probe_resp.request,
+                        response=probe_resp,
+                    )
+                # 其他非2xx也抛异常触发fallback
+                probe_resp.raise_for_status()
+            logger.info("[StreamLLM] LiteLLM 连通性检查通过, 开始流式请求")
+
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
                     "POST",
                     f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
@@ -224,12 +242,16 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
                     headers=headers,
                 ) as resp:
                     resp.raise_for_status()
+                    logger.info("[StreamLLM] LiteLLM 流式响应开始, status=%d", resp.status_code)
+                    line_count = 0
                     async for line in resp.aiter_lines():
                         if line.startswith("data: "):
+                            line_count += 1
                             yield line + "\n\n"
+                    logger.info("[StreamLLM] LiteLLM 流式响应结束, lines=%d", line_count)
             return
         except Exception as e:
-            logger.warning("[StreamLLM] 外部 LiteLLM 流式失败, fallback 到 Ollama: %s", e)
+            logger.warning("[StreamLLM] 外部 LiteLLM 失败, fallback 到 Ollama: %s", e)
 
     # 直接调用 Ollama 流式
     ollama_model = model.split("/")[-1] if "/" in model else model
@@ -238,16 +260,20 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
         "messages": [{"role": "user", "content": text}],
         "stream": True,
     }
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        async with client.stream(
-            "POST",
-            f"{OLLAMA_URL}/v1/chat/completions",
-            json=ollama_payload,
-        ) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if line.startswith("data: "):
-                    yield line + "\n\n"
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{OLLAMA_URL}/v1/chat/completions",
+                json=ollama_payload,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        yield line + "\n\n"
+    except Exception as e:
+        logger.error("[StreamLLM] Ollama 直连也失败: %s", e)
+        yield f"data: {{\"error\": \"LLM 调用失败: {e}\"}}\n\n"
 
 
 async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
@@ -273,6 +299,8 @@ async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
                     json=payload,
                     headers=headers,
                 )
+                if resp.status_code == 401:
+                    logger.warning("[StreamLLM] LiteLLM 同步请求返回 401, 检查 LITELLM_MASTER_KEY")
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -287,11 +315,15 @@ async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
         "stream": False,
         "options": {"num_ctx": 4096, "temperature": 0.7},
     }
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=ollama_payload)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=ollama_payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error("[StreamLLM] Ollama 同步请求也失败: %s", e)
+        return ""
 
 
 # ── API Router ────────────────────────────────────────────────────
@@ -343,6 +375,7 @@ async def stream_websocket(websocket: WebSocket):
                     # 文本消息 → 直接调用 LLM
                     logger.info("[StreamWS] [%s] 文本消息: %.50s", session_id, content[:50])
                     full_response = ""
+                    chunk_count = 0
 
                     async for sse_line in stream_llm_response(content, model):
                         # 解析 SSE 数据
@@ -355,6 +388,7 @@ async def stream_websocket(websocket: WebSocket):
                                 delta = data.get("choices", [{}])[0].get("delta", {})
                                 chunk_text = delta.get("content", "")
                                 if chunk_text:
+                                    chunk_count += 1
                                     full_response += chunk_text
                                     await websocket.send_json({
                                         "type": "llm_chunk",
@@ -362,6 +396,8 @@ async def stream_websocket(websocket: WebSocket):
                                     })
                             except json.JSONDecodeError:
                                 pass
+
+                    logger.info("[StreamWS] [%s] LLM 完成, chunks=%d len=%d", session_id, chunk_count, len(full_response))
 
                     await websocket.send_json({
                         "type": "llm_done",

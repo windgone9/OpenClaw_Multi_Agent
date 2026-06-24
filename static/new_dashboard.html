@@ -95,7 +95,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
     <span class="svc-pill"><span class="dot idle" id="dot-stream"></span>Stream</span>
     <span class="svc-pill"><span class="dot idle" id="dot-ollama"></span>Ollama</span>
     <span class="svc-pill"><span class="dot idle" id="dot-funasr"></span>FunASR</span>
-    <a href="http://localhost:4000/ui" target="_blank" class="btn btn-sm btn-ghost">LiteLLM UI ↗</a>
+    <a id="litellm-ui-link-top" href="/ui/" target="_blank" class="btn btn-sm btn-ghost">LiteLLM UI ↗</a>
     <a href="/dashboard.html" class="btn btn-sm btn-ghost">旧版 Dashboard</a>
     <span id="clock" style="color:var(--text3);font-family:monospace"></span>
   </div>
@@ -142,7 +142,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
 <!-- TAB: 服务监控 -->
 <div class="tab-content" id="tab-services"><div class="pad"><div class="grid2">
   <div class="card"><div class="card-title">🔌 LiteLLM Proxy <span class="badge badge-idle" id="svc-litellm-b">检测中</span></div>
-    <div style="display:flex;gap:6px;margin-bottom:8px"><input value="/svc/litellm" style="flex:1" readonly><button class="btn btn-sm btn-primary" onclick="checkLiteLLM()">刷新</button><a href="http://localhost:4000/ui" target="_blank" class="btn btn-sm btn-ghost">UI ↗</a></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><input value="/svc/litellm" style="flex:1" readonly><button class="btn btn-sm btn-primary" onclick="checkLiteLLM()">刷新</button><a id="litellm-ui-link-svc" href="/ui/" target="_blank" class="btn btn-sm btn-ghost">UI ↗</a></div>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-litellm-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
   <div class="card"><div class="card-title">📡 Stream Service <span class="badge badge-idle" id="svc-stream-b">检测中</span></div>
     <input value="/svc/stream" style="width:100%;margin-bottom:8px" readonly>
@@ -166,7 +166,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
   <div class="card"><div class="card-title">⚡ 运行中的模型</div>
     <button class="btn btn-sm btn-primary" onclick="checkOllamaRunning()" style="margin-bottom:10px">🔄 刷新</button>
     <table class="tbl"><thead><tr><th>模型</th><th>大小</th><th>VRAM</th><th>过期</th></tr></thead><tbody id="model-running-tb"><tr><td colspan="4" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
-  <div class="card" style="grid-column:1/-1"><div class="card-title">📋 LiteLLM 模型路由 <a href="http://localhost:4000/ui" target="_blank" class="btn btn-sm btn-ghost" style="margin-left:auto">打开 LiteLLM UI ↗</a></div>
+  <div class="card" style="grid-column:1/-1"><div class="card-title">📋 LiteLLM 模型路由 <a id="litellm-ui-link-models" href="/ui/" target="_blank" class="btn btn-sm btn-ghost" style="margin-left:auto">打开 LiteLLM UI ↗</a></div>
     <table class="tbl"><thead><tr><th>模型别名</th><th>后端模型</th><th>提供商</th><th>状态</th></tr></thead><tbody id="model-litellm-tb"><tr><td colspan="4" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
 </div></div></div>
 
@@ -295,14 +295,40 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
 
 <script>
 /* ===== 全局状态 ===== */
-var API = location.origin;
-/* WebSocket URL: 始终使用 Nginx 代理端口 (8080) */
-var WS_API = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.hostname + ':8080';
+/* REST API URL: 自动检测（支持 Docker Compose 8080、K8s 8090、静态服务器 9090） */
+var API = (function() {
+  var nginxPorts = [8080, 8090];
+  if (nginxPorts.indexOf(location.port) !== -1 || location.port === '') {
+    return location.origin;
+  }
+  return location.protocol + '//' + location.hostname + ':8090';
+})();
+/* WebSocket URL: 自动检测 WS 端口（支持 Docker Compose 8080、K8s 8090、静态服务器 9090） */
+var WS_API = (function() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var nginxPorts = [8080, 8090];
+  if (nginxPorts.indexOf(location.port) !== -1 || location.port === '') {
+    return proto + '//' + location.host;
+  }
+  return proto + '//' + location.hostname + ':8090';
+})();
 /* 服务检测 URL：通过 Nginx 代理访问，避免直接访问 Docker 内部端口 */
 var SVC_LITELLM = API + '/svc/litellm/';
 var SVC_STREAM = API + '/svc/stream/';
 var SVC_FUNASR = API + '/svc/funasr/';
 var SVC_OLLAMA = API + '/svc/ollama/';
+/* LiteLLM Master Key: 用于访问需要认证的 LiteLLM 接口 */
+var LITELLM_KEY = '';  // 默认为空，自动检测时填入
+/* LiteLLM UI URL: 通过 Nginx 代理访问，自动检测端口 */
+var LITELLM_UI_URL = API + '/ui/';
+/* 初始化 LiteLLM UI 链接（Docker 8080 / K8S 8090 / 开发环境 4000） */
+(function() {
+  var links = ['litellm-ui-link-top', 'litellm-ui-link-svc', 'litellm-ui-link-models'];
+  links.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.href = LITELLM_UI_URL;
+  });
+})();
 var state = {
   records: [],
   svcStatus: { hermes: 'idle', litellm: 'idle', stream: 'idle', ollama: 'idle', funasr: 'idle' },
@@ -491,9 +517,34 @@ async function checkLiteLLM() {
     var rows = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr><tr><td>Liveliness</td><td>' + txt + '</td></tr>';
     tb.innerHTML = rows;
     addLog('ok', '[LiteLLM] 健康 ' + ms + 'ms');
-    /* 尝试获取模型列表（可能需要认证） */
+    /* 自动检测 LiteLLM Master Key */
+    if (!LITELLM_KEY) {
+      /* 尝试常见的默认 key */
+      var defaultKeys = ['sk-litellm-local'];
+      for (var ki = 0; ki < defaultKeys.length; ki++) {
+        try {
+          var probeR = await fetch(SVC_LITELLM + 'model/info', {
+            headers: { 'Authorization': 'Bearer ' + defaultKeys[ki] },
+            signal: AbortSignal.timeout(3000),
+          });
+          if (probeR.ok) {
+            LITELLM_KEY = defaultKeys[ki];
+            addLog('ok', '[LiteLLM] 自动检测到 Master Key');
+            break;
+          }
+        } catch(_) { /* 继续尝试下一个 */ }
+      }
+    }
+    /* 尝试获取模型列表（带认证） */
     try {
-      var mr = await fetch(SVC_LITELLM + 'model/info', { signal: AbortSignal.timeout(5000) });
+      var modelHeaders = {};
+      if (LITELLM_KEY) {
+        modelHeaders['Authorization'] = 'Bearer ' + LITELLM_KEY;
+      }
+      var mr = await fetch(SVC_LITELLM + 'model/info', {
+        headers: modelHeaders,
+        signal: AbortSignal.timeout(5000),
+      });
       if (mr.ok) {
         var md = await mr.json();
         var models = md.data || [];
@@ -505,8 +556,10 @@ async function checkLiteLLM() {
         } else {
           ltb.innerHTML = '<tr><td colspan="4" style="color:var(--text3)">无模型配置</td></tr>';
         }
+      } else if (mr.status === 401) {
+        $('model-litellm-tb').innerHTML = '<tr><td colspan="4" style="color:var(--text3)">需要认证 (401)，请在代码中配置 LITELLM_KEY</td></tr>';
       } else {
-        $('model-litellm-tb').innerHTML = '<tr><td colspan="4" style="color:var(--text3)">需要认证</td></tr>';
+        $('model-litellm-tb').innerHTML = '<tr><td colspan="4" style="color:var(--text3)">HTTP ' + mr.status + '</td></tr>';
       }
     } catch(e2) {
       $('model-litellm-tb').innerHTML = '<tr><td colspan="4" style="color:var(--text3)">无法获取</td></tr>';
@@ -573,12 +626,19 @@ async function checkOllamaRunning() {
 async function checkFunASR() {
   var t0 = performance.now();
   try {
-    var r = await fetch(SVC_FUNASR, { signal: AbortSignal.timeout(5000) });
+    /* FunASR 使用 OpenAI兼容 /v1/models 端点作为健康检查 */
+    var r = await fetch(SVC_FUNASR + 'v1/models', { signal: AbortSignal.timeout(5000) });
     var ms = (performance.now() - t0).toFixed(0);
-    /* FunASR 根路径返回 404 是正常的，只要能连接就表示在线 */
-    setSvc('funasr', 'ok', ms, {});
-    $('svc-funasr-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr>';
-    addLog('ok', '[FunASR] 健康 ' + ms + 'ms');
+    if (r.ok || r.status === 404) {
+      /* 404 也表示服务可达 (FunASR 可能不支持 /v1/models) */
+      setSvc('funasr', 'ok', ms, {});
+      $('svc-funasr-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr>';
+      addLog('ok', '[FunASR] 健康 ' + ms + 'ms');
+    } else {
+      setSvc('funasr', 'warn', ms, {});
+      $('svc-funasr-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-warn">异常</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr><tr><td>HTTP状态</td><td>' + r.status + '</td></tr>';
+      addLog('warn', '[FunASR] 返回 HTTP ' + r.status);
+    }
   } catch (e) {
     setSvc('funasr', 'err', '-', null);
     $('svc-funasr-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-err">离线</span></td></tr>';
@@ -821,36 +881,45 @@ async function pgWSChat() {
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
-    var ws = new WebSocket(WS_API + '/v1/stream/chat');
+    var ws = new WebSocket(WS_API + '/v1/stream/ws?model=' + encodeURIComponent(model));
     ws.onopen = function() {
-      ws.send(JSON.stringify({ type: 'chat', messages: [{ role: 'user', content: input }], model: model }));
+      ws.send(JSON.stringify({ type: 'text', content: input }));
     };
     var fullText = '';
     ws.onmessage = function(evt) {
-      var d = JSON.parse(evt.data);
-      if (d.type === 'chunk' || d.type === 'content') {
-        fullText += (d.content || d.chunk || '');
+      var d;
+      try { d = JSON.parse(evt.data); } catch(_) { d = { type: 'text', content: evt.data }; }
+      if (d.type === 'llm_chunk') {
+        fullText += (d.content || '');
         var msgs = $('pg-output').querySelectorAll('.chat-msg.assistant');
         if (msgs.length > 0) msgs[msgs.length - 1].textContent = fullText;
         else pgAppend('assistant', fullText);
-      } else if (d.type === 'done' || d.type === 'end') {
+      } else if (d.type === 'llm_done') {
         var ms = (performance.now() - t0).toFixed(0);
         $('pg-lat').textContent = ms + 'ms';
-        rec('chat', model, +ms, 'ok', { content: fullText });
+        rec('ws_chat', model, +ms, 'ok', { content: fullText || d.content });
         addLog('ok', '[WS Chat] ' + ms + 'ms');
         ws.close();
       } else if (d.type === 'error') {
-        pgAppend('error', d.content || d.message || 'Error');
+        pgAppend('error', d.content || 'Error');
         var ms2 = (performance.now() - t0).toFixed(0);
         $('pg-lat').textContent = ms2 + 'ms';
-        rec('chat', model, +ms2, 'err', d);
-        addLog('err', '[WS Chat] ' + (d.content || d.message));
+        rec('ws_chat', model, +ms2, 'err', d);
+        addLog('err', '[WS Chat] ' + (d.content || ''));
         ws.close();
       }
     };
     ws.onerror = function() {
       pgAppend('error', 'WebSocket 连接失败');
-      rec('chat', model, +(performance.now() - t0).toFixed(0), 'err', { error: 'WS error' });
+      rec('ws_chat', model, +(performance.now() - t0).toFixed(0), 'err', { error: 'WS error' });
+    };
+    ws.onclose = function(evt) {
+      if (fullText) {
+        /* 正常关闭，已有数据 */
+      } else {
+        pgAppend('error', 'WebSocket 关闭: code=' + evt.code);
+        $('pg-lat').textContent = '-';
+      }
     };
   } catch (e) {
     pgAppend('error', 'Error: ' + e.message);
@@ -1370,7 +1439,7 @@ async function e2eMultimodal(model) {
 }
 
 async function e2eWSChat(model) {
-  var input = { type: 'ws_chat', url: '/v1/stream/ws?model=' + model, message: { type: 'text', content: 'WebSocket 端到端测试' } };
+  var input = { type: 'ws_chat', url: '/v1/stream/ws?model=' + model, message: { type: 'text', content: '请简短回复：你好' } };
   var t0 = performance.now();
   var ts = { start: new Date().toISOString() };
   return new Promise(function(resolve) {
@@ -1380,13 +1449,15 @@ async function e2eWSChat(model) {
       var fullText = '';
       var resolved = false;
       var chunkCount = 0;
+      console.log('[WS Chat] connecting to', wsUrl, 'readyState=', ws.readyState);
       var timeout = setTimeout(function() {
-        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (60s)', wsUrl: wsUrl } }); }
-      }, 60000);
+        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (120s)', wsUrl: wsUrl, readyState: ws.readyState, protocol: ws.protocol } }); }
+      }, 120000);
       ws.onopen = function() {
+        console.log('[WS Chat] opened, readyState=', ws.readyState, 'protocol=', ws.protocol);
         ts.ws_open = new Date().toISOString();
         ts.dial_ms = +(performance.now() - t0).toFixed(0);
-        ws.send(JSON.stringify({ type: 'text', content: 'WebSocket 端到端测试' }));
+        ws.send(JSON.stringify(input.message));
         ts.msg_sent = new Date().toISOString();
       };
       ws.onmessage = function(evt) {
@@ -1410,10 +1481,12 @@ async function e2eWSChat(model) {
         }
       };
       ws.onerror = function(evt) {
+        console.log('[WS Chat] onerror, readyState=', ws.readyState, 'evt=', evt.type);
         clearTimeout(timeout);
-        if (!resolved) { resolved = true; resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 连接失败', wsUrl: wsUrl } }); }
+        if (!resolved) { resolved = true; resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 连接失败', wsUrl: wsUrl, readyState: ws.readyState } }); }
       };
       ws.onclose = function(evt) {
+        console.log('[WS Chat] onclose code=', evt.code, 'reason=', evt.reason, 'wasClean=', evt.wasClean);
         clearTimeout(timeout);
         if (!resolved) { resolved = true; resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: 'WebSocket 关闭 code=' + evt.code + ' reason=' + evt.reason, wsUrl: wsUrl } }); }
       };
@@ -1437,8 +1510,8 @@ async function e2eWSASR() {
       var audioBytes = 0;
       var llmChunkCount = 0;
       var timeout = setTimeout(function() {
-        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (60s)', wsUrl: wsUrl } }); }
-      }, 60000);
+        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (120s)', wsUrl: wsUrl } }); }
+      }, 120000);
 
       ws.onopen = function() {
         ts.ws_open = new Date().toISOString();

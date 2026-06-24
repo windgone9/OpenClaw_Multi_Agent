@@ -1,0 +1,46 @@
+# ============================================
+# Kind 集群配置 — OpenClaw Multi-Agent
+#
+# 使用方式:
+#   kind create cluster --config k8s/kind-config.yaml
+# ============================================
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: openclaw
+
+# 镜像版本（可按需升级）
+# images:
+# - kindest/node:v1.30.0
+
+nodes:
+  - role: control-plane
+    # 端口映射：宿主机 → 节点 NodePort
+    # 注意: 如果 Docker Compose 环境也在运行，端口可能冲突
+    # 可修改 hostPort 避免冲突，如 8090 替代 8080
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8090        # Nginx 入口（避免与 Docker Compose 的 8080 冲突）
+        protocol: TCP
+      # Ollama 直连（调试用）
+      - containerPort: 31143
+        hostPort: 11435       # 避免与 Docker Compose 的 11434 冲突
+        protocol: TCP
+      # MinIO Console
+      - containerPort: 30001
+        hostPort: 9002        # 避免与 Docker Compose 的 9001 冲突
+        protocol: TCP
+
+    # 持久化存储目录映射（hostPath PV 使用）
+    extraMounts:
+      - hostPath: /tmp/openclaw-k8s/ollama
+        containerPath: /data/ollama
+      - hostPath: /tmp/openclaw-k8s/minio
+        containerPath: /data/minio
+      - hostPath: /tmp/openclaw-k8s/postgres
+        containerPath: /data/postgres
+
+  # Worker 节点（可选，增加计算能力）
+  # - role: worker
+  #   extraMounts:
+  #     - hostPath: /tmp/openclaw-k8s/ollama
+  #       containerPath: /data/ollama

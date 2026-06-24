@@ -1,0 +1,78 @@
+# ============================================
+# LiteLLM Database — PostgreSQL
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm-db
+  namespace: openclaw
+  labels:
+    app: litellm-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: litellm-db
+  template:
+    metadata:
+      labels:
+        app: litellm-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "litellm"
+            - name: POSTGRES_USER
+              value: "litellm"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: postgres-password
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "litellm"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "litellm"]
+            initialDelaySeconds: 5
+            periodSeconds: 3
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: litellm-db-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-db
+  namespace: openclaw
+spec:
+  selector:
+    app: litellm-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

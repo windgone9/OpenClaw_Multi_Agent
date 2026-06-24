@@ -1,0 +1,509 @@
+# ============================================
+# ConfigMaps — LiteLLM 配置 + Nginx 配置
+# ============================================
+
+---
+# LiteLLM 模型路由配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: openclaw
+data:
+  config.yaml: |
+    model_list:
+      - model_name: qwen2.5
+        litellm_params:
+          model: ollama/qwen2.5:7b
+          api_base: http://ollama:11434
+          timeout: 180
+      - model_name: llava
+        litellm_params:
+          model: ollama/llava:7b
+          api_base: http://ollama:11434
+          timeout: 180
+      - model_name: funasr
+        litellm_params:
+          model: openai/whisper-1
+          api_base: http://funasr:8199/v1
+          timeout: 60
+      - model_name: bge-embedding
+        litellm_params:
+          model: ollama/nomic-embed-text
+          api_base: http://ollama:11434
+          timeout: 30
+
+    router_settings:
+      routing_strategy: latency-based-routing
+      num_retries: 2
+      timeout: 120
+      allowed_fails: 3
+      cooldown_time: 60
+      retry_after: 60
+      model_group_alias:
+        chat: qwen2.5
+        vision: llava
+        asr: funasr
+        embedding: bge-embedding
+
+    general_settings:
+      drop_params: true
+      set_verbose: false
+      master_key: os.environ/LITELLM_MASTER_KEY
+
+    litellm_settings:
+      success_callback: ["prometheus"]
+      failure_callback: ["prometheus"]
+      callbacks: ["prometheus"]
+
+---
+# Nginx 反向代理配置
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: openclaw
+data:
+  default.conf: |
+    upstream litellm_backend {
+        least_conn;
+        server litellm:4000;
+        keepalive 32;
+    }
+
+    # WebSocket 升级支持
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        ''      close;
+    }
+
+    upstream hermes_backend {
+        least_conn;
+        server hermes:8082;
+        keepalive 16;
+    }
+
+    upstream stream_backend {
+        ip_hash;
+        server stream-service:8084;
+    }
+
+    upstream stream_ws_backend {
+        server stream-service:8084;
+    }
+
+    server {
+        listen 80;
+        server_name _;
+
+        client_max_body_size 100m;
+        client_body_timeout 300s;
+
+        location /health {
+            return 200 'OK';
+            add_header Content-Type text/plain;
+        }
+
+        location /v1/chat/completions {
+            proxy_pass http://litellm_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_read_timeout 300s;
+            chunked_transfer_encoding on;
+        }
+
+        location /v1/completions {
+            proxy_pass http://litellm_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_read_timeout 300s;
+        }
+
+        location /v1/embeddings {
+            proxy_pass http://litellm_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+        }
+
+        location /v1/audio/ {
+            proxy_pass http://litellm_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            client_max_body_size 50m;
+            proxy_read_timeout 120s;
+        }
+
+        location /v1/models {
+            proxy_pass http://litellm_backend;
+            proxy_set_header Host $host;
+        }
+
+        location /litellm/ {
+            proxy_pass http://litellm_backend/;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "";
+            proxy_redirect http://localhost:80/ http://$http_host/litellm/;
+            proxy_redirect http://localhost/ http://$http_host/litellm/;
+            proxy_redirect / /litellm/;
+        }
+
+        # LiteLLM UI 认证端点（SSO/登录）→ 代理到 LiteLLM 后端
+        # UI 登录页首先调用 /sso/get/ui_settings 获取 UI 配置
+        # 这些端点必须到达 LiteLLM 后端，不能在 nginx 层返回静态 404
+        location /sso/ {
+            proxy_pass http://litellm_backend/sso/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /auth/ {
+            proxy_pass http://litellm_backend/auth/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /login {
+            proxy_pass http://litellm_backend/login;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /v3/ {
+            proxy_pass http://litellm_backend/v3/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        # 兜底：任何未匹配的路径代理到 LiteLLM 后端
+        # LiteLLM 后端对未知路径返回 JSON 格式错误（不是 HTML 404）
+        # 这样 UI JS 不会因 HTML 响应导致解析崩溃
+        # nginx 优先级: exact(=) > longest-prefix > 此 / fallback
+        # 所有已定义的 location 块优先级更高，不会被此块覆盖
+        location / {
+            proxy_pass http://litellm_backend;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        # LiteLLM UI API 端点（UI SPA 从浏览器端直接调用这些根级路径）
+        # 注入默认 master key，让 UI 无需手动登录即可查看
+        # 注意: /v1/chat/completions, /v1/models, /v1/audio/* 等生产 API 路径
+        #       已有专属 location 块（优先级更高），不会被此块覆盖
+        location /key/ {
+            proxy_pass http://litellm_backend/key/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /model/ {
+            proxy_pass http://litellm_backend/model/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /health/ {
+            proxy_pass http://litellm_backend/health/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /global/ {
+            proxy_pass http://litellm_backend/global/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /budget/ {
+            proxy_pass http://litellm_backend/budget/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /config/ {
+            proxy_pass http://litellm_backend/config/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /get/ {
+            proxy_pass http://litellm_backend/get/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /customer/ {
+            proxy_pass http://litellm_backend/customer/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /guardrails/ {
+            proxy_pass http://litellm_backend/guardrails/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /cache/ {
+            proxy_pass http://litellm_backend/cache/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /alerting/ {
+            proxy_pass http://litellm_backend/alerting/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /callback/ {
+            proxy_pass http://litellm_backend/callback/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /team/ {
+            proxy_pass http://litellm_backend/team/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /user/ {
+            proxy_pass http://litellm_backend/user/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /organization/ {
+            proxy_pass http://litellm_backend/organization/;
+            proxy_set_header Host $http_host;
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+        }
+
+        location /ui/ {
+            proxy_pass http://litellm_backend/ui/;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "";
+            # 注入默认 auth，让 UI 无需手动登录即可查看
+            proxy_set_header Authorization "Bearer sk-litellm-local";
+        }
+
+        location /litellm-asset-prefix/ {
+            proxy_pass http://litellm_backend/litellm-asset-prefix/;
+            proxy_set_header Host $http_host;
+        }
+
+        location /get_favicon {
+            proxy_pass http://litellm_backend;
+            proxy_set_header Host $http_host;
+        }
+
+        location /k8s/ {
+            proxy_pass http://hermes_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_read_timeout 120s;
+        }
+
+        location /hermes/health {
+            proxy_pass http://hermes_backend/health;
+            proxy_set_header Host $host;
+        }
+
+        location /hermes/stats {
+            proxy_pass http://hermes_backend/stats;
+            proxy_set_header Host $host;
+        }
+
+        # ---------- Stream Service WebSocket ----------
+        location /v1/stream/ws {
+            proxy_pass http://stream_ws_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+            proxy_buffering off;
+        }
+
+        location /v1/stream/sse {
+            proxy_pass http://stream_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_read_timeout 3600s;
+        }
+
+        # FunASR 流式 ASR WebSocket
+        location /v1/stream/asr {
+            proxy_pass http://stream_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        location /v1/stream/asr/file {
+            proxy_pass http://stream_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            client_max_body_size 50m;
+            proxy_read_timeout 120s;
+        }
+
+        location = /v1/chat {
+            proxy_pass http://hermes_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_read_timeout 300s;
+            chunked_transfer_encoding on;
+            client_max_body_size 50m;
+        }
+
+        location = /v1/system/metrics {
+            proxy_pass http://hermes_backend;
+            proxy_set_header Host $host;
+        }
+
+        location /v1/multimodal/ {
+            proxy_pass http://litellm_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_read_timeout 120s;
+            client_max_body_size 50m;
+        }
+
+        location /v1/minio/ {
+            proxy_pass http://minio:9000/;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 300;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            chunked_transfer_encoding off;
+        }
+
+        location /v1/stream/health {
+            proxy_pass http://stream_backend;
+            proxy_set_header Host $host;
+        }
+
+        location /dashboard.html {
+            proxy_pass http://hermes_backend;
+            proxy_set_header Host $host;
+        }
+
+        location /new_dashboard.html {
+            proxy_pass http://hermes_backend;
+            proxy_set_header Host $host;
+            proxy_no_cache 1;
+            proxy_cache_bypass 1;
+            add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        }
+
+        location /static/ {
+            proxy_pass http://hermes_backend;
+            proxy_set_header Host $host;
+        }
+
+        # ---------- 服务健康检查代理 (供 Dashboard 使用) ----------
+        location /svc/litellm/ {
+            proxy_pass http://litellm_backend/;
+            proxy_set_header Host $host;
+            proxy_read_timeout 10s;
+        }
+
+        location /svc/stream/ {
+            proxy_pass http://stream_backend/;
+            proxy_set_header Host $host;
+            proxy_read_timeout 10s;
+        }
+
+        location /svc/funasr/ {
+            proxy_pass http://funasr:8199/;
+            proxy_set_header Host $host;
+            proxy_read_timeout 10s;
+            proxy_http_version 1.1;
+        }
+
+        location /svc/ollama/ {
+            proxy_pass http://ollama:11434/;
+            proxy_set_header Host $host;
+            proxy_read_timeout 10s;
+        }
+    }
