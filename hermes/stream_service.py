@@ -503,8 +503,11 @@ async def stream_asr_websocket(websocket: WebSocket):
         "funasr_url": FUNASR_URL or "(not configured)",
     })
 
+    # 会话是否已结束（收到 stop 或客户端断开）
+    session_done = False
+
     try:
-        while True:
+        while not session_done:
             try:
                 raw = await asyncio.wait_for(websocket.receive(), timeout=30)
             except asyncio.TimeoutError:
@@ -516,6 +519,19 @@ async def stream_asr_websocket(websocket: WebSocket):
                     )
                     audio_buffer.clear()
                 continue
+
+            # 检测客户端断开（receive() 返回 disconnect 类型）
+            if raw.get("type") == "websocket.disconnect":
+                logger.info("[StreamASR] [%s] 客户端断开 (disconnect message)", session_id)
+                session_done = True
+                # 处理残留缓冲
+                if len(audio_buffer) > 0:
+                    await _flush_asr_buffer(
+                        websocket, session_id, audio_buffer,
+                        all_asr_text, auto_llm, llm_model,
+                    )
+                    audio_buffer.clear()
+                break
 
             if raw.get("text"):
                 # JSON 控制消息
@@ -562,6 +578,9 @@ async def stream_asr_websocket(websocket: WebSocket):
 
                     all_asr_text.clear()
                     current_partial = ""
+
+                    # stop 处理完毕，结束会话（不再循环 receive）
+                    session_done = True
 
                 elif msg_type == "ping":
                     await websocket.send_json({"type": "pong"})
