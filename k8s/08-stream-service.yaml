@@ -46,6 +46,8 @@ spec:
               value: "sensevoice"
             - name: STREAM_PORT
               value: "8084"
+            - name: DEFAULT_CHAT_MODEL
+              value: "qwen2.5:3b"
           resources:
             requests:
               memory: "256Mi"

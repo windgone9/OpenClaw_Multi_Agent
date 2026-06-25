@@ -14,9 +14,9 @@ data:
     model_list:
       - model_name: qwen2.5
         litellm_params:
-          model: ollama/qwen2.5:7b
+          model: ollama/qwen2.5:3b
           api_base: http://ollama:11434
-          timeout: 180
+          timeout: 120
       - model_name: llava
         litellm_params:
           model: ollama/llava:7b

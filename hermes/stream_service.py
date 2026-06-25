@@ -118,6 +118,10 @@ STREAM_ASR_MIN_BYTES = int(os.getenv("STREAM_ASR_MIN_BYTES", "32000"))  # ~1s @1
 STREAM_ASR_INTERVAL = float(os.getenv("STREAM_ASR_INTERVAL", "2.0"))  # 秒
 STREAM_ASR_MAX_BYTES = int(os.getenv("STREAM_ASR_MAX_BYTES", "320000"))  # ~10s @16kHz 16bit
 
+# ── LiteLLM 连通性探针缓存（避免每次流式请求都发探针）──────────
+_litellm_last_success_time: float = 0.0
+_LITELLM_PROBE_INTERVAL: float = 30.0  # 30s 内有成功记录则跳过探针
+
 
 # ── FunASR 标签清理 ──────────────────────────────────────────────
 
@@ -277,23 +281,32 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
         headers = {"Content-Type": "application/json"}
         if LITELLM_MASTER_KEY:
             headers["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
+
+        # 条件探针：仅在最近 30s 内无成功记录时才检查连通性
+        current_time = time.time()
+        need_probe = (current_time - _litellm_last_success_time) > _LITELLM_PROBE_INTERVAL
+
         try:
-            # 先做非流式请求检查连通性，避免流式挂起
-            probe_resp = await _litellm_stream_client.post(
-                f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
-                json={**payload, "stream": False, "max_tokens": 1},
-                headers=headers,
-            )
-            if probe_resp.status_code == 401:
-                logger.warning("[StreamLLM] LiteLLM 返回 401 Unauthorized, 检查 LITELLM_MASTER_KEY 配置")
-                raise httpx.HTTPStatusError(
-                    "LiteLLM 401 Unauthorized",
-                    request=probe_resp.request,
-                    response=probe_resp,
+            if need_probe:
+                # 非流式探针检查连通性，避免流式挂起
+                probe_resp = await _litellm_sync_client.post(
+                    f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
+                    json={**payload, "stream": False, "max_tokens": 1},
+                    headers=headers,
                 )
-            # 其他非2xx也抛异常触发fallback
-            probe_resp.raise_for_status()
-            logger.info("[StreamLLM] LiteLLM 连通性检查通过, 开始流式请求")
+                if probe_resp.status_code == 401:
+                    logger.warning("[StreamLLM] LiteLLM 返回 401 Unauthorized, 检查 LITELLM_MASTER_KEY 配置")
+                    raise httpx.HTTPStatusError(
+                        "LiteLLM 401 Unauthorized",
+                        request=probe_resp.request,
+                        response=probe_resp,
+                    )
+                probe_resp.raise_for_status()
+                _litellm_last_success_time = current_time
+                logger.info("[StreamLLM] LiteLLM 连通性检查通过, 开始流式请求")
+            else:
+                logger.info("[StreamLLM] LiteLLM 连通性缓存有效(%.0fs内已验证), 跳过探针",
+                            current_time - _litellm_last_success_time)
 
             async with _litellm_stream_client.stream(
                 "POST",
@@ -309,6 +322,8 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
                         line_count += 1
                         yield line + "\n\n"
                 logger.info("[StreamLLM] LiteLLM 流式响应结束, lines=%d", line_count)
+            # 流式请求成功完成，更新连通性缓存时间戳
+            _litellm_last_success_time = time.time()
             return
         except Exception as e:
             logger.warning("[StreamLLM] 外部 LiteLLM 失败, fallback 到 Ollama: %s", e)

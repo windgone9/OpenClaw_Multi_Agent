@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional as Opt
@@ -45,6 +45,21 @@ _stream_client: _httpx.AsyncClient | None = None
 _download_client: _httpx.AsyncClient | None = None
 _watchdog_health_client: _httpx.AsyncClient | None = None
 _ollama_ps_client: _httpx.AsyncClient | None = None
+
+# ── 流式 SSE 透传 generator ─────────────────────────────────────
+async def _stream_chat_to_litellm(payload: dict, headers: dict, target_url: str):
+    """将 LiteLLM/Ollama 流式 SSE 响应透传给客户端。
+
+    用于 /v1/chat 端点的 chat/vision/multimodal 类型当 stream=True 时。
+    使用 httpx AsyncClient.stream() + aiter_lines() 逐行转发 SSE data 行。
+    """
+    async with _litellm_client.stream("POST", target_url, json=payload, headers=headers) as resp:
+        async for line in resp.aiter_lines():
+            if line.startswith("data:"):
+                yield line + "\n\n"
+            elif line.strip() == "":
+                continue
+    yield "data: [DONE]\n\n"
 
 # Note: Actual logging configuration is set in __main__ via uvicorn log_config.
 # This early basicConfig ensures logs are visible during module import phase.
@@ -536,9 +551,21 @@ async def unified_chat_entry(request: Request):
 
         target_url = f"{_LITELLM_INTERNAL}/v1/chat/completions"
 
-        resp = await _litellm_client.post(target_url, json=payload, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+        # 流式 vs 非流式分支
+        if payload.get("stream", False):
+            return StreamingResponse(
+                _stream_chat_to_litellm(payload, headers, target_url),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        else:
+            resp = await _litellm_client.post(target_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
 
     # ── asr → stream-service /v1/stream/asr/file ──
     elif req_type == "asr":
@@ -615,13 +642,24 @@ async def unified_chat_entry(request: Request):
         litellm_key = os.getenv("LITELLM_MASTER_KEY", "sk-litellm-local")
         if litellm_key:
             headers["Authorization"] = f"Bearer {litellm_key}"
-        resp = await _litellm_client.post(
-            f"{_LITELLM_INTERNAL}/v1/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-        resp.raise_for_status()
-        return resp.json()
+
+        target_url = f"{_LITELLM_INTERNAL}/v1/chat/completions"
+
+        # 流式 vs 非流式分支
+        if payload.get("stream", False):
+            return StreamingResponse(
+                _stream_chat_to_litellm(payload, headers, target_url),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        else:
+            resp = await _litellm_client.post(target_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
 
     # ── stream_asr → 返回 Stream Service WebSocket 地址 ──
     elif req_type == "stream_asr":

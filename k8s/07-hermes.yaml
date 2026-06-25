@@ -52,6 +52,12 @@ spec:
                   optional: true
             - name: WATCHDOG_ENABLED
               value: "false"
+            - name: DEFAULT_CHAT_MODEL
+              value: "qwen2.5:3b"
+            - name: OLLAMA_MODEL
+              value: "qwen2.5:3b"
+            - name: LOCAL_MODEL
+              value: "qwen2.5:3b"
           resources:
             requests:
               memory: "512Mi"

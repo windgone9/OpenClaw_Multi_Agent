@@ -1325,34 +1325,61 @@ async function runE2ETests() {
 
   var t0 = performance.now();
 
-  for (var ti = 0; ti < types.length; ti++) {
-    var type = types[ti];
+  // ── 并行执行：HTTP 类型最多 2 个并发，WS 类型并行 ──
+  var httpTypes = types.filter(function(t) { return t !== 'ws_chat' && t !== 'ws_asr'; });
+  var wsTypes = types.filter(function(t) { return t === 'ws_chat' || t === 'ws_asr'; });
+
+  // WS 类型并行执行（不共享 GPU）
+  var wsPromises = wsTypes.map(async function(type) {
     addLog('info', '[E2E] 执行 ' + type + ' 测试...');
     var result;
-
     try {
-      if (type === 'chat') {
-        result = await e2eChat(model);
-      } else if (type === 'vision') {
-        result = await e2eVision(model);
-      } else if (type === 'asr') {
-        result = await e2eASR();
-      } else if (type === 'multimodal') {
-        result = await e2eMultimodal(model);
-      } else if (type === 'ws_chat') {
-        result = await e2eWSChat(model);
-      } else if (type === 'ws_asr') {
-        result = await e2eWSASR();
-      }
+      if (type === 'ws_chat') result = await e2eWSChat(model);
+      else if (type === 'ws_asr') result = await e2eWSASR();
     } catch (e) {
       result = { type: type, status: 'err', latency: 0, input: { error: e.message }, output: { error: e.message } };
     }
-
     e2eResults.push(result);
     rec(type, model, result.latency, result.status, result.output);
     addLog(result.status === 'ok' ? 'ok' : 'err', '[E2E] ' + type + ' ' + (result.status === 'ok' ? 'PASS' : 'FAIL') + ' ' + result.latency + 'ms');
     renderAllE2E();
+    return result;
+  });
+
+  // HTTP 类型有限并发（最多 2 个，因为 Ollama GPU 信号量=2）
+  var httpPromises = [];
+  var httpRunning = 0;
+  var httpMaxConcurrent = 2;
+  for (var hi = 0; hi < httpTypes.length; hi++) {
+    var type = httpTypes[hi];
+    while (httpRunning >= httpMaxConcurrent) {
+      await new Promise(function(r) { setTimeout(r, 100); });
+    }
+    httpRunning++;
+    addLog('info', '[E2E] 执行 ' + type + ' 测试...');
+    httpPromises.push(
+      (async function(t) {
+        var result;
+        try {
+          if (t === 'chat') result = await e2eChat(model);
+          else if (t === 'vision') result = await e2eVision(model);
+          else if (t === 'asr') result = await e2eASR();
+          else if (t === 'multimodal') result = await e2eMultimodal(model);
+        } catch (e) {
+          result = { type: t, status: 'err', latency: 0, input: { error: e.message }, output: { error: e.message } };
+        }
+        httpRunning--;
+        e2eResults.push(result);
+        rec(t, model, result.latency, result.status, result.output);
+        addLog(result.status === 'ok' ? 'ok' : 'err', '[E2E] ' + t + ' ' + (result.status === 'ok' ? 'PASS' : 'FAIL') + ' ' + result.latency + 'ms');
+        renderAllE2E();
+        return result;
+      })(type)
+    );
   }
+
+  // 等待所有测试完成
+  await Promise.all(wsPromises.concat(httpPromises));
 
   var totalMs = (performance.now() - t0).toFixed(0);
   var passN = e2eResults.filter(function(r) { return r.status === 'ok'; }).length;
@@ -1374,34 +1401,97 @@ async function runE2ETests() {
 }
 
 async function e2eChat(model) {
-  var input = { type: 'chat', messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], model: model, max_tokens: 64 };
+  var input = { type: 'chat', messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], model: model, stream: true, max_tokens: 64 };
   var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
-    var text = await r.text();
-    var d;
-    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      var text = await r.text();
+      var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+      var ms = (performance.now() - t0).toFixed(0);
+      return { type: 'chat', status: 'err', latency: +ms, input: input, output: d };
+    }
+    // SSE 流式消费
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder();
+    var fullText = '';
+    var firstChunkMs = null;
+    var buffer = '';
+    while (true) {
+      var {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      var parts = buffer.split('\n\n');
+      buffer = parts.pop();
+      for (var pi = 0; pi < parts.length; pi++) {
+        var line = parts[pi].trim();
+        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          try {
+            var data = JSON.parse(line.slice(6));
+            if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+              fullText += data.choices[0].delta.content;
+              if (!firstChunkMs) firstChunkMs = +(performance.now() - t0).toFixed(0);
+            }
+          } catch(_) {}
+        }
+      }
+    }
     var ms = (performance.now() - t0).toFixed(0);
-    return { type: 'chat', status: r.ok ? 'ok' : 'err', latency: +ms, input: input, output: d };
+    return { type: 'chat', status: 'ok', latency: +ms, input: input, output: { content: fullText, type: 'stream_complete', first_chunk_ms: firstChunkMs } };
   } catch (e) {
-    return { type: 'chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.message } };
+    clearTimeout(timeout);
+    return { type: 'chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
   }
 }
 
 async function e2eVision(model) {
   var imgUrl = genMinioImgUrl();
-  var input = { type: 'vision', prompt: '描述这张图片', attachments: [{ type: 'image', url: imgUrl }], model: model };
+  var input = { type: 'vision', prompt: '描述这张图片', attachments: [{ type: 'image', url: imgUrl }], model: model, stream: true };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserImgUrl() });
   var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
-    var text = await r.text();
-    var d;
-    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      var text = await r.text();
+      var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+      var ms = (performance.now() - t0).toFixed(0);
+      return { type: 'vision', status: 'err', latency: +ms, input: displayInput, output: d };
+    }
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder();
+    var fullText = '';
+    var firstChunkMs = null;
+    var buffer = '';
+    while (true) {
+      var {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      var parts = buffer.split('\n\n');
+      buffer = parts.pop();
+      for (var pi = 0; pi < parts.length; pi++) {
+        var line = parts[pi].trim();
+        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          try {
+            var data = JSON.parse(line.slice(6));
+            if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+              fullText += data.choices[0].delta.content;
+              if (!firstChunkMs) firstChunkMs = +(performance.now() - t0).toFixed(0);
+            }
+          } catch(_) {}
+        }
+      }
+    }
     var ms = (performance.now() - t0).toFixed(0);
-    return { type: 'vision', status: r.ok ? 'ok' : 'err', latency: +ms, input: displayInput, output: d };
+    return { type: 'vision', status: 'ok', latency: +ms, input: displayInput, output: { content: fullText, type: 'stream_complete', first_chunk_ms: firstChunkMs } };
   } catch (e) {
-    return { type: 'vision', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.message } };
+    clearTimeout(timeout);
+    return { type: 'vision', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
   }
 }
 
@@ -1410,31 +1500,66 @@ async function e2eASR() {
   var input = { type: 'asr', file: audioUrl };
   var displayInput = { type: 'asr', file: audioUrl, _browserUrl: genBrowserAudioUrl() };
   var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
     var text = await r.text();
     var d;
     try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
     var ms = (performance.now() - t0).toFixed(0);
     return { type: 'asr', status: r.ok ? 'ok' : 'err', latency: +ms, input: displayInput, output: d };
   } catch (e) {
-    return { type: 'asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.message } };
+    clearTimeout(timeout);
+    return { type: 'asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
   }
 }
 
 async function e2eMultimodal(model) {
-  var input = { type: 'multimodal', prompt: '多模态端到端测试', attachments: [{ type: 'image', url: genMinioImgUrl() }], model: model };
+  var input = { type: 'multimodal', prompt: '多模态端到端测试', attachments: [{ type: 'image', url: genMinioImgUrl() }], model: model, stream: true };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserImgUrl() });
   var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
-    var text = await r.text();
-    var d;
-    try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      var text = await r.text();
+      var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+      var ms = (performance.now() - t0).toFixed(0);
+      return { type: 'multimodal', status: 'err', latency: +ms, input: displayInput, output: d };
+    }
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder();
+    var fullText = '';
+    var firstChunkMs = null;
+    var buffer = '';
+    while (true) {
+      var {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      var parts = buffer.split('\n\n');
+      buffer = parts.pop();
+      for (var pi = 0; pi < parts.length; pi++) {
+        var line = parts[pi].trim();
+        if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+          try {
+            var data = JSON.parse(line.slice(6));
+            if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+              fullText += data.choices[0].delta.content;
+              if (!firstChunkMs) firstChunkMs = +(performance.now() - t0).toFixed(0);
+            }
+          } catch(_) {}
+        }
+      }
+    }
     var ms = (performance.now() - t0).toFixed(0);
-    return { type: 'multimodal', status: r.ok ? 'ok' : 'err', latency: +ms, input: displayInput, output: d };
+    return { type: 'multimodal', status: 'ok', latency: +ms, input: displayInput, output: { content: fullText, type: 'stream_complete', first_chunk_ms: firstChunkMs } };
   } catch (e) {
-    return { type: 'multimodal', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.message } };
+    clearTimeout(timeout);
+    return { type: 'multimodal', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
   }
 }
 
