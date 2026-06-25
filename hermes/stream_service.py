@@ -270,6 +270,7 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
 
     优先级: 外部 LiteLLM Proxy → Ollama 直连
     """
+    global _litellm_last_success_time
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": text}],
