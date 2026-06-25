@@ -1766,25 +1766,40 @@ _watchdog_health_cache = {}  # service -> {"healthy": bool, "status_code": int, 
 
 
 def _load_watchdog_config():
-    """Load watchdog configuration from JSON file, falling back to defaults."""
+    """Load watchdog configuration from JSON file, falling back to defaults.
+
+    Environment variable override: WATCHDOG_ENABLED can force-enable or
+    force-disable the watchdog regardless of the JSON config.
+    """
     config_path = os.path.join(os.path.dirname(__file__), "watchdog_config.json")
     if not os.path.isfile(config_path):
         logger.info("[Watchdog] No config file found at %s, using defaults", config_path)
-        return dict(_DEFAULT_WATCHDOG_CONFIG)
-    try:
-        import json as _json
-        with open(config_path, "r") as f:
-            file_cfg = _json.load(f)
-        wd_cfg = file_cfg.get("watchdog", {})
         merged = dict(_DEFAULT_WATCHDOG_CONFIG)
-        for key in _DEFAULT_WATCHDOG_CONFIG:
-            if key in wd_cfg:
-                merged[key] = wd_cfg[key]
-        logger.info("[Watchdog] Loaded config from %s: %s", config_path, merged)
-        return merged
-    except Exception as e:
-        logger.warning("[Watchdog] Failed to load config from %s: %s, using defaults", config_path, e)
-        return dict(_DEFAULT_WATCHDOG_CONFIG)
+    else:
+        try:
+            import json as _json
+            with open(config_path, "r") as f:
+                file_cfg = _json.load(f)
+            wd_cfg = file_cfg.get("watchdog", {})
+            merged = dict(_DEFAULT_WATCHDOG_CONFIG)
+            for key in _DEFAULT_WATCHDOG_CONFIG:
+                if key in wd_cfg:
+                    merged[key] = wd_cfg[key]
+            logger.info("[Watchdog] Loaded config from %s: %s", config_path, merged)
+        except Exception as e:
+            logger.warning("[Watchdog] Failed to load config from %s: %s, using defaults", config_path, e)
+            merged = dict(_DEFAULT_WATCHDOG_CONFIG)
+
+    # 环境变量覆盖: WATCHDOG_ENABLED=true/false 可以强制启用或禁用
+    env_enabled = os.getenv("WATCHDOG_ENABLED", "").lower()
+    if env_enabled in ("false", "0", "no"):
+        merged["enabled"] = False
+        logger.info("[Watchdog] WATCHDOG_ENABLED env var overrides config: disabled")
+    elif env_enabled in ("true", "1", "yes"):
+        merged["enabled"] = True
+        logger.info("[Watchdog] WATCHDOG_ENABLED env var overrides config: enabled")
+
+    return merged
 
 
 def _get_openclaw_cmd():
