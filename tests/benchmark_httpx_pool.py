@@ -132,9 +132,9 @@ def run_benchmark(base_url: str, n_requests: int = 20) -> Dict:
     )
 
     # 3. Hermes stats — 经过 nginx → hermes，包含多个内部调用
-    print("[3/5] Testing /stats (hermes routing stats)")
+    print("[3/5] Testing /hermes/stats (hermes routing stats)")
     results["hermes_stats"] = measure_endpoint(
-        base_url, "GET", "/stats",
+        base_url, "GET", "/hermes/stats",
         n_requests=n_requests, label="hermes_stats"
     )
 
