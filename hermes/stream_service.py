@@ -50,11 +50,11 @@ async def _init_persistent_clients():
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
     )
     _litellm_stream_client = httpx.AsyncClient(
-        timeout=120.0,
+        timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         limits=httpx.Limits(max_connections=10, max_keepalive_connections=3),
     )
     _ollama_stream_client = httpx.AsyncClient(
-        timeout=120.0,
+        timeout=httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0),
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
     )
     _download_client = httpx.AsyncClient(
@@ -65,7 +65,7 @@ async def _init_persistent_clients():
     if EXTERNAL_LITELLM_URL:
         _litellm_sync_client = httpx.AsyncClient(
             base_url=EXTERNAL_LITELLM_URL,
-            timeout=120.0,
+            timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
             limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
         )
     else:
@@ -73,7 +73,7 @@ async def _init_persistent_clients():
     # Ollama 同步客户端
     _ollama_sync_client = httpx.AsyncClient(
         base_url=OLLAMA_URL,
-        timeout=120.0,
+        timeout=httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0),
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
     )
     # FunASR 健康检查客户端（仅当 FUNASR_URL 设置时创建）
@@ -330,7 +330,8 @@ async def stream_llm_response(text: str, model: str = DEFAULT_CHAT_MODEL):
             logger.warning("[StreamLLM] 外部 LiteLLM 失败, fallback 到 Ollama: %s", e)
 
     # 直接调用 Ollama 流式
-    ollama_model = model.split("/")[-1] if "/" in model else model
+    # 模型名需要包含 tag（如 qwen2.5:3b），否则用 DEFAULT_CHAT_MODEL
+    ollama_model = model if ":" in model else DEFAULT_CHAT_MODEL
     ollama_payload = {
         "model": ollama_model,
         "messages": [{"role": "user", "content": text}],
@@ -385,7 +386,8 @@ async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
             logger.warning("[StreamLLM] 外部 LiteLLM 同步失败, fallback 到 Ollama: %s", e)
 
     # 直接调用 Ollama
-    ollama_model = model.split("/")[-1] if "/" in model else model
+    # 模型名需要包含 tag（如 qwen2.5:3b），否则用 DEFAULT_CHAT_MODEL
+    ollama_model = model if ":" in model else DEFAULT_CHAT_MODEL
     ollama_payload = {
         "model": ollama_model,
         "messages": [{"role": "user", "content": text}],

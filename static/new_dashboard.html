@@ -1325,50 +1325,64 @@ async function runE2ETests() {
 
   var t0 = performance.now();
 
-  // ── 并行执行：HTTP 类型最多 2 个并发，WS 类型并行 ──
-  var httpTypes = types.filter(function(t) { return t !== 'ws_chat' && t !== 'ws_asr'; });
-  var wsTypes = types.filter(function(t) { return t === 'ws_chat' || t === 'ws_asr'; });
+  // ── 统一并发池：顺序执行（GPU 模型切换需冷却）+ 失败自动重试 ──
+  var maxConcurrent = 1;
+  var running = 0;
+  var allPromises = [];
 
-  // WS 类型并行执行（不共享 GPU）
-  var wsPromises = wsTypes.map(async function(type) {
-    addLog('info', '[E2E] 执行 ' + type + ' 测试...');
+  // 执行单个测试，失败后最多重试 1 次（等待 3s 让 GPU 冷却）
+  async function runSingleTest(t, mdl, retryCount) {
     var result;
     try {
-      if (type === 'ws_chat') result = await e2eWSChat(model);
-      else if (type === 'ws_asr') result = await e2eWSASR();
+      if (t === 'chat') result = await e2eChat(mdl);
+      else if (t === 'vision') result = await e2eVision(mdl);
+      else if (t === 'asr') result = await e2eASR();
+      else if (t === 'multimodal') result = await e2eMultimodal(mdl);
+      else if (t === 'ws_chat') result = await e2eWSChat(mdl);
+      else if (t === 'ws_asr') result = await e2eWSASR();
     } catch (e) {
-      result = { type: type, status: 'err', latency: 0, input: { error: e.message }, output: { error: e.message } };
+      result = { type: t, status: 'err', latency: 0, input: { error: e.message }, output: { error: e.message } };
     }
-    e2eResults.push(result);
-    rec(type, model, result.latency, result.status, result.output);
-    addLog(result.status === 'ok' ? 'ok' : 'err', '[E2E] ' + type + ' ' + (result.status === 'ok' ? 'PASS' : 'FAIL') + ' ' + result.latency + 'ms');
-    renderAllE2E();
+    // 内容验证：空内容视为失败（可能是 GPU 拥挤或 LLM 超时）
+    if (result.status === 'ok') {
+      var out = result.output || {};
+      var contentCheck = '';
+      if (t === 'chat' || t === 'vision' || t === 'multimodal' || t === 'ws_chat') {
+        contentCheck = out.content || '';
+      } else if (t === 'asr') {
+        contentCheck = out.text || '';
+      } else if (t === 'ws_asr') {
+        contentCheck = out.llm_text || out.asr_text || '';
+      }
+      if (contentCheck.length === 0) {
+        result.status = 'err';
+        result.output._content_check = '空内容（可能 GPU 拥挤或 LLM 超时）';
+      }
+    }
+    // 失败重试：等待 3s 后重试 1 次
+    if (result.status === 'err' && retryCount < 1) {
+      addLog('warn', '[E2E] ' + t + ' 失败, 等待 3s 后重试...');
+      await new Promise(function(r) { setTimeout(r, 3000); });
+      result = await runSingleTest(t, mdl, retryCount + 1);
+      if (result.status === 'ok') {
+        result.output._retry = true;
+        addLog('ok', '[E2E] ' + t + ' 重试成功!');
+      }
+    }
     return result;
-  });
+  }
 
-  // HTTP 类型有限并发（最多 2 个，因为 Ollama GPU 信号量=2）
-  var httpPromises = [];
-  var httpRunning = 0;
-  var httpMaxConcurrent = 2;
-  for (var hi = 0; hi < httpTypes.length; hi++) {
-    var type = httpTypes[hi];
-    while (httpRunning >= httpMaxConcurrent) {
+  for (var ti = 0; ti < types.length; ti++) {
+    var type = types[ti];
+    while (running >= maxConcurrent) {
       await new Promise(function(r) { setTimeout(r, 100); });
     }
-    httpRunning++;
+    running++;
     addLog('info', '[E2E] 执行 ' + type + ' 测试...');
-    httpPromises.push(
+    allPromises.push(
       (async function(t) {
-        var result;
-        try {
-          if (t === 'chat') result = await e2eChat(model);
-          else if (t === 'vision') result = await e2eVision(model);
-          else if (t === 'asr') result = await e2eASR();
-          else if (t === 'multimodal') result = await e2eMultimodal(model);
-        } catch (e) {
-          result = { type: t, status: 'err', latency: 0, input: { error: e.message }, output: { error: e.message } };
-        }
-        httpRunning--;
+        var result = await runSingleTest(t, model, 0);
+        running--;
         e2eResults.push(result);
         rec(t, model, result.latency, result.status, result.output);
         addLog(result.status === 'ok' ? 'ok' : 'err', '[E2E] ' + t + ' ' + (result.status === 'ok' ? 'PASS' : 'FAIL') + ' ' + result.latency + 'ms');
@@ -1379,7 +1393,7 @@ async function runE2ETests() {
   }
 
   // 等待所有测试完成
-  await Promise.all(wsPromises.concat(httpPromises));
+  await Promise.all(allPromises);
 
   var totalMs = (performance.now() - t0).toFixed(0);
   var passN = e2eResults.filter(function(r) { return r.status === 'ok'; }).length;
@@ -1576,8 +1590,8 @@ async function e2eWSChat(model) {
       var chunkCount = 0;
       console.log('[WS Chat] connecting to', wsUrl, 'readyState=', ws.readyState);
       var timeout = setTimeout(function() {
-        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (120s)', wsUrl: wsUrl, readyState: ws.readyState, protocol: ws.protocol } }); }
-      }, 120000);
+        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_chat', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (60s)', wsUrl: wsUrl, readyState: ws.readyState, protocol: ws.protocol } }); }
+      }, 60000);
       ws.onopen = function() {
         console.log('[WS Chat] opened, readyState=', ws.readyState, 'protocol=', ws.protocol);
         ts.ws_open = new Date().toISOString();
@@ -1635,8 +1649,8 @@ async function e2eWSASR() {
       var audioBytes = 0;
       var llmChunkCount = 0;
       var timeout = setTimeout(function() {
-        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (120s)', wsUrl: wsUrl } }); }
-      }, 120000);
+        if (!resolved) { resolved = true; ws.close(); resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: '连接超时 (60s)', wsUrl: wsUrl } }); }
+      }, 60000);
 
       ws.onopen = function() {
         ts.ws_open = new Date().toISOString();
