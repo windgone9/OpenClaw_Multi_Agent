@@ -1,5 +1,20 @@
 # ============================================
-# OpenClaw Multi-Agent — K8S 部署配置
+# ⚠️  DEPRECATED — 此文件已过时，不再维护
+#
+# 请使用 k8s/ 目录下的编号 manifests (00-11) 作为权威部署配置:
+#   k8s/00-namespace.yaml  ... k8s/11-nginx.yaml
+#
+# 此文件存在多个不一致问题：
+#   - 镜像名称/标签与 k8s/ manifests 不同
+#   - 缺少必要的环境变量 (DATABASE_URL, LITELLM_INTERNAL_URL 等)
+#   - 资源限制与 k8s/ manifests 不同
+#   - 模型版本不同 (qwen2.5:3b vs 7b)
+#
+# 部署时请使用: k8s/deploy.sh
+# ============================================
+
+# ============================================
+# OpenClaw Multi-Agent — K8S 部署配置 (LEGACY)
 # 包含 Deployment + Service + HPA + Ingress
 # ============================================
 

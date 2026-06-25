@@ -32,7 +32,10 @@ spec:
                   name: openclaw-secrets
                   key: litellm-master-key
             - name: DATABASE_URL
-              value: "postgresql://litellm:litellm_db_pass@litellm-db:5432/litellm"
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: database-url
             - name: DEEPSEEK_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -691,6 +691,8 @@ async def get_stats():
     combined_success = _stats["success_requests"] + worker_stats.get("success", 0)
     combined_failed = _stats["failed_requests"] + worker_stats.get("failed", 0)
     combined_latency = _stats["total_latency_ms"] + worker_stats.get("total_latency_ms", 0)
+    vm = await asyncio.to_thread(psutil.virtual_memory)
+    cpu = await asyncio.to_thread(psutil.cpu_percent, 0.5)
     return {
         "requests": {
             "total": combined_total,
@@ -701,10 +703,10 @@ async def get_stats():
             "by_route": worker_stats.get("by_route", {}),
         },
         "system": {
-            "cpu_percent": psutil.cpu_percent(interval=0.5),
-            "memory_total_gb": round(psutil.virtual_memory().total / (1024 ** 3), 1),
-            "memory_used_gb": round(psutil.virtual_memory().used / (1024 ** 3), 2),
-            "memory_percent": round(psutil.virtual_memory().percent, 1),
+            "cpu_percent": cpu,
+            "memory_total_gb": round(vm.total / (1024 ** 3), 1),
+            "memory_used_gb": round(vm.used / (1024 ** 3), 2),
+            "memory_percent": round(vm.percent, 1),
         },
         "hermes": hermes.get_state(),
     }
@@ -1163,11 +1165,13 @@ async def memory_content():
     """Return the raw content of MEMORY.md for the Dashboard Memory tab."""
     try:
         from hermes.official_agent_adapter import MEMORY_FILE
-        if os.path.exists(MEMORY_FILE):
-            content = open(MEMORY_FILE, "r", encoding="utf-8").read()
-            stat = os.stat(MEMORY_FILE)
-            return {"content": content, "path": MEMORY_FILE, "exists": True, "size": stat.st_size}
-        return {"content": "", "path": MEMORY_FILE, "exists": False, "size": 0}
+        def _read_memory_file():
+            if os.path.exists(MEMORY_FILE):
+                content = open(MEMORY_FILE, "r", encoding="utf-8").read()
+                stat = os.stat(MEMORY_FILE)
+                return {"content": content, "path": MEMORY_FILE, "exists": True, "size": stat.st_size}
+            return {"content": "", "path": MEMORY_FILE, "exists": False, "size": 0}
+        return await asyncio.to_thread(_read_memory_file)
     except Exception as e:
         return {"content": "", "error": str(e), "exists": False, "size": 0}
 
@@ -1873,7 +1877,11 @@ async def _check_service_health(name: str) -> bool:
 
 
 async def _watchdog_loop():
-    """Background watchdog that periodically checks services and auto-restarts."""
+    """Background watchdog that periodically checks services and auto-restarts.
+    Health checks are run in parallel via asyncio.gather so total check time
+    = max(individual timeouts) instead of sum. Post-processing (cache update,
+    process alive check, restart) remains serial because it modifies global state.
+    """
     global _watchdog_running
     logger.info("[Watchdog] Starting service watchdog (interval=%ds, grace=%ds)",
                 _watchdog_config["interval_seconds"], _watchdog_config["startup_grace_seconds"])
@@ -1889,18 +1897,39 @@ async def _watchdog_loop():
         configs = _get_service_configs()
         now = time.time()
         logger.debug("[Watchdog] === 第%d轮检查 === services=%s", check_round, list(configs.keys()))
+
+        # ── 并行健康检查：asyncio.gather ──────────────────────────────
+        # Filter out services in grace period, then run remaining checks in parallel.
+        check_tasks = {}  # name -> asyncio task
         for name, cfg in configs.items():
-            # Skip health check if service was recently restarted (grace period)
             start_time = _service_start_times.get(name, 0)
             grace = _watchdog_config.get("startup_grace_seconds", 45)
-            # Use per-service grace override if set
             svc_grace = cfg.get("startup_grace_override") or grace
             if (now - start_time) < svc_grace:
                 logger.debug("[Watchdog] %s: 启动宽限期内 (%.0fs剩余), 跳过",
                              name, svc_grace - (now - start_time))
                 continue
+            check_tasks[name] = _check_service_health(name)
 
-            healthy = await _check_service_health(name)
+        # Run all health checks concurrently; individual failures don't block others
+        if check_tasks:
+            names = list(check_tasks.keys())
+            results = await asyncio.gather(
+                *check_tasks.values(), return_exceptions=True
+            )
+            health_results = dict(zip(names, results))
+        else:
+            health_results = {}
+
+        # ── 串行后处理：缓存更新、进程存活检查、重启 ────────────────
+        # Must be serial because restarts modify global state (kill process, start new one).
+        for name in names:
+            cfg = configs[name]
+            result = health_results[name]
+            # Handle exceptions from asyncio.gather (timeout, connect error, etc.)
+            healthy = result if isinstance(result, bool) else False
+            if not isinstance(result, bool):
+                logger.warning("[Watchdog] %s: 健康检查异常: %s", name, type(result).__name__)
 
             # Cache the health check result for /proxy/health to use.
             # If HTTP check failed but process is alive, mark as "busy" not "unhealthy".
@@ -1926,7 +1955,7 @@ async def _watchdog_loop():
                     # Fallback: discover process by listening port
                     port = cfg.get("port")
                     if port:
-                        found = _find_process_on_port(port)
+                        found = await asyncio.to_thread(_find_process_on_port, port)
                         if found:
                             alive_pid = found["pid"]
                             logger.info("[Watchdog] %s: 端口发现进程(pid=%d)监听port=%d",
@@ -1997,7 +2026,7 @@ async def _watchdog_loop():
                 # Fallback: check by port
                 port = cfg.get("port")
                 if port:
-                    found = _find_process_on_port(port)
+                    found = await asyncio.to_thread(_find_process_on_port, port)
                     if found:
                         alive_pid = found["pid"]
 
@@ -2051,10 +2080,9 @@ async def _watchdog_loop():
             if port:
                 try:
                     import signal
-                    pids_to_kill = []
-                    for pid_str in os.popen(f"lsof -ti:{port} 2>/dev/null").read().strip().split():
-                        if pid_str and int(pid_str) != os.getpid():
-                            pids_to_kill.append(int(pid_str))
+                    def _find_pids_on_port(port):
+                        return [int(p) for p in os.popen(f"lsof -ti:{port} 2>/dev/null").read().strip().split() if p and int(p) != os.getpid()]
+                    pids_to_kill = await asyncio.to_thread(_find_pids_on_port, port)
                     # SIGTERM first
                     for pid in pids_to_kill:
                         try:
@@ -2310,7 +2338,7 @@ async def api_proxy_health():
                 cfg = configs.get(name, {})
                 port = cfg.get("port")
                 if port:
-                    found = _find_process_on_port(port)
+                    found = await asyncio.to_thread(_find_process_on_port, port)
                     if found:
                         alive_pid = found["pid"]
 
@@ -2340,12 +2368,12 @@ async def api_proxy_health():
 
 @app.get("/proxy/ollama-ps", summary="Proxy Ollama /api/ps (bypasses CORS)")
 async def api_proxy_ollama_ps():
-    import urllib.request
-    import json as _json
+    """Proxy Ollama /api/ps using async httpx (bypasses CORS)."""
     try:
-        req = urllib.request.Request("http://127.0.0.1:11434/api/ps")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return _json.loads(resp.read())
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://127.0.0.1:11434/api/ps")
+            return resp.json()
     except Exception as e:
         return {"models": [], "error": str(e)}
 
@@ -2371,7 +2399,7 @@ async def api_proxy_agent_health():
         agent_health_data = cached.get("data", {})
     else:
         # Fallback: check process liveness by port
-        found = _find_process_on_port(8642)
+        found = await asyncio.to_thread(_find_process_on_port, 8642)
         if found:
             agent_healthy = True
             agent_health_data = {"status": "busy", "pid": found["pid"]}
@@ -2479,7 +2507,7 @@ async def queue_test_loop(request: HermesDispatchRequest):
                 break
         if result:
             break
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
 
     if not result:
         return {

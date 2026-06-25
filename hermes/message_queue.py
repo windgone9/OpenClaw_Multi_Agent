@@ -130,13 +130,28 @@ class InProcessQueue(MessageQueue):
         self._queues: Dict[str, List[Dict]] = {}
         self._locks: Dict[str, threading.Lock] = {}
         self._conditions: Dict[str, threading.Condition] = {}
+        self._global_lock = threading.Lock()  # 后台持久化线程用
+        self._queue_names = [QUEUE_REQUESTS, QUEUE_RESULTS, QUEUE_FEEDBACK]
+
+        # ── 批量延迟持久化（实例属性）──────────────────────────────────
+        self._persisted_len: Dict[str, int] = {}
+        self._dirty_count: Dict[str, int] = {}
+        self._PERSIST_THRESHOLD = 10
+        self._PERSIST_INTERVAL = 5.0
+        self._persist_thread: Optional[threading.Thread] = None
+        self._persist_stop_event = threading.Event()
 
         # Load persisted messages
-        for name in [QUEUE_REQUESTS, QUEUE_RESULTS, QUEUE_FEEDBACK]:
+        for name in self._queue_names:
             self._queues[name] = []
             self._locks[name] = threading.Lock()
             self._conditions[name] = threading.Condition(self._locks[name])
+            self._dirty_count[name] = 0
             self._load_from_file(name)
+            self._persisted_len[name] = len(self._queues[name])
+
+        # 启动后台持久化线程
+        self._start_persist_thread()
 
     def _file_path(self, queue_name: str) -> str:
         safe_name = queue_name.replace(":", "_")
@@ -156,12 +171,10 @@ class InProcessQueue(MessageQueue):
         except Exception as e:
             logger.warning(f"Failed to load queue {queue_name}: {e}")
 
-    # Track last persisted length to enable incremental appends
-    _persisted_len: Dict[str, int] = {}
-
     def _persist_to_file(self, queue_name: str):
         """Persist queue to JSONL file. Uses incremental append for push,
-        full rewrite for pop (since items are removed from the front)."""
+        full rewrite for pop (since items are removed from the front).
+        Must be called while holding the per-queue lock (_locks[queue_name])."""
         path = self._file_path(queue_name)
         try:
             current_len = len(self._queues[queue_name])
@@ -180,8 +193,52 @@ class InProcessQueue(MessageQueue):
                         f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
             self._persisted_len[queue_name] = current_len
+            with self._global_lock:
+                self._dirty_count[queue_name] = 0  # 重置脏计数
         except Exception as e:
             logger.warning(f"Failed to persist queue {queue_name}: {e}")
+
+    def _start_persist_thread(self):
+        """启动后台持久化线程。"""
+        if self._persist_thread is not None and self._persist_thread.is_alive():
+            return
+        self._persist_stop_event.clear()
+        self._persist_thread = threading.Thread(target=self._persist_loop, daemon=True)
+        self._persist_thread.start()
+        logger.info("[InProcessQueue] Background persist thread started (interval=%ds, threshold=%d)",
+                    self._PERSIST_INTERVAL, self._PERSIST_THRESHOLD)
+
+    def shutdown(self, timeout: float = 10.0):
+        """优雅停止后台持久化线程，并做最终持久化。
+        Args:
+            timeout: 等待后台线程结束的超时秒数。
+        """
+        logger.info("[InProcessQueue] shutdown() called, doing final persistence...")
+        # 1. 做最终持久化（所有脏队列）
+        for qn in self._queue_names:
+            with self._locks[qn]:
+                self._persist_to_file(qn)
+        # 2. 停止后台线程
+        self._persist_stop_event.set()
+        if self._persist_thread and self._persist_thread.is_alive():
+            self._persist_thread.join(timeout=timeout)
+            if self._persist_thread.is_alive():
+                logger.warning("[InProcessQueue] Persist thread did not stop within %.1fs", timeout)
+            else:
+                logger.info("[InProcessQueue] Persist thread stopped cleanly")
+        self._persist_thread = None
+
+    def _persist_loop(self):
+        """后台线程：定时检查并持久化脏队列。"""
+        while not self._persist_stop_event.wait(self._PERSIST_INTERVAL):
+            dirty_queues = []
+            with self._global_lock:
+                for qn in self._queue_names:
+                    if self._dirty_count.get(qn, 0) > 0:
+                        dirty_queues.append(qn)
+            for qn in dirty_queues:
+                with self._locks[qn]:
+                    self._persist_to_file(qn)
 
     def push(self, queue_name: str, message: Dict) -> str:
         msg_id = message.get("request_id") or str(uuid.uuid4())
@@ -194,7 +251,13 @@ class InProcessQueue(MessageQueue):
             # (old results are not useful and slow down file persistence)
             if queue_name in (QUEUE_RESULTS, QUEUE_FEEDBACK) and len(self._queues[queue_name]) > 50:
                 self._queues[queue_name] = self._queues[queue_name][-50:]
-            self._persist_to_file(queue_name)
+            # 标记为脏，由后台线程批量持久化
+            with self._global_lock:
+                self._dirty_count[queue_name] = self._dirty_count.get(queue_name, 0) + 1
+                should_persist = self._dirty_count[queue_name] >= self._PERSIST_THRESHOLD
+            # 超过阈值立即持久化，避免丢失过多数据
+            if should_persist:
+                self._persist_to_file(queue_name)
             self._conditions[queue_name].notify()
 
         return msg_id
@@ -203,7 +266,9 @@ class InProcessQueue(MessageQueue):
         with self._conditions[queue_name]:
             if self._queues[queue_name]:
                 msg = self._queues[queue_name].pop(0)
-                self._persist_to_file(queue_name)
+                # pop 不立即持久化，标记为脏由后台线程处理
+                with self._global_lock:
+                    self._dirty_count[queue_name] = self._dirty_count.get(queue_name, 0) + 1
                 return msg
 
             if timeout <= 0:
@@ -218,7 +283,9 @@ class InProcessQueue(MessageQueue):
 
             if self._queues[queue_name]:
                 msg = self._queues[queue_name].pop(0)
-                self._persist_to_file(queue_name)
+                # pop 不立即持久化，标记为脏由后台线程处理
+                with self._global_lock:
+                    self._dirty_count[queue_name] = self._dirty_count.get(queue_name, 0) + 1
                 return msg
             return None
 

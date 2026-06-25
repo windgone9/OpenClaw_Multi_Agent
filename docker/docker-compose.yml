@@ -36,8 +36,10 @@ services:
       resources:
         limits:
           memory: 12G
+          cpus: "4.0"
         reservations:
           memory: 1G
+          cpus: "0.5"
 
   # ==================== LiteLLM Proxy (可水平扩展) ====================
   # LiteLLM 数据库
@@ -55,6 +57,14 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+          cpus: "0.1"
 
   litellm:
     build:
@@ -95,8 +105,10 @@ services:
       resources:
         limits:
           memory: 2G
+          cpus: "1.0"
         reservations:
           memory: 512M
+          cpus: "0.25"
 
   # ==================== Nginx 负载均衡 ====================
   nginx:
@@ -116,6 +128,14 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+        reservations:
+          memory: 64M
+          cpus: "0.05"
 
   # ==================== Hermes Agent (K8S + 自学习路由) ====================
   hermes:
@@ -145,6 +165,14 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
 
   # ==================== OpenClaw Gateway (可选) ====================
   # openclaw-gw:
@@ -189,6 +217,13 @@ services:
     restart: unless-stopped
     deploy:
       replicas: 1
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+          cpus: "0.2"
 
   # ==================== MinIO 对象存储 ====================
   minio:
@@ -214,8 +249,10 @@ services:
       resources:
         limits:
           memory: 512M
+          cpus: "0.5"
         reservations:
           memory: 128M
+          cpus: "0.1"
 
   # ==================== FunASR 本地语音识别 ====================
   funasr:
@@ -237,8 +274,10 @@ services:
       resources:
         limits:
           memory: 4G
+          cpus: "2.0"
         reservations:
           memory: 2G
+          cpus: "1.0"
 
 volumes:
   ollama_data:

@@ -19,6 +19,39 @@ logger = logging.getLogger(__name__)
 HERMES_DATA_DIR = Path(os.getenv("HERMES_DATA_DIR", Path.home() / ".hermes_adapter"))
 HERMES_DB_PATH = HERMES_DATA_DIR / "routing_memory.db"
 
+# ── 关键词常量（统一定义，避免多处重复）──────────────────────────────
+MULTIMODAL_KEYWORDS = [
+    "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
+    "音频", "语音", "录音", "视频", "画面", "摄像头",
+    "image", "photo", "picture", "screenshot", "vision", "ocr",
+    "audio", "voice", "video", "camera", "multimodal",
+    "分析图片", "描述图片", "图片中", "图中", "截图中的",
+]
+
+MULTI_STEP_KEYWORDS = [
+    "规划", "分析", "比较", "设计", "制定", "评估", "审核",
+    "多步骤", "批量", "任务", "流程", "方案", "策略",
+    "plan", "analyze", "compare", "design", "evaluate", "multi-step",
+    "batch", "workflow", "strategy", "decision", "schedule",
+]
+
+# 高复杂度关键词（路由覆盖用）：比 MULTI_STEP_KEYWORDS 更聚焦
+# 用于 _decide_path / route override 判断是否走 gateway
+HIGH_COMPLEXITY_KEYWORDS = [
+    "多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研",
+]
+
+# _decide_path 扩展关键词：包含多步骤、批量、Volcano、部署等
+EXTENDED_MULTI_STEP_KEYWORDS = [
+    "多步骤", "多步", "批处理", "批量", "自主", "设计", "规划", "执行计划",
+    "自主执行", "架构", "方案", "调研", "流程", "编排", "工作流", "pipeline",
+    "Volcano", "volcano", "分布式", "微服务", "部署", "发布",
+]
+
+# 评分用关键词（score_complexity / _match_skill）
+SCORE_HIGH_KEYWORDS = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行"]
+SCORE_MODERATE_KEYWORDS = ["分析", "比较", "评估", "优化", "搜索", "查询"]
+
 
 class RoutePath(Enum):
     GATEWAY = "gateway"
@@ -493,17 +526,15 @@ class HermesRouter:
             len_score = 18
         breakdown["prompt_length"] = len_score
 
-        high_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行"]
-        moderate_keywords = ["分析", "比较", "评估", "优化", "搜索", "查询"]
         keyword_score = 0
         matched_keyword = None
-        for kw in high_keywords:
+        for kw in SCORE_HIGH_KEYWORDS:
             if kw in prompt:
                 keyword_score = 20
                 matched_keyword = kw
                 break
         if keyword_score == 0:
-            for kw in moderate_keywords:
+            for kw in SCORE_MODERATE_KEYWORDS:
                 if kw in prompt:
                     keyword_score = 10
                     matched_keyword = kw
@@ -576,14 +607,7 @@ class HermesRouter:
             return RoutePath.LOCAL_INFERENCE
 
         # Multimodal detection: image/audio/video → multimodal model
-        multimodal_keywords = [
-            "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
-            "音频", "语音", "录音", "视频", "画面", "摄像头",
-            "image", "photo", "picture", "screenshot", "vision", "ocr",
-            "audio", "voice", "video", "camera", "multimodal",
-            "分析图片", "描述图片", "图片中", "图中", "截图中的",
-        ]
-        if any(kw in prompt for kw in multimodal_keywords):
+        if any(kw in prompt for kw in MULTIMODAL_KEYWORDS):
             return RoutePath.MULTIMODAL
         attachments = request.get("attachments", [])
         if attachments:
@@ -600,12 +624,7 @@ class HermesRouter:
         if score >= self.complexity_threshold:
             return RoutePath.GATEWAY
 
-        multi_step_keywords = [
-            "多步骤", "多步", "批处理", "批量", "自主", "设计", "规划", "执行计划",
-            "自主执行", "架构", "方案", "调研", "流程", "编排", "工作流", "pipeline",
-            "Volcano", "volcano", "分布式", "微服务", "部署", "发布",
-        ]
-        if any(kw in prompt for kw in multi_step_keywords):
+        if any(kw in prompt for kw in EXTENDED_MULTI_STEP_KEYWORDS):
             return RoutePath.GATEWAY
 
         # Simple single-step Q&A → local model (Ollama/vLLM)
@@ -628,9 +647,7 @@ class HermesRouter:
             return skill
 
         prompt = request.get("prompt", "")
-        high_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行"]
-        moderate_keywords = ["分析", "比较", "评估", "优化", "搜索", "查询"]
-        for kw in high_keywords + moderate_keywords:
+        for kw in SCORE_HIGH_KEYWORDS + SCORE_MODERATE_KEYWORDS:
             if kw in prompt:
                 skill = self.memory.find_skill_by_keyword(kw, min_confidence=0.65)
                 if skill:
@@ -760,14 +777,7 @@ class HermesRouter:
             path = RoutePath.LOCAL_INFERENCE
         else:
             # Multimodal detection (absolute priority after privacy)
-            multimodal_keywords_final = [
-                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
-                "音频", "语音", "录音", "视频", "画面", "摄像头",
-                "image", "photo", "picture", "screenshot", "vision", "ocr",
-                "audio", "voice", "video", "camera", "multimodal",
-                "分析图片", "描述图片", "图片中", "图中", "截图中的",
-            ]
-            has_multimodal_final = any(kw in prompt_final for kw in multimodal_keywords_final)
+            has_multimodal_final = any(kw in prompt_final for kw in MULTIMODAL_KEYWORDS)
             attachments_final = request.get("attachments") or []
             if attachments_final:
                 has_multimodal_final = True
@@ -778,8 +788,7 @@ class HermesRouter:
                 # Multi-step batch / Volcano / Agent-related → gateway
                 req_type_final = request.get("type", "chat")
                 has_tools_final = bool(request.get("tools"))
-                high_complexity_keywords_final = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-                has_hck_final = any(kw in prompt_final for kw in high_complexity_keywords_final)
+                has_hck_final = any(kw in prompt_final for kw in HIGH_COMPLEXITY_KEYWORDS)
 
                 is_agent_related_final = (
                     has_tools_final
@@ -837,14 +846,7 @@ class HermesRouter:
             agent_result["reason"] = f"Override: require_local (was {path.value})"
         else:
             # Multimodal detection (absolute priority after privacy)
-            multimodal_keywords_oa = [
-                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
-                "音频", "语音", "录音", "视频", "画面", "摄像头",
-                "image", "photo", "picture", "screenshot", "vision", "ocr",
-                "audio", "voice", "video", "camera", "multimodal",
-                "分析图片", "描述图片", "图片中", "图中", "截图中的",
-            ]
-            has_multimodal_oa = any(kw in prompt for kw in multimodal_keywords_oa)
+            has_multimodal_oa = any(kw in prompt for kw in MULTIMODAL_KEYWORDS)
             attachments_oa = request.get("attachments") or []
             if attachments_oa:
                 has_multimodal_oa = True
@@ -854,8 +856,7 @@ class HermesRouter:
             else:
                 req_type = request.get("type", "chat")
                 has_tools = bool(request.get("tools"))
-                high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-                has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+                has_high_complexity_keywords = any(kw in prompt for kw in HIGH_COMPLEXITY_KEYWORDS)
 
                 is_agent_related = (
                     has_tools
@@ -922,14 +923,7 @@ class HermesRouter:
             agent_decision["reasoning"] = f"Override: require_local"
         else:
             # Multimodal detection (absolute priority after privacy)
-            multimodal_keywords_a = [
-                "图片", "图像", "照片", "截图", "OCR", "识别图片", "看图", "视觉",
-                "音频", "语音", "录音", "视频", "画面", "摄像头",
-                "image", "photo", "picture", "screenshot", "vision", "ocr",
-                "audio", "voice", "video", "camera", "multimodal",
-                "分析图片", "描述图片", "图片中", "图中", "截图中的",
-            ]
-            has_multimodal_a = any(kw in prompt for kw in multimodal_keywords_a)
+            has_multimodal_a = any(kw in prompt for kw in MULTIMODAL_KEYWORDS)
             attachments_a = request.get("attachments") or []
             if attachments_a:
                 has_multimodal_a = True
@@ -939,8 +933,7 @@ class HermesRouter:
             else:
                 req_type = request.get("type", "chat")
                 has_tools = bool(request.get("tools"))
-                high_complexity_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行", "架构", "方案", "调研"]
-                has_high_complexity_keywords = any(kw in prompt for kw in high_complexity_keywords)
+                has_high_complexity_keywords = any(kw in prompt for kw in HIGH_COMPLEXITY_KEYWORDS)
 
                 is_agent_related = (
                     has_tools
@@ -1210,9 +1203,7 @@ class HermesRouter:
                         f"(confidence={confidence:.2f}, samples={len(type_records)})")
 
         prompt = request.get("prompt", "")
-        high_keywords = ["多步骤", "自主", "设计", "规划", "执行计划", "自主执行"]
-        moderate_keywords = ["分析", "比较", "评估", "优化", "搜索", "查询"]
-        for kw in high_keywords + moderate_keywords:
+        for kw in SCORE_HIGH_KEYWORDS + SCORE_MODERATE_KEYWORDS:
             if kw in prompt:
                 existing_kw = self.memory.find_skill_by_keyword(kw, min_confidence=0.0)
                 if existing_kw:
