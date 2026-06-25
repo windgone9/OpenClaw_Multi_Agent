@@ -137,13 +137,12 @@ def verify_envsubst_template() -> List[str]:
                 print(f"  ✓ initContainer 镜像: {init_image}")
 
                 # 验证 envsubst 命令参数
-                if init_args:
-                    envsubst_cmd = " ".join(init_args)
-                    if "envsubst" in envsubst_cmd and "${LITELLM_MASTER_KEY}" in envsubst_cmd or "LITELLM_MASTER_KEY" in envsubst_cmd:
-                        print(f"  ✓ envsubst 命令包含 LITELLM_MASTER_KEY 变量替换")
-                    else:
-                        errors.append("11-nginx.yaml: envsubst 命令参数可能不正确")
-                        print(f"  ✗ envsubst 命令: {envsubst_cmd[:200]}")
+                full_cmd = " ".join(init_command) + " ".join(init_args) if init_args else " ".join(init_command)
+                if "envsubst" in full_cmd and ("LITELLM_MASTER_KEY" in full_cmd):
+                    print(f"  ✓ envsubst 命令包含 LITELLM_MASTER_KEY 变量替换")
+                else:
+                    errors.append("11-nginx.yaml: envsubst 命令参数可能不正确")
+                    print(f"  ✗ envsubst 命令: {full_cmd[:200]}")
 
                 # 验证 Secret 引用
                 env_vars = init.get("env", [])
@@ -165,9 +164,9 @@ def verify_envsubst_template() -> List[str]:
                 template_mount = False
                 output_mount = False
                 for m in mounts:
-                    if m.get("mountPath") == "/etc/nginx/templates/":
+                    if m.get("mountPath") == "/etc/nginx/envsubst-input/":
                         template_mount = True
-                        print(f"  ✓ initContainer 模板挂载: /etc/nginx/templates/")
+                        print(f"  ✓ initContainer 模板挂载: /etc/nginx/envsubst-input/")
                     if m.get("mountPath") == "/etc/nginx/conf.d/":
                         output_mount = True
                         print(f"  ✓ initContainer 输出挂载: /etc/nginx/conf.d/")
@@ -347,7 +346,7 @@ def verify_live_services(base_url: str) -> List[str]:
     endpoints = [
         ("GET", "/health", "Nginx health"),
         ("GET", "/hermes/health", "Hermes health"),
-        ("GET", "/stats", "Hermes stats"),
+        ("GET", "/hermes/stats", "Hermes stats"),
         ("GET", "/v1/system/metrics", "System metrics"),
         ("GET", "/v1/stream/health", "Stream Service health"),
         ("GET", "/svc/ollama/api/tags", "Ollama models"),
