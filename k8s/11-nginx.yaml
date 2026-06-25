@@ -19,6 +19,21 @@ spec:
       labels:
         app: nginx
     spec:
+      initContainers:
+        - name: nginx-envsubst
+          image: nginx:1.25-alpine
+          command: ['sh', '-c', 'envsubst "${LITELLM_MASTER_KEY}" < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf']
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: litellm-master-key
+          volumeMounts:
+            - name: nginx-config-template
+              mountPath: /etc/nginx/templates/
+            - name: nginx-output
+              mountPath: /etc/nginx/conf.d/
       containers:
         - name: nginx
           image: nginx:1.25-alpine
@@ -26,9 +41,8 @@ spec:
           ports:
             - containerPort: 80
           volumeMounts:
-            - name: nginx-config
-              mountPath: /etc/nginx/conf.d/default.conf
-              subPath: default.conf
+            - name: nginx-output
+              mountPath: /etc/nginx/conf.d/
           resources:
             requests:
               memory: "64Mi"
@@ -49,9 +63,11 @@ spec:
             initialDelaySeconds: 3
             periodSeconds: 5
       volumes:
-        - name: nginx-config
+        - name: nginx-config-template
           configMap:
-            name: nginx-config
+            name: nginx-config-template
+        - name: nginx-output
+          emptyDir: {}
 
 ---
 apiVersion: v1

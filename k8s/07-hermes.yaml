@@ -50,6 +50,8 @@ spec:
                   name: openclaw-secrets
                   key: openclaw-token
                   optional: true
+            - name: WATCHDOG_ENABLED
+              value: "false"
           resources:
             requests:
               memory: "512Mi"

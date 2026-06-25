@@ -150,6 +150,20 @@ class OfficialHermesAdapter:
             limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
         )
 
+        # 实例级共享 httpx.Client — Agent API 调用 (连接池复用, 避免per-request创建开销)
+        self._api_client = httpx.Client(
+            base_url=self.api_url,
+            timeout=httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0),
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+        )
+
+        # 实例级共享 httpx.Client — cloud check (连接池复用)
+        self._router_client = httpx.Client(
+            base_url=self.hermes_router_url,
+            timeout=httpx.Timeout(connect=5.0, read=5.0, write=5.0, pool=5.0),
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+        )
+
         # Cached health state (avoid per-request HTTP call)
         self._health_cache: Dict = {"status": "unknown", "cached_at": 0}
         self._health_cache_ttl = 30  # seconds
@@ -233,10 +247,9 @@ class OfficialHermesAdapter:
             return self._health_cache
 
         try:
-            with httpx.Client(timeout=3.0) as client:
-                resp = client.get(f"{self.api_url}/health", headers=self._headers)
-                resp.raise_for_status()
-                result = resp.json()
+            resp = self._api_client.get("/health", headers=self._headers, timeout=3.0)
+            resp.raise_for_status()
+            result = resp.json()
         except Exception as e:
             result = {"status": "unavailable", "error": str(e)}
 
@@ -246,10 +259,9 @@ class OfficialHermesAdapter:
 
     def detailed_health(self) -> Dict:
         try:
-            with httpx.Client(timeout=5.0) as client:
-                resp = client.get(f"{self.api_url}/health/detailed", headers=self._headers)
-                resp.raise_for_status()
-                return resp.json()
+            resp = self._api_client.get("/health/detailed", headers=self._headers)
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
             return {"status": "unavailable", "error": str(e)}
 
@@ -469,13 +481,12 @@ class OfficialHermesAdapter:
                 "max_tokens": 10,
                 "stream": False,
             }
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(
-                    f"{self.api_url}/v1/chat/completions",
-                    headers=self._headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
+            resp = self._api_client.post(
+                "/v1/chat/completions",
+                headers=self._headers,
+                json=payload,
+            )
+            resp.raise_for_status()
 
             # Capture session ID for reuse
             session_id = resp.headers.get("X-Hermes-Session-Id")
@@ -644,13 +655,12 @@ class OfficialHermesAdapter:
         headers = dict(self._headers)
 
         start = time.time()
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(
-                f"{self.api_url}/v1/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            resp.raise_for_status()
+        resp = self._api_client.post(
+            "/v1/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+        resp.raise_for_status()
         elapsed_ms = int((time.time() - start) * 1000)
 
         result = resp.json()
@@ -953,13 +963,12 @@ class OfficialHermesAdapter:
         try:
             # Lightweight health check — also serves as "ping" to keep
             # the Agent process warm and verify it can read MEMORY.md
-            with httpx.Client(timeout=3.0) as client:
-                resp = client.get(f"{self.api_url}/health", headers=self._headers)
-                if resp.status_code == 200:
-                    logger.debug(f"Agent notified of {len(batch)} feedback entries "
-                                 "(MemoryStore will reload on next request)")
-                else:
-                    logger.debug(f"Agent health check returned {resp.status_code}")
+            resp = self._api_client.get("/health", headers=self._headers, timeout=3.0)
+            if resp.status_code == 200:
+                logger.debug(f"Agent notified of {len(batch)} feedback entries "
+                             "(MemoryStore will reload on next request)")
+            else:
+                logger.debug(f"Agent health check returned {resp.status_code}")
         except Exception as e:
             # Non-critical: Agent will still read MEMORY.md on next request
             # even if this notification fails
@@ -1491,13 +1500,12 @@ class OfficialHermesAdapter:
         }
 
         try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.post(
-                    f"{self.api_url}/v1/chat/completions",
-                    headers=self._headers,
-                    json=payload,
-                )
-                resp.raise_for_status()
+            resp = self._api_client.post(
+                "/v1/chat/completions",
+                headers=self._headers,
+                json=payload,
+            )
+            resp.raise_for_status()
             result = resp.json()
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
             return {"skills_response": content}
@@ -1577,12 +1585,10 @@ class OfficialHermesAdapter:
         if hasattr(self, '_cloud_available') and self._cloud_available is not None and (now - self._cloud_check_time) < 30:
             return self._cloud_available
         try:
-            url = f"{self.hermes_router_url}/proxy/bridge/health"
-            logger.info(f"Checking cloud availability via: {url}")
-            with httpx.Client(timeout=5.0) as client:
-                resp = client.get(url)
-                logger.info(f"Cloud check response: status={resp.status_code}")
-                data = resp.json()
+            logger.info(f"Checking cloud availability via: {self.hermes_router_url}/proxy/bridge/health")
+            resp = self._router_client.get("/proxy/bridge/health")
+            logger.info(f"Cloud check response: status={resp.status_code}")
+            data = resp.json()
             cloud_count = data.get("cloud_models", 0)
             ogw_reachable = data.get("official_gateway_reachable", False)
             self._cloud_available = cloud_count > 0 and ogw_reachable

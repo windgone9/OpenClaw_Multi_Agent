@@ -43,6 +43,8 @@ _STREAM_INTERNAL = os.getenv("STREAM_INTERNAL_URL", "http://stream-service:8084"
 _litellm_client: _httpx.AsyncClient | None = None
 _stream_client: _httpx.AsyncClient | None = None
 _download_client: _httpx.AsyncClient | None = None
+_watchdog_health_client: _httpx.AsyncClient | None = None
+_ollama_ps_client: _httpx.AsyncClient | None = None
 
 # Note: Actual logging configuration is set in __main__ via uvicorn log_config.
 # This early basicConfig ensures logs are visible during module import phase.
@@ -135,7 +137,7 @@ class HermesDispatchRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _watchdog_running, _watchdog_task
-    global _litellm_client, _stream_client, _download_client
+    global _litellm_client, _stream_client, _download_client, _watchdog_health_client, _ollama_ps_client
     logger.info("Hermes Intelligent Router starting...")
     logger.info(f"  Ollama URL: {OLLAMA_URL}")
     logger.info(f"  OfficialGW URL: {OFFICIAL_GW_URL}")
@@ -155,7 +157,16 @@ async def lifespan(app: FastAPI):
         timeout=30.0,
         limits=_httpx.Limits(max_connections=10, max_keepalive_connections=3),
     )
-    logger.info("  Persistent HTTP clients initialized (litellm, stream, download)")
+    _watchdog_health_client = _httpx.AsyncClient(
+        timeout=15.0,
+        limits=_httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+    _ollama_ps_client = _httpx.AsyncClient(
+        base_url=OLLAMA_URL,
+        timeout=5.0,
+        limits=_httpx.Limits(max_connections=3, max_keepalive_connections=1),
+    )
+    logger.info("  Persistent HTTP clients initialized (litellm, stream, download, watchdog, ollama_ps)")
 
     _register_known_models()
     dispatch_worker.start()
@@ -163,15 +174,25 @@ async def lifespan(app: FastAPI):
     # Auto-start watchdog (load config from file first)
     global _watchdog_config
     _watchdog_config = _load_watchdog_config()
-    _watchdog_running = True
-    _watchdog_task = asyncio.create_task(_watchdog_loop())
-    logger.info("  Service watchdog started (interval=%ds, grace=%ds, shutdown_timeout=%ds)",
-                _watchdog_config["interval_seconds"],
-                _watchdog_config.get("startup_grace_seconds", 45),
-                _watchdog_config.get("shutdown_timeout_seconds", 5))
+    # K8S 环境检测 — 在 K8S 中由 liveness/readiness probes 管理健康，watchdog 的进程管理和 localhost URL 不兼容
+    _is_k8s = os.getenv("KUBERNETES_SERVICE_HOST") is not None
+    _watchdog_enabled = _watchdog_config.get("enabled", True)
+
+    if not _watchdog_enabled or _is_k8s:
+        _watchdog_running = False
+        reason = "disabled by config" if not _watchdog_enabled else "running in Kubernetes (KUBERNETES_SERVICE_HOST detected)"
+        logger.info("[Watchdog] Watchdog NOT started: %s", reason)
+    else:
+        _watchdog_running = True
+        _watchdog_task = asyncio.create_task(_watchdog_loop())
+        logger.info("  Service watchdog started (interval=%ds, grace=%ds, shutdown_timeout=%ds)",
+                    _watchdog_config["interval_seconds"],
+                    _watchdog_config.get("startup_grace_seconds", 45),
+                    _watchdog_config.get("shutdown_timeout_seconds", 5))
     yield
     # 关闭持久客户端
-    for client_name, client in [("litellm", _litellm_client), ("stream", _stream_client), ("download", _download_client)]:
+    for client_name, client in [("litellm", _litellm_client), ("stream", _stream_client), ("download", _download_client),
+                                 ("watchdog_health", _watchdog_health_client), ("ollama_ps", _ollama_ps_client)]:
         if client:
             await client.aclose()
             logger.info(f"  Persistent client '{client_name}' closed")
@@ -1853,13 +1874,11 @@ async def _check_service_health(name: str) -> bool:
         return False
     timeout = _watchdog_config.get("health_check_timeout_seconds", 10)
     try:
-        import httpx
         headers = {}
         if name == "hermesAgent" and OFFICIAL_AGENT_KEY:
             headers["Authorization"] = f"Bearer {OFFICIAL_AGENT_KEY}"
         start = time.time()
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(health_url, headers=headers)
+        resp = await _watchdog_health_client.get(health_url, headers=headers, timeout=timeout)
         elapsed_ms = int((time.time() - start) * 1000)
         healthy = resp.status_code == 200
         logger.info("[HealthCheck] %s: %s status=%d latency=%dms url=%s",
@@ -2370,10 +2389,8 @@ async def api_proxy_health():
 async def api_proxy_ollama_ps():
     """Proxy Ollama /api/ps using async httpx (bypasses CORS)."""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("http://127.0.0.1:11434/api/ps")
-            return resp.json()
+        resp = await _ollama_ps_client.get("/api/ps")
+        return resp.json()
     except Exception as e:
         return {"models": [], "error": str(e)}
 

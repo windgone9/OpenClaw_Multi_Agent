@@ -36,11 +36,15 @@ _funasr_client: httpx.AsyncClient | None = None
 _litellm_stream_client: httpx.AsyncClient | None = None
 _ollama_stream_client: httpx.AsyncClient | None = None
 _download_client: httpx.AsyncClient | None = None
+_litellm_sync_client: httpx.AsyncClient | None = None
+_ollama_sync_client: httpx.AsyncClient | None = None
+_funasr_health_client: httpx.AsyncClient | None = None
 
 
 async def _init_persistent_clients():
     """初始化持久 HTTP 客户端（在 FastAPI lifespan 中调用）。"""
     global _funasr_client, _litellm_stream_client, _ollama_stream_client, _download_client
+    global _litellm_sync_client, _ollama_sync_client, _funasr_health_client
     _funasr_client = httpx.AsyncClient(
         timeout=60.0,
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
@@ -57,12 +61,38 @@ async def _init_persistent_clients():
         timeout=30.0,
         limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
     )
+    # LiteLLM 同步客户端（仅当 EXTERNAL_LITELLM_URL 设置时创建）
+    if EXTERNAL_LITELLM_URL:
+        _litellm_sync_client = httpx.AsyncClient(
+            base_url=EXTERNAL_LITELLM_URL,
+            timeout=120.0,
+            limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+        )
+    else:
+        _litellm_sync_client = None
+    # Ollama 同步客户端
+    _ollama_sync_client = httpx.AsyncClient(
+        base_url=OLLAMA_URL,
+        timeout=120.0,
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+    # FunASR 健康检查客户端（仅当 FUNASR_URL 设置时创建）
+    if FUNASR_URL:
+        _funasr_health_client = httpx.AsyncClient(
+            base_url=FUNASR_URL,
+            timeout=5.0,
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+        )
+    else:
+        _funasr_health_client = None
 
 
 async def _close_persistent_clients():
     """关闭持久 HTTP 客户端（在 FastAPI lifespan 退出时调用）。"""
     for name, client in [("funasr", _funasr_client), ("litellm", _litellm_stream_client),
-                         ("ollama", _ollama_stream_client), ("download", _download_client)]:
+                         ("ollama", _ollama_stream_client), ("download", _download_client),
+                         ("litellm_sync", _litellm_sync_client), ("ollama_sync", _ollama_sync_client),
+                         ("funasr_health", _funasr_health_client)]:
         if client:
             await client.aclose()
 
@@ -322,9 +352,9 @@ async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
         if LITELLM_MASTER_KEY:
             headers["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
+            if _litellm_sync_client:
+                resp = await _litellm_sync_client.post(
+                    "/v1/chat/completions",
                     json=payload,
                     headers=headers,
                 )
@@ -333,6 +363,8 @@ async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            else:
+                logger.warning("[StreamLLM] LiteLLM 同步客户端未初始化 (EXTERNAL_LITELLM_URL 未设置), fallback 到 Ollama")
         except Exception as e:
             logger.warning("[StreamLLM] 外部 LiteLLM 同步失败, fallback 到 Ollama: %s", e)
 
@@ -345,11 +377,10 @@ async def call_llm_sync(text: str, model: str = DEFAULT_CHAT_MODEL) -> str:
         "options": {"num_ctx": 4096, "temperature": 0.7},
     }
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(f"{OLLAMA_URL}/v1/chat/completions", json=ollama_payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        resp = await _ollama_sync_client.post("/v1/chat/completions", json=ollama_payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
     except Exception as e:
         logger.error("[StreamLLM] Ollama 同步请求也失败: %s", e)
         return ""
@@ -792,11 +823,10 @@ async def stream_health():
     """Stream Service 健康检查。"""
     # 检查 FunASR 连通性
     funasr_ok = False
-    if FUNASR_URL:
+    if FUNASR_URL and _funasr_health_client:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{FUNASR_URL}/health")
-                funasr_ok = resp.status_code == 200
+            resp = await _funasr_health_client.get("/health")
+            funasr_ok = resp.status_code == 200
         except Exception:
             pass
 

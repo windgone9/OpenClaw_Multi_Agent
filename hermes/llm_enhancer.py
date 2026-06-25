@@ -1,8 +1,10 @@
+import httpx
 import json
 import logging
 import os
 import time
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,27 @@ class LLMEnhancer:
         self._cache: Dict[str, dict] = {}
         self._cache_max = 200
 
+        # 实例级共享 httpx.Client (连接池复用, 避免per-request创建开销)
+        self._classify_client = httpx.Client(
+            base_url=self._extract_base_url(self.classify_url),
+            timeout=httpx.Timeout(connect=5.0, read=3.0, write=5.0, pool=5.0),
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+        )
+        self._classify_url_path = self._extract_url_path(self.classify_url)
+
+    @staticmethod
+    def _extract_base_url(url: str) -> str:
+        """从完整URL提取base_url (scheme+host+port), 如 http://localhost:11434/v1/chat/completions → http://localhost:11434"""
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        return base
+
+    @staticmethod
+    def _extract_url_path(url: str) -> str:
+        """从完整URL提取路径部分, 如 http://localhost:11434/v1/chat/completions → /v1/chat/completions"""
+        parsed = urlparse(url)
+        return parsed.path or "/"
+
     def classify(self, request: Dict) -> Optional[Dict]:
         if not self.enabled:
             return None
@@ -99,8 +122,6 @@ class LLMEnhancer:
     def _call_llm(self, user_message: str) -> Optional[Dict]:
         start = time.time()
         try:
-            import httpx
-
             payload = {
                 "model": self.model.split("/")[-1] if "/" in self.model else self.model,
                 "messages": [
@@ -112,10 +133,9 @@ class LLMEnhancer:
                 "stream": False,
             }
 
-            with httpx.Client(timeout=float(self.timeout)) as client:
-                resp = client.post(self.classify_url, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+            resp = self._classify_client.post(self._classify_url_path, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
 
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             latency_ms = int((time.time() - start) * 1000)

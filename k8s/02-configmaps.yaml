@@ -57,14 +57,14 @@ data:
       callbacks: ["prometheus"]
 
 ---
-# Nginx 反向代理配置
+# Nginx 反向代理配置（envsubst 模板 — ${LITELLM_MASTER_KEY} 由 init container 替换）
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nginx-config
+  name: nginx-config-template
   namespace: openclaw
 data:
-  default.conf: |
+  default.conf.template: |
     upstream litellm_backend {
         least_conn;
         server litellm:4000;
@@ -166,7 +166,7 @@ data:
         location /sso/ {
             proxy_pass http://litellm_backend/sso/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -174,7 +174,7 @@ data:
         location /auth/ {
             proxy_pass http://litellm_backend/auth/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -182,7 +182,7 @@ data:
         location /login {
             proxy_pass http://litellm_backend/login;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -190,7 +190,7 @@ data:
         location /v3/ {
             proxy_pass http://litellm_backend/v3/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -203,7 +203,7 @@ data:
         location / {
             proxy_pass http://litellm_backend;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -215,7 +215,7 @@ data:
         location /key/ {
             proxy_pass http://litellm_backend/key/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -223,7 +223,7 @@ data:
         location /model/ {
             proxy_pass http://litellm_backend/model/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -231,7 +231,7 @@ data:
         location /health/ {
             proxy_pass http://litellm_backend/health/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -239,7 +239,7 @@ data:
         location /global/ {
             proxy_pass http://litellm_backend/global/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -247,7 +247,7 @@ data:
         location /budget/ {
             proxy_pass http://litellm_backend/budget/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -255,7 +255,7 @@ data:
         location /config/ {
             proxy_pass http://litellm_backend/config/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -263,7 +263,7 @@ data:
         location /get/ {
             proxy_pass http://litellm_backend/get/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -271,7 +271,7 @@ data:
         location /customer/ {
             proxy_pass http://litellm_backend/customer/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -279,7 +279,7 @@ data:
         location /guardrails/ {
             proxy_pass http://litellm_backend/guardrails/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -287,7 +287,7 @@ data:
         location /cache/ {
             proxy_pass http://litellm_backend/cache/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -295,7 +295,7 @@ data:
         location /alerting/ {
             proxy_pass http://litellm_backend/alerting/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -303,7 +303,7 @@ data:
         location /callback/ {
             proxy_pass http://litellm_backend/callback/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -311,7 +311,7 @@ data:
         location /team/ {
             proxy_pass http://litellm_backend/team/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -319,7 +319,7 @@ data:
         location /user/ {
             proxy_pass http://litellm_backend/user/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -327,7 +327,7 @@ data:
         location /organization/ {
             proxy_pass http://litellm_backend/organization/;
             proxy_set_header Host $http_host;
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
             proxy_http_version 1.1;
             proxy_set_header Connection "";
         }
@@ -340,7 +340,7 @@ data:
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "";
             # 注入默认 auth，让 UI 无需手动登录即可查看
-            proxy_set_header Authorization "Bearer sk-litellm-local";
+            proxy_set_header Authorization "Bearer ${LITELLM_MASTER_KEY}";
         }
 
         location /litellm-asset-prefix/ {

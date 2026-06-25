@@ -28,6 +28,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,116 @@ LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # 外部 LiteLLM Proxy 地址（Docker 部署时使用）；为空则直接调用 Ollama
 EXTERNAL_LITELLM_URL = os.getenv("EXTERNAL_LITELLM_URL", "")
+
+# ── 持久 HTTP 客户端（连接池复用）──────────────────────────────────────
+# 按目标服务分组创建共享客户端，避免每次请求新建 TCP 连接
+_litellm_chat_client: httpx.AsyncClient | None = None
+_ollama_chat_client: httpx.AsyncClient | None = None
+_litellm_asr_client: httpx.AsyncClient | None = None
+_funasr_asr_client: httpx.AsyncClient | None = None
+_ollama_asr_client: httpx.AsyncClient | None = None
+_litellm_embed_client: httpx.AsyncClient | None = None
+_ollama_embed_client: httpx.AsyncClient | None = None
+_download_client: httpx.AsyncClient | None = None
+_litellm_models_client: httpx.AsyncClient | None = None
+_ollama_models_client: httpx.AsyncClient | None = None
+_doubao_asr_client: httpx.AsyncClient | None = None
+
+
+async def _init_persistent_clients():
+    """初始化持久 HTTP 客户端（在 FastAPI lifespan 中调用）。"""
+    global _litellm_chat_client, _ollama_chat_client, _litellm_asr_client, \
+           _funasr_asr_client, _ollama_asr_client, _litellm_embed_client, \
+           _ollama_embed_client, _download_client, _litellm_models_client, \
+           _ollama_models_client, _doubao_asr_client
+
+    litellm_base = EXTERNAL_LITELLM_URL or ""
+    ollama_base = OLLAMA_URL
+    funasr_base = FUNASR_URL or ""
+    doubao_base = DOUBAO_ASR_URL
+
+    _litellm_chat_client = httpx.AsyncClient(
+        base_url=litellm_base,
+        timeout=httpx.Timeout(300.0),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=5),
+    ) if litellm_base else None
+    _ollama_chat_client = httpx.AsyncClient(
+        base_url=ollama_base,
+        timeout=httpx.Timeout(300.0),
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=3),
+    )
+    _litellm_asr_client = httpx.AsyncClient(
+        base_url=litellm_base,
+        timeout=httpx.Timeout(60.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    ) if litellm_base else None
+    _funasr_asr_client = httpx.AsyncClient(
+        base_url=funasr_base,
+        timeout=httpx.Timeout(60.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    ) if funasr_base else None
+    _ollama_asr_client = httpx.AsyncClient(
+        base_url=ollama_base,
+        timeout=httpx.Timeout(60.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+    _litellm_embed_client = httpx.AsyncClient(
+        base_url=litellm_base,
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    ) if litellm_base else None
+    _ollama_embed_client = httpx.AsyncClient(
+        base_url=ollama_base,
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+    )
+    _download_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(float(os.getenv("ATTACHMENT_TIMEOUT", "30.0"))),
+        limits=httpx.Limits(max_connections=10, max_keepalive_connections=0),
+    )
+    _litellm_models_client = httpx.AsyncClient(
+        base_url=litellm_base,
+        timeout=httpx.Timeout(10.0),
+        limits=httpx.Limits(max_connections=3, max_keepalive_connections=1),
+    ) if litellm_base else None
+    _ollama_models_client = httpx.AsyncClient(
+        base_url=ollama_base,
+        timeout=httpx.Timeout(5.0),
+        limits=httpx.Limits(max_connections=3, max_keepalive_connections=1),
+    )
+    _doubao_asr_client = httpx.AsyncClient(
+        base_url=doubao_base,
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_connections=3, max_keepalive_connections=1),
+    ) if DOUBAO_ASR_KEY else None
+
+    logger.info("[PersistentClients] 初始化完成: litellm_chat=%s ollama_chat=Y litellm_asr=%s "
+                "funasr_asr=%s ollama_asr=Y litellm_embed=%s ollama_embed=Y download=Y "
+                "litellm_models=%s ollama_models=Y doubao_asr=%s",
+                bool(_litellm_chat_client), bool(_litellm_asr_client),
+                bool(_funasr_asr_client), bool(_litellm_embed_client),
+                bool(_litellm_models_client), bool(_doubao_asr_client))
+
+
+async def _close_persistent_clients():
+    """关闭持久 HTTP 客户端（在 FastAPI lifespan 退出时调用）。"""
+    clients = [
+        ("litellm_chat", _litellm_chat_client),
+        ("ollama_chat", _ollama_chat_client),
+        ("litellm_asr", _litellm_asr_client),
+        ("funasr_asr", _funasr_asr_client),
+        ("ollama_asr", _ollama_asr_client),
+        ("litellm_embed", _litellm_embed_client),
+        ("ollama_embed", _ollama_embed_client),
+        ("download", _download_client),
+        ("litellm_models", _litellm_models_client),
+        ("ollama_models", _ollama_models_client),
+        ("doubao_asr", _doubao_asr_client),
+    ]
+    for name, client in clients:
+        if client:
+            await client.aclose()
+            logger.info("[PersistentClients] 客户端 '%s' 已关闭", name)
 
 # 默认模型映射
 DEFAULT_CHAT_MODEL = os.getenv("DEFAULT_CHAT_MODEL", "qwen2.5:3b")
@@ -111,12 +222,11 @@ def _has_image_content(messages: list) -> bool:
 async def _download_image_as_base64(url: str) -> str:
     """下载图片并转为 base64 data URI。"""
     import base64
-    async with httpx.AsyncClient(timeout=ATTACHMENT_TIMEOUT) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        content_type = resp.headers.get("content-type", "image/png")
-        b64 = base64.b64encode(resp.content).decode("utf-8")
-        return f"data:{content_type};base64,{b64}"
+    resp = await _download_client.get(url)
+    resp.raise_for_status()
+    content_type = resp.headers.get("content-type", "image/png")
+    b64 = base64.b64encode(resp.content).decode("utf-8")
+    return f"data:{content_type};base64,{b64}"
 
 
 async def _resolve_image_urls(messages: list) -> list:
@@ -236,10 +346,9 @@ async def preprocess_attachments(attachments: List[Dict], messages: List[ChatMes
 async def _extract_document_text(url: str, doc_type: str) -> str:
     """从 URL 下载文档并提取文本。"""
     try:
-        async with httpx.AsyncClient(timeout=ATTACHMENT_TIMEOUT) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content_bytes = resp.content
+        resp = await _download_client.get(url)
+        resp.raise_for_status()
+        content_bytes = resp.content
 
         if doc_type == "pdf":
             return _extract_pdf_text(content_bytes)
@@ -338,60 +447,57 @@ async def _transcribe_audio(url: str) -> str:
     """
     # 下载音频文件
     try:
-        async with httpx.AsyncClient(timeout=ATTACHMENT_TIMEOUT) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            audio_bytes = resp.content
+        resp = await _download_client.get(url)
+        resp.raise_for_status()
+        audio_bytes = resp.content
     except Exception as e:
         logger.warning("[Attachment] 音频下载失败: url=%s error=%s", url[:80], e)
         return f"[音频下载失败: {e}]"
 
     # 0. FunASR 本地部署 (OpenAI 兼容 /v1/audio/transcriptions)
-    if FUNASR_URL:
+    if FUNASR_URL and _funasr_asr_client:
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
-                data = {"model": FUNASR_MODEL, "response_format": "json"}
-                resp = await client.post(
-                    f"{FUNASR_URL}/v1/audio/transcriptions",
-                    files=files, data=data,
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                text = result.get("text", "")
-                if text:
-                    logger.info("[ASR] FunASR 转写成功: %s", text[:80])
-                    return _clean_funasr_text(text)
-                else:
-                    # FunASR 成功响应但无语音内容
-                    logger.info("[ASR] FunASR 处理成功但未检测到语音内容")
-                    return "[音频转写结果: 未检测到语音内容（可能为静音或纯音乐片段）]"
+            files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+            data = {"model": FUNASR_MODEL, "response_format": "json"}
+            resp = await _funasr_asr_client.post(
+                "/v1/audio/transcriptions",
+                files=files, data=data,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            text = result.get("text", "")
+            if text:
+                logger.info("[ASR] FunASR 转写成功: %s", text[:80])
+                return _clean_funasr_text(text)
+            else:
+                # FunASR 成功响应但无语音内容
+                logger.info("[ASR] FunASR 处理成功但未检测到语音内容")
+                return "[音频转写结果: 未检测到语音内容（可能为静音或纯音乐片段）]"
         except Exception as e:
             logger.warning("[Attachment] FunASR 失败: %s", e)
 
     # 1. 外部 LiteLLM Proxy ASR
-    if EXTERNAL_LITELLM_URL:
+    if EXTERNAL_LITELLM_URL and _litellm_asr_client:
         try:
             headers = {}
             if LITELLM_MASTER_KEY:
                 headers["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
-                data = {"model": "doubao-asr", "response_format": "json"}
-                resp = await client.post(
-                    f"{EXTERNAL_LITELLM_URL}/v1/audio/transcriptions",
-                    files=files, data=data, headers=headers,
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                text = result.get("text", "")
-                if text:
-                    return text
+            files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+            data = {"model": "doubao-asr", "response_format": "json"}
+            resp = await _litellm_asr_client.post(
+                "/v1/audio/transcriptions",
+                files=files, data=data, headers=headers,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            text = result.get("text", "")
+            if text:
+                return text
         except Exception as e:
             logger.warning("[Attachment] 外部 ASR 失败: %s", e)
 
     # 2. 豆包 ASR
-    if DOUBAO_ASR_KEY:
+    if DOUBAO_ASR_KEY and _doubao_asr_client:
         try:
             import json as _json
             headers = {
@@ -416,13 +522,12 @@ async def _transcribe_audio(url: str) -> str:
                     "text": "",
                 },
             }
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(DOUBAO_ASR_URL, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                text = data.get("result", [{}])[0].get("text", "") if data.get("result") else ""
-                if text:
-                    return text
+            resp = await _doubao_asr_client.post("/", json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data.get("result", [{}])[0].get("text", "") if data.get("result") else ""
+            if text:
+                return text
         except Exception as e:
             logger.warning("[Attachment] 豆包 ASR 失败: %s", e)
 
@@ -436,13 +541,12 @@ async def _transcribe_audio(url: str) -> str:
             "prompt": "请转写以下音频",
             "images": [b64_audio],  # Ollama whisper 接受 images 字段
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(f"{OLLAMA_URL}/api/generate", json=whisper_payload)
-            resp.raise_for_status()
-            data = resp.json()
-            text = data.get("response", "")
-            if text:
-                return text.strip()
+        resp = await _ollama_asr_client.post("/api/generate", json=whisper_payload)
+        resp.raise_for_status()
+        data = resp.json()
+        text = data.get("response", "")
+        if text:
+            return text.strip()
     except Exception as e:
         logger.warning("[Attachment] Ollama Whisper ASR 失败: %s", e)
 
@@ -466,16 +570,15 @@ async def call_litellm_chat(payload: dict):
 
     优先级: 外部 LiteLLM Proxy → Ollama 直连
     """
-    if EXTERNAL_LITELLM_URL:
+    if EXTERNAL_LITELLM_URL and _litellm_chat_client:
         headers = _get_proxy_headers()
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(
-                f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await _litellm_chat_client.post(
+            "/v1/chat/completions",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # 直接调用 Ollama
     model = payload.get("model", DEFAULT_CHAT_MODEL)
@@ -493,13 +596,9 @@ async def call_litellm_chat(payload: dict):
     if payload.get("max_tokens"):
         ollama_payload["options"]["num_predict"] = payload["max_tokens"]
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(
-            f"{OLLAMA_URL}/v1/chat/completions",
-            json=ollama_payload,
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _ollama_chat_client.post("/v1/chat/completions", json=ollama_payload)
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def call_litellm_chat_stream(payload: dict):
@@ -507,18 +606,17 @@ async def call_litellm_chat_stream(payload: dict):
 
     优先级: 外部 LiteLLM Proxy → Ollama 直连
     """
-    if EXTERNAL_LITELLM_URL:
+    if EXTERNAL_LITELLM_URL and _litellm_chat_client:
         headers = _get_proxy_headers()
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{EXTERNAL_LITELLM_URL}/v1/chat/completions",
-                json=payload,
-                headers=headers,
-            ) as resp:
-                resp.raise_for_status()
-                async for chunk in resp.aiter_bytes():
-                    yield chunk
+        async with _litellm_chat_client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json=payload,
+            headers=headers,
+        ) as resp:
+            resp.raise_for_status()
+            async for chunk in resp.aiter_bytes():
+                yield chunk
         return
 
     # 直接调用 Ollama 流式
@@ -535,15 +633,14 @@ async def call_litellm_chat_stream(payload: dict):
         },
     }
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        async with client.stream(
-            "POST",
-            f"{OLLAMA_URL}/v1/chat/completions",
-            json=ollama_payload,
-        ) as resp:
-            resp.raise_for_status()
-            async for chunk in resp.aiter_bytes():
-                yield chunk
+    async with _ollama_chat_client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json=ollama_payload,
+    ) as resp:
+        resp.raise_for_status()
+        async for chunk in resp.aiter_bytes():
+            yield chunk
 
 
 # ── API Router ────────────────────────────────────────────────────
@@ -644,19 +741,18 @@ async def chat_completions(request: ChatCompletionRequest):
 @litellm_router.post("/completions", summary="OpenAI 兼容补全接口")
 async def completions(request: dict):
     """OpenAI 兼容的 Completions 接口。"""
-    if EXTERNAL_LITELLM_URL:
+    if EXTERNAL_LITELLM_URL and _litellm_chat_client:
         headers = _get_proxy_headers()
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            try:
-                resp = await client.post(
-                    f"{EXTERNAL_LITELLM_URL}/v1/completions",
-                    json=request,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                return resp.json()
-            except Exception as e:
-                raise HTTPException(status_code=502, detail=f"LiteLLM Proxy 不可用: {e}")
+        try:
+            resp = await _litellm_chat_client.post(
+                "/v1/completions",
+                json=request,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"LiteLLM Proxy 不可用: {e}")
 
     # 直接调用 Ollama
     model = request.get("model", DEFAULT_CHAT_MODEL)
@@ -668,10 +764,9 @@ async def completions(request: dict):
         "stream": False,
         "options": {"temperature": request.get("temperature", 0.7)},
     }
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(f"{OLLAMA_URL}/v1/completions", json=ollama_payload)
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _ollama_chat_client.post("/v1/completions", json=ollama_payload)
+    resp.raise_for_status()
+    return resp.json()
 
 
 @litellm_router.post("/embeddings", summary="OpenAI 兼容 Embedding 接口")
@@ -679,17 +774,16 @@ async def embeddings(request: EmbeddingRequest):
     """OpenAI 兼容的 Embeddings 接口。"""
     payload = {"model": request.model, "input": request.input}
 
-    if EXTERNAL_LITELLM_URL:
+    if EXTERNAL_LITELLM_URL and _litellm_embed_client:
         headers = _get_proxy_headers()
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{EXTERNAL_LITELLM_URL}/v1/embeddings",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                return resp.json()
+            resp = await _litellm_embed_client.post(
+                "/v1/embeddings",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
             logger.warning("[Embedding] 外部 LiteLLM 失败, fallback 到 Ollama: %s", e)
 
@@ -697,19 +791,18 @@ async def embeddings(request: EmbeddingRequest):
     model = request.model
     if "/" in model:
         model = model.split("/")[-1]
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": model, "prompt": request.input if isinstance(request.input, str) else request.input[0]},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return {
-            "object": "list",
-            "data": [{"object": "embedding", "embedding": data.get("embedding", []), "index": 0}],
-            "model": model,
-            "usage": {"prompt_tokens": 0, "total_tokens": 0},
-        }
+    resp = await _ollama_embed_client.post(
+        "/api/embeddings",
+        json={"model": model, "prompt": request.input if isinstance(request.input, str) else request.input[0]},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return {
+        "object": "list",
+        "data": [{"object": "embedding", "embedding": data.get("embedding", []), "index": 0}],
+        "model": model,
+        "usage": {"prompt_tokens": 0, "total_tokens": 0},
+    }
 
 
 @litellm_router.post("/audio/transcriptions", summary="语音识别接口")
@@ -736,17 +829,16 @@ async def audio_transcriptions(request: Request):
         if LITELLM_MASTER_KEY:
             headers["Authorization"] = f"Bearer {LITELLM_MASTER_KEY}"
 
-        if EXTERNAL_LITELLM_URL:
+        if EXTERNAL_LITELLM_URL and _litellm_asr_client:
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.post(
-                        f"{EXTERNAL_LITELLM_URL}/v1/audio/transcriptions",
-                        files=files,
-                        data=data,
-                        headers=headers,
-                    )
-                    resp.raise_for_status()
-                    return resp.json()
+                resp = await _litellm_asr_client.post(
+                    "/v1/audio/transcriptions",
+                    files=files,
+                    data=data,
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                return resp.json()
             except Exception as e:
                 raise HTTPException(status_code=502, detail=f"ASR 服务不可用: {e}")
 
@@ -959,33 +1051,31 @@ async def unified_chat(request: Request):
 @litellm_router.get("/models", summary="可用模型列表")
 async def list_models():
     """列出可用的模型。"""
-    if EXTERNAL_LITELLM_URL:
+    if EXTERNAL_LITELLM_URL and _litellm_models_client:
         headers = _get_proxy_headers()
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(
-                    f"{EXTERNAL_LITELLM_URL}/v1/models",
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                return resp.json()
+            resp = await _litellm_models_client.get(
+                "/v1/models",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception:
             pass
 
     # 从 Ollama 获取
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{OLLAMA_URL}/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
-            models = []
-            for m in data.get("models", []):
-                models.append({
-                    "id": m.get("name", ""),
-                    "object": "model",
-                    "owned_by": "ollama",
-                })
-            return {"object": "list", "data": models}
+        resp = await _ollama_models_client.get("/api/tags")
+        resp.raise_for_status()
+        data = resp.json()
+        models = []
+        for m in data.get("models", []):
+            models.append({
+                "id": m.get("name", ""),
+                "object": "model",
+                "owned_by": "ollama",
+            })
+        return {"object": "list", "data": models}
     except Exception as e:
         return {"object": "list", "data": [], "error": str(e)}
 
@@ -994,10 +1084,17 @@ async def list_models():
 
 def create_app() -> FastAPI:
     """创建 LiteLLM Proxy 独立 FastAPI 应用。"""
+    @asynccontextmanager
+    async def lifespan(app):
+        await _init_persistent_clients()
+        yield
+        await _close_persistent_clients()
+
     app = FastAPI(
         title="LiteLLM Proxy Service",
         description="OpenAI 兼容的同步直调 API 服务",
         version="1.0.0",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,

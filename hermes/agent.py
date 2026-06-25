@@ -1,3 +1,4 @@
+import httpx
 import json
 import logging
 import os
@@ -5,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +181,27 @@ class HermesAgent:
         self._min_confidence = 0.4
         self._evolution_log: List[Dict] = []
 
+        # 实例级共享 httpx.Client (连接池复用, 避免per-request创建开销)
+        self._llm_client = httpx.Client(
+            base_url=self._extract_base_url(self.llm_url),
+            timeout=httpx.Timeout(connect=5.0, read=5.0, write=5.0, pool=5.0),
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+        )
+        self._llm_url_path = self._extract_url_path(self.llm_url)
+
+    @staticmethod
+    def _extract_base_url(url: str) -> str:
+        """从完整URL提取base_url (scheme+host+port), 如 http://localhost:11434/v1/chat/completions → http://localhost:11434"""
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        return base
+
+    @staticmethod
+    def _extract_url_path(url: str) -> str:
+        """从完整URL提取路径部分, 如 http://localhost:11434/v1/chat/completions → /v1/chat/completions"""
+        parsed = urlparse(url)
+        return parsed.path or "/"
+
     def register_skill(self, skill: RoutingSkill):
         self.skills[skill.name] = skill
         logger.info(f"Agent skill registered: {skill.name} (confidence={skill.confidence:.2f}, source={skill.source})")
@@ -316,8 +339,6 @@ class HermesAgent:
 
     def _call_llm(self, system_prompt: str, user_message: str) -> Optional[Dict]:
         try:
-            import httpx
-
             model_name = self.llm_model.split("/")[-1] if "/" in self.llm_model else self.llm_model
             payload = {
                 "model": model_name,
@@ -330,10 +351,9 @@ class HermesAgent:
                 "stream": False,
             }
 
-            with httpx.Client(timeout=float(self.llm_timeout)) as client:
-                resp = client.post(self.llm_url, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+            resp = self._llm_client.post(self._llm_url_path, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
 
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             return self._parse_json_response(content)

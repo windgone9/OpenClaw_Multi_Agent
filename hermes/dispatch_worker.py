@@ -82,6 +82,25 @@ _ollama_http_client = httpx.Client(
 )
 _ollama_client_lock = threading.Lock()
 
+# 模块级共享 httpx.Client — 按目标服务分组，连接池复用，消除 per-request 创建开销
+# K8S gateway 客户端：不设 base_url，因为 k8s_gw_url 是动态获取的（可能不同于 OFFICIAL_GW_URL），直接传入完整 URL
+_k8s_gateway_client = httpx.Client(
+    timeout=httpx.Timeout(connect=5.0, read=300.0, write=5.0, pool=5.0),
+    limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+)
+# OfficialGW 客户端：base_url=OFFICIAL_GW_URL，调用时使用相对路径 /v1/chat/completions
+_official_gw_client = httpx.Client(
+    base_url=OFFICIAL_GW_URL,
+    timeout=httpx.Timeout(connect=5.0, read=300.0, write=5.0, pool=5.0),
+    limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+)
+# Multimodal 客户端：base_url=OLLAMA_URL，用于 multimodal dispatch 和 fallback
+_multimodal_client = httpx.Client(
+    base_url=OLLAMA_URL,
+    timeout=httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0),
+    limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
+)
+
 
 def _reset_ollama_client():
     """Reset the Ollama httpx client after a timeout to clear stale connections."""
@@ -105,14 +124,13 @@ def _get_ollama_models() -> list:
     if _ollama_models_cache and (now - _ollama_models_cache_ts) < _OLLAMA_MODELS_CACHE_TTL:
         return _ollama_models_cache
     try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(f"{OLLAMA_URL}/api/tags")
-            resp.raise_for_status()
-            models = [m.get("name", "") for m in resp.json().get("models", [])]
-            _ollama_models_cache = models
-            _ollama_models_cache_ts = now
-            logger.debug("[Ollama] Available models: %s", models)
-            return models
+        resp = _ollama_http_client.get("/api/tags", timeout=5.0)
+        resp.raise_for_status()
+        models = [m.get("name", "") for m in resp.json().get("models", [])]
+        _ollama_models_cache = models
+        _ollama_models_cache_ts = now
+        logger.debug("[Ollama] Available models: %s", models)
+        return models
     except Exception as e:
         logger.warning("[Ollama] Failed to list models: %s", e)
         return _ollama_models_cache  # return stale cache
@@ -431,14 +449,13 @@ class DispatchWorker:
 
             with _gw_semaphore:
                 try:
-                    with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
-                        logger.debug("[K8SGateway] [%s] 发送 POST %s (semaphore acquired)", request_id, k8s_base)
-                        resp = client.post(k8s_base, headers=headers, json=payload)
-                        logger.debug("[K8SGateway] [%s] 收到响应: status_code=%d content_type=%s content_len=%s",
-                                     request_id, resp.status_code,
-                                     resp.headers.get("content-type", "?"),
-                                     resp.headers.get("content-length", "?"))
-                        resp.raise_for_status()
+                    logger.debug("[K8SGateway] [%s] 发送 POST %s (semaphore acquired)", request_id, k8s_base)
+                    resp = _k8s_gateway_client.post(k8s_base, headers=headers, json=payload, timeout=OFFICIAL_GW_TIMEOUT)
+                    logger.debug("[K8SGateway] [%s] 收到响应: status_code=%d content_type=%s content_len=%s",
+                                 request_id, resp.status_code,
+                                 resp.headers.get("content-type", "?"),
+                                 resp.headers.get("content-length", "?"))
+                    resp.raise_for_status()
                 except httpx.TimeoutException as e:
                     elapsed_ms = int((time.time() - start) * 1000)
                     logger.error("[K8SGateway] [%s] ✗ 提交超时: elapsed=%dms timeout=%s type=%s",
@@ -505,10 +522,9 @@ class DispatchWorker:
 
             with _gw_semaphore:
                 try:
-                    with httpx.Client(timeout=30.0) as client:
-                        resp = client.get(url, headers=headers, params=params)
-                        logger.debug("[K8SGateway] [%s] 查询响应: status_code=%d", request_id, resp.status_code)
-                        resp.raise_for_status()
+                    resp = _k8s_gateway_client.get(url, headers=headers, params=params, timeout=30.0)
+                    logger.debug("[K8SGateway] [%s] 查询响应: status_code=%d", request_id, resp.status_code)
+                    resp.raise_for_status()
                 except httpx.HTTPStatusError as e:
                     elapsed_ms = int((time.time() - start) * 1000)
                     logger.error("[K8SGateway] [%s] ✗ 查询HTTP错误: workloadId=%s status=%d elapsed=%dms",
@@ -559,10 +575,9 @@ class DispatchWorker:
 
             with _gw_semaphore:
                 try:
-                    with httpx.Client(timeout=30.0) as client:
-                        resp = client.delete(url, headers=headers, params=params)
-                        logger.debug("[K8SGateway] [%s] 删除响应: status_code=%d", request_id, resp.status_code)
-                        resp.raise_for_status()
+                    resp = _k8s_gateway_client.delete(url, headers=headers, params=params, timeout=30.0)
+                    logger.debug("[K8SGateway] [%s] 删除响应: status_code=%d", request_id, resp.status_code)
+                    resp.raise_for_status()
                 except httpx.HTTPStatusError as e:
                     elapsed_ms = int((time.time() - start) * 1000)
                     logger.error("[K8SGateway] [%s] ✗ 删除HTTP错误: workloadId=%s status=%d elapsed=%dms",
@@ -639,13 +654,13 @@ class DispatchWorker:
             logger.info("[GWSemaphore] [%s] Acquired, remaining=%d",
                         request_id, _gw_semaphore._value)
             try:
-                with httpx.Client(timeout=OFFICIAL_GW_TIMEOUT) as client:
-                    resp = client.post(
-                        f"{OFFICIAL_GW_URL}/v1/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-                    resp.raise_for_status()
+                resp = _official_gw_client.post(
+                    "/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=OFFICIAL_GW_TIMEOUT,
+                )
+                resp.raise_for_status()
             except httpx.TimeoutException as e:
                 elapsed_ms = int((time.time() - start) * 1000)
                 logger.error("[OfficialGW] [%s] ✗ 超时: type=%s elapsed=%dms timeout=%.0fs prompt='%.50s'",
@@ -780,14 +795,12 @@ class DispatchWorker:
             with _ollama_semaphore:
                 logger.info("[OllamaSemaphore] [%s] Acquired (multimodal), remaining=%d",
                             request_id, _ollama_semaphore._value)
-                # Use a separate client with longer timeout for multimodal requests
-                with httpx.Client(
-                    base_url=OLLAMA_URL,
+                # 使用模块级共享 _multimodal_client，连接池复用
+                resp = _multimodal_client.post(
+                    "/v1/chat/completions", json=payload,
                     timeout=httpx.Timeout(connect=10.0, read=MULTIMODAL_TIMEOUT, write=10.0, pool=10.0),
-                    limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
-                ) as mm_client:
-                    resp = mm_client.post("/v1/chat/completions", json=payload)
-                    resp.raise_for_status()
+                )
+                resp.raise_for_status()
             elapsed_ms = int((time.time() - start) * 1000)
             logger.info("[Multimodal] [%s] ✓ 响应成功: model=%s elapsed=%dms",
                         request_id, model, elapsed_ms)
@@ -829,15 +842,13 @@ class DispatchWorker:
                 "stream": False,
                 "options": {"num_ctx": 4096, "temperature": 0.7, "num_predict": 2048},
             }
-            # Use a separate client with longer timeout for multimodal fallback
+            # 使用模块级共享 _multimodal_client，连接池复用
             # (multimodal requests may take longer even when falling back to local model)
-            with httpx.Client(
-                base_url=OLLAMA_URL,
+            resp = _multimodal_client.post(
+                "/v1/chat/completions", json=payload,
                 timeout=httpx.Timeout(connect=10.0, read=MULTIMODAL_TIMEOUT, write=10.0, pool=10.0),
-                limits=httpx.Limits(max_connections=2, max_keepalive_connections=1),
-            ) as fb_client:
-                resp = fb_client.post("/v1/chat/completions", json=payload)
-                resp.raise_for_status()
+            )
+            resp.raise_for_status()
         elapsed_ms = int((time.time() - start) * 1000)
 
         data = resp.json()
