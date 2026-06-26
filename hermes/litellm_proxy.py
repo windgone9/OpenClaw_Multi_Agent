@@ -989,6 +989,11 @@ async def unified_chat(request: Request):
         messages = body.get("messages", [])
         model = body.get("model", "auto")
         attachments = body.get("attachments")
+        prompt = body.get("prompt", "")
+
+        # 兼容 prompt 格式：若无 messages 但有 prompt，自动构造 messages
+        if not messages and prompt:
+            messages = [{"role": "user", "content": prompt}]
 
         # vision 模式: 确保模型切换到 vision
         if req_type == "vision" and model in ("auto", DEFAULT_CHAT_MODEL):

@@ -1426,9 +1426,10 @@ async function runE2ETests() {
   }
 
   // ── 重排序：同模型连续执行，减少模型切换 ──
-  // chat/ws_chat 用 qwen2.5，asr 用 FunASR，vision/multimodal 用 llava，ws_asr 用 FunASR+qwen2.5
-  var order = ['chat', 'ws_chat', 'asr', 'ws_asr', 'vision', 'multimodal'];
-  types = order.filter(function(t) { return types.includes(t); });
+  // chat/ws_chat/pdf/word/audio 用 qwen2.5，asr 用 FunASR，vision/multimodal 用 llava，ws_asr 用 FunASR+qwen2.5，presign 独立
+  var order = ['chat', 'ws_chat', 'pdf_attachment', 'word_attachment', 'audio_attachment', 'asr', 'ws_asr', 'minio_presign', 'vision', 'multimodal'];
+  var remaining = types.filter(function(t) { return !order.includes(t); });
+  types = order.filter(function(t) { return types.includes(t); }).concat(remaining);
   addLog('info', '[E2E] 测试顺序（同模型优先）: ' + types.join(', '));
 
   $('e2e-results').innerHTML = '<div style="text-align:center;padding:30px"><span class="spinner" style="width:20px;height:20px;border-width:3px"></span><span style="margin-left:10px;color:var(--text3)">正在执行端到端测试...</span></div>';
