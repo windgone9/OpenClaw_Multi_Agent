@@ -31,11 +31,11 @@ spec:
               mountPath: /root/.ollama
           resources:
             requests:
-              memory: "1Gi"
-              cpu: "500m"
+              memory: "4Gi"
+              cpu: "2"
             limits:
               memory: "12Gi"
-              cpu: "4"
+              cpu: "8"
           # GPU 支持（远程服务器启用）
           # resources:
           #   limits:
