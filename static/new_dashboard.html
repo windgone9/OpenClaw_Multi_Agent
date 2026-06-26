@@ -82,7 +82,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
 .e2e-json{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'SF Mono',Monaco,monospace;font-size:11px;line-height:1.5;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;color:var(--text2)}
 .e2e-flow{display:flex;align-items:center;gap:0;margin:8px 0;flex-wrap:wrap}
 .e2e-flow-step{padding:4px 10px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap}
-.e2e-flow-step.client{background:#172554;color:var(--blue)}.e2e-flow-step.hermes{background:#1e1b4b;color:var(--purple)}.e2e-flow-step.litellm{background:#052e16;color:var(--green)}.e2e-flow-step.ollama{background:#422006;color:var(--yellow)}.e2e-flow-step.funasr{background:#450a0a;color:var(--red)}.e2e-flow-step.stream{background:#0c4a6e;color:var(--cyan)}
+.e2e-flow-step.client{background:#172554;color:var(--blue)}.e2e-flow-step.proxy{background:#1e1b4b;color:var(--purple)}.e2e-flow-step.litellm{background:#052e16;color:var(--green)}.e2e-flow-step.ollama{background:#422006;color:var(--yellow)}.e2e-flow-step.funasr{background:#450a0a;color:var(--red)}.e2e-flow-step.stream{background:#0c4a6e;color:var(--cyan)}.e2e-flow-step.minio{background:#0c4a6e;color:var(--cyan)}
 .e2e-flow-arrow{color:var(--text3);font-size:14px;margin:0 2px}
 </style>
 </head>
@@ -90,11 +90,12 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
 <div class="topbar">
   <h1>🐾 <span>OpenClaw NewDashboard</span></h1>
   <div class="meta">
-    <span class="svc-pill"><span class="dot idle" id="dot-hermes"></span>Hermes</span>
+    <span class="svc-pill"><span class="dot idle" id="dot-proxy"></span>Proxy</span>
     <span class="svc-pill"><span class="dot idle" id="dot-litellm"></span>LiteLLM</span>
     <span class="svc-pill"><span class="dot idle" id="dot-stream"></span>Stream</span>
     <span class="svc-pill"><span class="dot idle" id="dot-ollama"></span>Ollama</span>
     <span class="svc-pill"><span class="dot idle" id="dot-funasr"></span>FunASR</span>
+    <span class="svc-pill"><span class="dot idle" id="dot-hermes"></span>K8S</span>
     <a id="litellm-ui-link-top" href="/ui/" target="_blank" class="btn btn-sm btn-ghost">LiteLLM UI ↗</a>
     <a href="/dashboard.html" class="btn btn-sm btn-ghost">旧版 Dashboard</a>
     <span id="clock" style="color:var(--text3);font-family:monospace"></span>
@@ -144,6 +145,9 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
   <div class="card"><div class="card-title">🔌 LiteLLM Proxy <span class="badge badge-idle" id="svc-litellm-b">检测中</span></div>
     <div style="display:flex;gap:6px;margin-bottom:8px"><input value="/svc/litellm" style="flex:1" readonly><button class="btn btn-sm btn-primary" onclick="checkLiteLLM()">刷新</button><a id="litellm-ui-link-svc" href="/ui/" target="_blank" class="btn btn-sm btn-ghost">UI ↗</a></div>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-litellm-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+  <div class="card"><div class="card-title">🔀 Proxy Pod <span class="badge badge-idle" id="svc-proxy-b">检测中</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px"><input value="/svc/proxy" style="flex:1" readonly><button class="btn btn-sm btn-primary" onclick="checkProxy()">刷新</button></div>
+    <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-proxy-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
   <div class="card"><div class="card-title">📡 Stream Service <span class="badge badge-idle" id="svc-stream-b">检测中</span></div>
     <input value="/svc/stream" style="width:100%;margin-bottom:8px" readonly>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-stream-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
@@ -152,7 +156,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
     <table class="tbl"><thead><tr><th>模型</th><th>大小</th><th>状态</th></tr></thead><tbody id="svc-ollama-tb"><tr><td colspan="3" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
   <div class="card"><div class="card-title">🎙 FunASR <span class="badge badge-idle" id="svc-funasr-b">检测中</span></div>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-funasr-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
-  <div class="card"><div class="card-title">🧠 Hermes Agent <span class="badge badge-idle" id="svc-hermes-b">检测中</span></div>
+  <div class="card"><div class="card-title">🧠 K8S Gateway (Hermes) <span class="badge badge-idle" id="svc-hermes-b">检测中</span></div>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-hermes-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
   <div class="card"><div class="card-title">🌐 Nginx Gateway <span class="badge badge-idle" id="svc-nginx-b">检测中</span></div>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-nginx-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
@@ -266,12 +270,12 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="vision" checked> Vision</label>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="asr" checked> ASR</label>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="multimodal" checked> Multimodal</label>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="pdf_attachment"> 📄 PDF</label>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="word_attachment"> 📝 Word</label>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="audio_attachment"> 🎵 Audio Chat</label>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="minio_presign"> 🔗 Presign</label>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_chat"> WS Chat</label>
-          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_asr"> WS ASR</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="pdf_attachment" checked> 📄 PDF</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="word_attachment" checked> 📝 Word</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="audio_attachment" checked> 🎵 Audio Chat</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="minio_presign" checked> 🔗 Presign</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_chat" checked> WS Chat</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_asr" checked> WS ASR</label>
         </div>
       </div>
       <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="e2e-model"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava</option></select></div>
@@ -321,6 +325,7 @@ var SVC_LITELLM = API + '/svc/litellm/';
 var SVC_STREAM = API + '/svc/stream/';
 var SVC_FUNASR = API + '/svc/funasr/';
 var SVC_OLLAMA = API + '/svc/ollama/';
+var SVC_PROXY = API + '/svc/proxy/';
 /* LiteLLM Master Key: 用于访问需要认证的 LiteLLM 接口 */
 var LITELLM_KEY = '';  // 默认为空，自动检测时填入
 /* LiteLLM UI URL: 通过 Nginx 代理访问，自动检测端口 */
@@ -335,7 +340,7 @@ var LITELLM_UI_URL = API + '/ui/';
 })();
 var state = {
   records: [],
-  svcStatus: { hermes: 'idle', litellm: 'idle', stream: 'idle', ollama: 'idle', funasr: 'idle' },
+  svcStatus: { proxy: 'idle', hermes: 'idle', litellm: 'idle', stream: 'idle', ollama: 'idle', funasr: 'idle' },
   logs: [],
   pgMode: 'chat'
 };
@@ -484,8 +489,32 @@ function drawLatencyChart() {
 
 /* ===== 服务健康检查 ===== */
 async function checkAllServices() {
-  await Promise.all([checkHermes(), checkLiteLLM(), checkStreamService(), checkOllama(), checkFunASR()]);
+  await Promise.all([checkProxy(), checkHermes(), checkLiteLLM(), checkStreamService(), checkOllama(), checkFunASR()]);
   updateHealthTable();
+}
+
+async function checkProxy() {
+  var t0 = performance.now();
+  try {
+    var r = await fetch(SVC_PROXY + 'health', { signal: AbortSignal.timeout(5000) });
+    var d = await r.json();
+    var ms = (performance.now() - t0).toFixed(0);
+    setSvc('proxy', 'ok', ms, d);
+    var rows = '<tr><td>状态</td><td><span class="badge badge-ok">在线</span></td></tr><tr><td>延迟</td><td>' + ms + 'ms</td></tr>';
+    if (d.capabilities) {
+      rows += '<tr><td>Chat</td><td>' + (d.capabilities.chat ? '✓' : '✗') + '</td></tr>';
+      rows += '<tr><td>Vision</td><td>' + (d.capabilities.vision ? '✓' : '✗') + '</td></tr>';
+      rows += '<tr><td>ASR</td><td>' + (d.capabilities.asr ? '✓' : '✗') + '</td></tr>';
+      rows += '<tr><td>MinIO</td><td>' + (d.capabilities.minio ? '✓' : '✗') + '</td></tr>';
+    }
+    if (d.models) rows += '<tr><td>默认模型</td><td>' + d.models.chat + '</td></tr>';
+    $('svc-proxy-tb').innerHTML = rows;
+    addLog('ok', '[Proxy] 健康 ' + ms + 'ms');
+  } catch (e) {
+    setSvc('proxy', 'err', '-', null);
+    $('svc-proxy-tb').innerHTML = '<tr><td>状态</td><td><span class="badge badge-err">离线</span></td></tr>';
+    addLog('err', '[Proxy] 不可达: ' + e.message);
+  }
 }
 
 async function checkHermes() {
@@ -663,11 +692,12 @@ function setSvc(name, status, ms, data) {
 
 function updateHealthTable() {
   var svcs = [
-    { name: 'Hermes Agent', key: 'hermes' },
+    { name: 'Proxy Pod', key: 'proxy' },
     { name: 'LiteLLM Proxy', key: 'litellm' },
     { name: 'Stream Service', key: 'stream' },
     { name: 'Ollama', key: 'ollama' },
-    { name: 'FunASR', key: 'funasr' }
+    { name: 'FunASR', key: 'funasr' },
+    { name: 'K8S Gateway', key: 'hermes' }
   ];
   $('ov-health-tb').innerHTML = svcs.map(function(s) {
     var st = state.svcStatus[s.key];
@@ -831,19 +861,27 @@ async function pgAsr() {
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
-    var fd = new FormData(); fd.append('file', file);
-    var r = await fetch(API + '/v1/asr', { method: 'POST', body: fd });
+    /* 将文件转为 base64，通过 /v1/chat type=asr 发送（/v1/asr 端点不存在） */
+    var buf = await file.arrayBuffer();
+    var b64 = btoa(new Uint8Array(buf).reduce(function(s,b){return s+String.fromCharCode(b)},''));
+    var mimeType = file.type || 'audio/wav';
+    var r = await fetch(API + '/v1/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'asr', file: 'data:' + mimeType + ';base64,' + b64 })
+    });
     var d = await r.json();
     var ms = (performance.now() - t0).toFixed(0);
     $('pg-lat').textContent = ms + 'ms';
-    pgAppend('assistant', '识别结果: ' + (d.text || d.content || JSON.stringify(d)));
-    rec('asr', 'funasr', +ms, r.ok ? 'ok' : 'err', d);
+    var text = d.text || d.content || (d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : '') || JSON.stringify(d);
+    pgAppend('assistant', '识别结果: ' + text);
+    rec('asr', 'proxy', +ms, r.ok ? 'ok' : 'err', d);
     addLog(r.ok ? 'ok' : 'err', '[ASR] ' + ms + 'ms');
   } catch (e) {
     var ms2 = (performance.now() - t0).toFixed(0);
     $('pg-lat').textContent = ms2 + 'ms';
     pgAppend('error', 'Error: ' + e.message);
-    rec('asr', 'funasr', +ms2, 'err', { error: e.message });
+    rec('asr', 'proxy', +ms2, 'err', { error: e.message });
     addLog('err', '[ASR] ' + e.message);
   }
 }
@@ -1173,42 +1211,69 @@ function toggleE2EDetail(id) {
 }
 
 function getE2EFlow(type) {
-  /* 返回端到端调用流程 */
+  /* 返回端到端调用流程 — Proxy Pod 架构 */
   var flows = {
     chat: [
       { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=chat' },
-      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=chat' },
+      { svc: 'Proxy', cls: 'proxy', msg: '预处理 + 路由' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
       { svc: 'Ollama', cls: 'ollama', msg: '模型推理' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
-      { svc: 'Hermes', cls: 'hermes', msg: '响应客户端' }
+      { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     vision: [
       { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=vision' },
-      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=vision' },
-      { svc: 'LiteLLM', cls: 'litellm', msg: '图片URL→base64' },
+      { svc: 'Proxy', cls: 'proxy', msg: '图片URL→base64 + 路由' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama llava' },
       { svc: 'Ollama', cls: 'ollama', msg: '视觉模型推理' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
-      { svc: 'Hermes', cls: 'hermes', msg: '响应客户端' }
+      { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     asr: [
       { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=asr' },
-      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=asr' },
-      { svc: 'MinIO', cls: 'stream', msg: '下载音频文件' },
-      { svc: 'Hermes', cls: 'hermes', msg: '转发音频到 FunASR' },
+      { svc: 'Proxy', cls: 'proxy', msg: '下载音频 + ASR预处理' },
       { svc: 'FunASR', cls: 'funasr', msg: '语音识别' },
-      { svc: 'Hermes', cls: 'hermes', msg: '返回识别文本' }
+      { svc: 'Proxy', cls: 'proxy', msg: '返回识别文本' }
     ],
     multimodal: [
       { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=multimodal' },
-      { svc: 'Hermes', cls: 'hermes', msg: '路由 type=multimodal' },
-      { svc: 'Hermes', cls: 'hermes', msg: '处理 attachments' },
-      { svc: 'Stream', cls: 'stream', msg: '图片URL→base64' },
+      { svc: 'Proxy', cls: 'proxy', msg: '处理 attachments + 图片base64' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama llava' },
       { svc: 'Ollama', cls: 'ollama', msg: '多模态推理' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
-      { svc: 'Hermes', cls: 'hermes', msg: '响应客户端' }
+      { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
+    ],
+    pdf_attachment: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat attachments=[pdf]' },
+      { svc: 'Proxy', cls: 'proxy', msg: '下载PDF + PyMuPDF提取文本' },
+      { svc: 'Proxy', cls: 'proxy', msg: '拼接文本→messages + 转发' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Ollama', cls: 'ollama', msg: '模型推理' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
+      { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
+    ],
+    word_attachment: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat attachments=[word]' },
+      { svc: 'Proxy', cls: 'proxy', msg: '下载Word + python-docx提取文本' },
+      { svc: 'Proxy', cls: 'proxy', msg: '拼接文本→messages + 转发' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Ollama', cls: 'ollama', msg: '模型推理' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
+      { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
+    ],
+    audio_attachment: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat attachments=[audio]' },
+      { svc: 'Proxy', cls: 'proxy', msg: '下载音频 + ASR→文本' },
+      { svc: 'Proxy', cls: 'proxy', msg: '拼接文本→messages + 转发' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Ollama', cls: 'ollama', msg: '模型推理' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
+      { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
+    ],
+    minio_presign: [
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/minio/presign' },
+      { svc: 'Proxy', cls: 'proxy', msg: '生成MinIO预签名URL' },
+      { svc: 'MinIO', cls: 'minio', msg: '返回签名URL' }
     ],
     ws_chat: [
       { svc: 'Client', cls: 'client', msg: 'WS /v1/stream/ws?model=...' },
@@ -1238,6 +1303,10 @@ function getE2EApiInfo(type) {
     vision: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
     asr: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
     multimodal: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    pdf_attachment: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    word_attachment: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    audio_attachment: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    minio_presign: { method: 'POST', url: '/v1/minio/presign', contentType: 'application/json' },
     ws_chat: { method: 'WS', url: '/v1/stream/ws?model=...', contentType: '-' },
     ws_asr: { method: 'WS', url: '/v1/stream/asr', contentType: '-' }
   };
