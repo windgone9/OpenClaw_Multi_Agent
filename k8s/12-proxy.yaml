@@ -1,0 +1,124 @@
+# ============================================
+# Proxy Pod — 多模态预处理 + API 网关
+# 替代 Hermes /v1/chat 的预处理角色
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  namespace: openclaw
+  labels:
+    app: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy
+  template:
+    metadata:
+      labels:
+        app: proxy
+    spec:
+      containers:
+        - name: proxy
+          image: openclaw-proxy:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 4000
+          env:
+            - name: APP_PORT
+              value: "4000"
+            - name: EXTERNAL_LITELLM_URL
+              value: "http://litellm:4000"
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+            - name: FUNASR_URL
+              value: "http://funasr:8199"
+            - name: FUNASR_MODEL
+              value: "sensevoice"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: litellm-master-key
+            - name: DOUBAO_ASR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: doubao-asr-key
+                  optional: true
+            - name: DEFAULT_CHAT_MODEL
+              value: "qwen2.5"
+            - name: DEFAULT_VISION_MODEL
+              value: "llava"
+            - name: MINIO_ENDPOINT
+              value: "minio:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: minio-root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: minio-root-password
+            - name: MINIO_BUCKET
+              value: "openclaw"
+            - name: MINIO_SECURE
+              value: "false"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+  namespace: openclaw
+spec:
+  selector:
+    app: proxy
+  ports:
+    - port: 4000
+      targetPort: 4000
+  type: ClusterIP
+
+---
+# HPA — 自动扩缩容
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: proxy-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: proxy
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

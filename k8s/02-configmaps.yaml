@@ -77,6 +77,12 @@ data:
         ''      close;
     }
 
+    upstream proxy_backend {
+        least_conn;
+        server proxy:4000;
+        keepalive 32;
+    }
+
     upstream hermes_backend {
         least_conn;
         server hermes:8082;
@@ -134,8 +140,9 @@ data:
             proxy_set_header Host $host;
         }
 
+        # ASR 语音识别 — Proxy Pod (完整 ASR 级联)
         location /v1/audio/ {
-            proxy_pass http://litellm_backend;
+            proxy_pass http://proxy_backend;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
@@ -417,8 +424,9 @@ data:
             proxy_read_timeout 120s;
         }
 
+        # ---------- 统一入口 — Proxy Pod 预处理 ----------
         location = /v1/chat {
-            proxy_pass http://hermes_backend;
+            proxy_pass http://proxy_backend;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
@@ -436,8 +444,9 @@ data:
             proxy_set_header Host $host;
         }
 
+        # 多模态对话接口 — Proxy Pod (预处理 attachments)
         location /v1/multimodal/ {
-            proxy_pass http://litellm_backend;
+            proxy_pass http://proxy_backend;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
@@ -446,6 +455,16 @@ data:
             client_max_body_size 50m;
         }
 
+        # MinIO 预签名 API — Proxy Pod
+        location = /v1/minio/presign {
+            proxy_pass http://proxy_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_read_timeout 10s;
+        }
+
+        # MinIO 对象存储代理 (兼容 S3 API)
         location /v1/minio/ {
             proxy_pass http://minio:9000/;
             proxy_set_header Host $http_host;
@@ -463,13 +482,14 @@ data:
             proxy_set_header Host $host;
         }
 
+        # ---------- Dashboard — Proxy Pod 静态文件服务 ----------
         location /dashboard.html {
-            proxy_pass http://hermes_backend;
+            proxy_pass http://proxy_backend;
             proxy_set_header Host $host;
         }
 
         location /new_dashboard.html {
-            proxy_pass http://hermes_backend;
+            proxy_pass http://proxy_backend;
             proxy_set_header Host $host;
             proxy_no_cache 1;
             proxy_cache_bypass 1;
@@ -477,7 +497,7 @@ data:
         }
 
         location /static/ {
-            proxy_pass http://hermes_backend;
+            proxy_pass http://proxy_backend;
             proxy_set_header Host $host;
         }
 
@@ -499,6 +519,12 @@ data:
             proxy_set_header Host $host;
             proxy_read_timeout 10s;
             proxy_http_version 1.1;
+        }
+
+        location /svc/proxy/ {
+            proxy_pass http://proxy_backend/;
+            proxy_set_header Host $host;
+            proxy_read_timeout 10s;
         }
 
         location /svc/ollama/ {

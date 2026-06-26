@@ -17,6 +17,7 @@ LiteLLM Proxy 独立服务 — 提供 OpenAI 兼容的同步直调 API
   6. Embedding — /v1/embeddings
 """
 
+import json
 import logging
 import os
 import time
@@ -499,7 +500,7 @@ async def _transcribe_audio(url: str) -> str:
     # 2. 豆包 ASR
     if DOUBAO_ASR_KEY and _doubao_asr_client:
         try:
-            import json as _json
+            import base64 as _b64
             headers = {
                 "Authorization": f"Bearer; {DOUBAO_ASR_KEY}",
                 "Content-Type": "application/json",
@@ -513,7 +514,7 @@ async def _transcribe_audio(url: str) -> str:
                     "rate": 16000,
                     "bits": 16,
                     "channel": 1,
-                    "data": "",  # 简化: 不传音频数据，仅测试连通性
+                    "data": _b64.b64encode(audio_bytes).decode("utf-8"),  # 发送实际音频数据
                 },
                 "request": {
                     "reqid": str(uuid.uuid4()),
@@ -930,7 +931,8 @@ async def minio_presign(request: Request):
             secret_key=MINIO_SECRET_KEY,
             secure=MINIO_SECURE,
         )
-        url = client.presigned_get_object(bucket, key, expires=expires)
+        from datetime import timedelta
+        url = client.presigned_get_object(bucket, key, expires=timedelta(seconds=expires))
         return {"url": url, "bucket": bucket, "key": key, "expires": expires}
     except ImportError:
         raise HTTPException(status_code=501, detail="minio 包未安装，请运行: pip install minio")
@@ -1105,6 +1107,27 @@ def create_app() -> FastAPI:
     )
     app.include_router(litellm_router)
 
+    # ── 静态文件服务（替代 Hermes 的 static 路由）─────────────────
+    import pathlib
+    STATIC_DIR = pathlib.Path(__file__).parent.parent / "static"
+    if STATIC_DIR.exists():
+        from fastapi.staticfiles import StaticFiles
+        from fastapi.responses import FileResponse
+
+        @app.get("/new_dashboard.html")
+        async def new_dashboard():
+            return FileResponse(
+                STATIC_DIR / "new_dashboard.html",
+                media_type="text/html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+
+        @app.get("/dashboard.html")
+        async def dashboard():
+            return FileResponse(STATIC_DIR / "dashboard.html", media_type="text/html")
+
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
     @app.get("/health")
     async def health():
         return {
@@ -1166,7 +1189,12 @@ if __name__ == "__main__":
         format="%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
     )
-    port = int(os.getenv("LITELLM_PORT", "4000"))
+    # 注意: K8S 会为 Service 自动注入 *_PORT=tcp://10.96.xxx:NNNN 格式变量,
+    # 所以需要从 tcp:// URL 中提取端口号, 或直接使用 APP_PORT 避免冲突
+    _port_env = os.getenv("APP_PORT", "4000")
+    if _port_env.startswith("tcp://"):
+        _port_env = _port_env.split(":")[-1]
+    port = int(_port_env)
     logger.info("LiteLLM Proxy Service starting on :%d", port)
     logger.info("  Ollama URL: %s", OLLAMA_URL)
     logger.info("  External LiteLLM URL: %s", EXTERNAL_LITELLM_URL or "(direct ollama)")

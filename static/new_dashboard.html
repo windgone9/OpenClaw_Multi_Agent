@@ -71,7 +71,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
 .e2e-header{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;user-select:none}
 .e2e-header:hover{background:rgba(56,189,248,.03)}
 .e2e-type{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600;min-width:80px;text-align:center}
-.e2e-type-chat{background:#172554;color:var(--blue)}.e2e-type-vision{background:#2e1065;color:var(--purple)}.e2e-type-asr{background:#422006;color:var(--yellow)}.e2e-type-multimodal{background:#052e16;color:var(--green)}.e2e-type-ws_chat{background:#0c4a6e;color:var(--cyan)}.e2e-type-ws_asr{background:#450a0a;color:var(--red)}
+.e2e-type-chat{background:#172554;color:var(--blue)}.e2e-type-vision{background:#2e1065;color:var(--purple)}.e2e-type-asr{background:#422006;color:var(--yellow)}.e2e-type-multimodal{background:#052e16;color:var(--green)}.e2e-type-ws_chat{background:#0c4a6e;color:var(--cyan)}.e2e-type-ws_asr{background:#450a0a;color:var(--red)}.e2e-type-pdf_attachment{background:#1e1b4b;color:var(--purple)}.e2e-type-word_attachment{background:#172554;color:var(--blue)}.e2e-type-audio_attachment{background:#422006;color:var(--yellow)}.e2e-type-minio_presign{background:#0c4a6e;color:var(--cyan)}
 .e2e-status{font-size:11px;font-weight:600}.e2e-lat{color:var(--blue);font-family:monospace;font-size:11px}
 .e2e-api{color:var(--text3);font-family:monospace;font-size:10px;background:var(--bg);padding:2px 6px;border-radius:3px}
 .e2e-expand{color:var(--text3);margin-left:auto;font-size:10px;transition:transform .2s}
@@ -266,6 +266,10 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="vision" checked> Vision</label>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="asr" checked> ASR</label>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="multimodal" checked> Multimodal</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="pdf_attachment"> 📄 PDF</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="word_attachment"> 📝 Word</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="audio_attachment"> 🎵 Audio Chat</label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="minio_presign"> 🔗 Presign</label>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_chat"> WS Chat</label>
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_asr"> WS ASR</label>
         </div>
@@ -751,9 +755,13 @@ function genTestWavBlob() {
 /* 容器内网络 URL (Hermes 后端使用) */
 function genMinioImgUrl() { return 'http://minio:9000/openclaw-test/test_image.png'; }
 function genMinioAudioUrl() { return 'http://minio:9000/openclaw-test/speech_test.wav'; }
+function genMinioPdfUrl() { return 'http://minio:9000/openclaw-test/test_document.pdf'; }
+function genMinioDocxUrl() { return 'http://minio:9000/openclaw-test/test_document.docx'; }
 /* 浏览器可访问 URL (通过 Nginx 代理) */
 function genBrowserImgUrl() { return API + '/v1/minio/openclaw-test/test_image.png'; }
 function genBrowserAudioUrl() { return API + '/v1/minio/openclaw-test/speech_test.wav'; }
+function genBrowserPdfUrl() { return API + '/v1/minio/openclaw-test/test_document.pdf'; }
+function genBrowserDocxUrl() { return API + '/v1/minio/openclaw-test/test_document.docx'; }
 
 async function pgChat() {
   var model = $('pg-chat-model').value, input = $('pg-chat-input').value.trim();
@@ -1371,6 +1379,10 @@ async function runE2ETests() {
       else if (t === 'vision') result = await e2eVision(mdl);
       else if (t === 'asr') result = await e2eASR();
       else if (t === 'multimodal') result = await e2eMultimodal(mdl);
+      else if (t === 'pdf_attachment') result = await e2ePdfAttachment(mdl);
+      else if (t === 'word_attachment') result = await e2eWordAttachment(mdl);
+      else if (t === 'audio_attachment') result = await e2eAudioAttachment(mdl);
+      else if (t === 'minio_presign') result = await e2eMinioPresign();
       else if (t === 'ws_chat') result = await e2eWSChat(mdl);
       else if (t === 'ws_asr') result = await e2eWSASR();
     } catch (e) {
@@ -1380,10 +1392,12 @@ async function runE2ETests() {
     if (result.status === 'ok') {
       var out = result.output || {};
       var contentCheck = '';
-      if (t === 'chat' || t === 'vision' || t === 'multimodal' || t === 'ws_chat') {
+      if (t === 'chat' || t === 'vision' || t === 'multimodal' || t === 'ws_chat' || t === 'pdf_attachment' || t === 'word_attachment' || t === 'audio_attachment') {
         contentCheck = out.content || '';
       } else if (t === 'asr') {
         contentCheck = out.text || '';
+      } else if (t === 'minio_presign') {
+        contentCheck = out.url || '';
       } else if (t === 'ws_asr') {
         contentCheck = out.llm_text || out.asr_text || '';
       }
@@ -1785,6 +1799,132 @@ async function e2eWSASR() {
       resolve({ type: 'ws_asr', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.message } });
     }
   });
+}
+
+/* ===== 附件混合对话 E2E 测试 ===== */
+
+/* SSE 流式消费辅助函数 — 所有附件测试共用 */
+function e2eStreamConsume(r, t0) {
+  return new Promise(function(resolve, reject) {
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder();
+    var fullText = '';
+    var firstChunkMs = null;
+    var buffer = '';
+    (async function() {
+      while (true) {
+        var result = await reader.read();
+        if (result.done) break;
+        buffer += decoder.decode(result.value, {stream: true});
+        var parts = buffer.split('\n\n');
+        buffer = parts.pop();
+        for (var pi = 0; pi < parts.length; pi++) {
+          var line = parts[pi].trim();
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              var data = JSON.parse(line.slice(6));
+              if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+                fullText += data.choices[0].delta.content;
+                if (!firstChunkMs) firstChunkMs = +(performance.now() - t0).toFixed(0);
+              }
+            } catch(_) {}
+          }
+        }
+      }
+      resolve({ content: fullText, first_chunk_ms: firstChunkMs });
+    })();
+  });
+}
+
+/* PDF 附件对话 */
+async function e2ePdfAttachment(model) {
+  var pdfUrl = genMinioPdfUrl();
+  var input = { type: 'chat', messages: [{ role: 'user', content: '请简要总结以下PDF文档的内容' }], attachments: [{ type: 'pdf', url: pdfUrl }], model: model, stream: true, max_tokens: 128 };
+  var displayInput = Object.assign({}, input, { _browserUrl: genBrowserPdfUrl() });
+  var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+      return { type: 'pdf_attachment', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: d };
+    }
+    var streamResult = await e2eStreamConsume(r, t0);
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'pdf_attachment', status: 'ok', latency: +ms, input: displayInput, output: { content: streamResult.content, type: 'stream_complete', first_chunk_ms: streamResult.first_chunk_ms } };
+  } catch (e) {
+    clearTimeout(timeout);
+    return { type: 'pdf_attachment', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
+  }
+}
+
+/* Word 附件对话 */
+async function e2eWordAttachment(model) {
+  var docxUrl = genMinioDocxUrl();
+  var input = { type: 'chat', messages: [{ role: 'user', content: '请简要总结以下Word文档的内容' }], attachments: [{ type: 'word', url: docxUrl }], model: model, stream: true, max_tokens: 128 };
+  var displayInput = Object.assign({}, input, { _browserUrl: genBrowserDocxUrl() });
+  var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+      return { type: 'word_attachment', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: d };
+    }
+    var streamResult = await e2eStreamConsume(r, t0);
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'word_attachment', status: 'ok', latency: +ms, input: displayInput, output: { content: streamResult.content, type: 'stream_complete', first_chunk_ms: streamResult.first_chunk_ms } };
+  } catch (e) {
+    clearTimeout(timeout);
+    return { type: 'word_attachment', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
+  }
+}
+
+/* 音频附件对话（语音→文字→模型回复） */
+async function e2eAudioAttachment(model) {
+  var audioUrl = genMinioAudioUrl();
+  var input = { type: 'chat', messages: [{ role: 'user', content: '请根据以下语音内容回答问题' }], attachments: [{ type: 'audio', url: audioUrl }], model: model, stream: true, max_tokens: 128 };
+  var displayInput = Object.assign({}, input, { _browserUrl: genBrowserAudioUrl() });
+  var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 60000);
+  try {
+    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+      return { type: 'audio_attachment', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: d };
+    }
+    var streamResult = await e2eStreamConsume(r, t0);
+    var ms = (performance.now() - t0).toFixed(0);
+    return { type: 'audio_attachment', status: 'ok', latency: +ms, input: displayInput, output: { content: streamResult.content, type: 'stream_complete', first_chunk_ms: streamResult.first_chunk_ms } };
+  } catch (e) {
+    clearTimeout(timeout);
+    return { type: 'audio_attachment', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: displayInput, output: { error: e.name === 'AbortError' ? '请求超时 (60s)' : e.message } };
+  }
+}
+
+/* MinIO Presign 测试 */
+async function e2eMinioPresign() {
+  var input = { bucket: 'openclaw-test', key: 'test_image.png', expires: 3600 };
+  var t0 = performance.now();
+  var controller = new AbortController();
+  var timeout = setTimeout(function() { controller.abort(); }, 10000);
+  try {
+    var r = await fetch(API + '/v1/minio/presign', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    clearTimeout(timeout);
+    var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
+    var ms = (performance.now() - t0).toFixed(0);
+    var hasUrl = d.url && d.url.indexOf('test_image.png') !== -1;
+    return { type: 'minio_presign', status: r.ok && hasUrl ? 'ok' : 'err', latency: +ms, input: input, output: d };
+  } catch (e) {
+    clearTimeout(timeout);
+    return { type: 'minio_presign', status: 'err', latency: +(performance.now() - t0).toFixed(0), input: input, output: { error: e.message } };
+  }
 }
 
 /* ===== 初始化 ===== */

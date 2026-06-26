@@ -1,5 +1,6 @@
 # ============================================
-# Hermes Agent — K8S 智能路由 + 自学习
+# Hermes Agent — 仅保留 K8S 任务调度功能
+# /v1/chat 预处理已迁移到 Proxy Pod
 # ============================================
 apiVersion: apps/v1
 kind: Deployment
@@ -25,23 +26,10 @@ spec:
           ports:
             - containerPort: 8082
           env:
-            - name: OLLAMA_URL
-              value: "http://ollama:11434"
             - name: HERMES_PORT
               value: "8082"
             - name: QUEUE_BACKEND
               value: "inprocess"
-            - name: LITELLM_INTERNAL_URL
-              value: "http://litellm:4000"
-            - name: STREAM_INTERNAL_URL
-              value: "http://stream-service:8084"
-            - name: LITELLM_MASTER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: openclaw-secrets
-                  key: litellm-master-key
-            - name: FUNASR_URL
-              value: "http://funasr:8199"
             - name: OPENCLAW_OFFICIAL_GATEWAY_URL
               value: "http://openclaw-gw:3005"
             - name: OPENCLAW_TOKEN
@@ -52,30 +40,27 @@ spec:
                   optional: true
             - name: WATCHDOG_ENABLED
               value: "false"
-            - name: DEFAULT_CHAT_MODEL
-              value: "qwen2.5:3b"
-            - name: OLLAMA_MODEL
-              value: "qwen2.5:3b"
-            - name: LOCAL_MODEL
-              value: "qwen2.5:3b"
+            # 以下变量已迁移到 Proxy Pod，不再需要
+            # LITELLM_INTERNAL_URL, STREAM_INTERNAL_URL, FUNASR_URL,
+            # DEFAULT_CHAT_MODEL, OLLAMA_MODEL, LOCAL_MODEL, LITELLM_MASTER_KEY
           resources:
             requests:
-              memory: "512Mi"
-              cpu: "250m"
+              memory: "128Mi"
+              cpu: "50m"
             limits:
-              memory: "1Gi"
-              cpu: "1000m"
+              memory: "256Mi"
+              cpu: "100m"
           livenessProbe:
             httpGet:
               path: /health
               port: 8082
-            initialDelaySeconds: 30
+            initialDelaySeconds: 15
             periodSeconds: 15
           readinessProbe:
             httpGet:
               path: /health
               port: 8082
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 10
 
 ---
@@ -91,24 +76,3 @@ spec:
     - port: 8082
       targetPort: 8082
   type: ClusterIP
-
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: hermes-hpa
-  namespace: openclaw
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: hermes
-  minReplicas: 1
-  maxReplicas: 5
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70

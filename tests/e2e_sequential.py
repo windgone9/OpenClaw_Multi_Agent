@@ -1,4 +1,4 @@
-"""Playwright 严格顺序 E2E — 每个测试依次执行，不并发"""
+"""Playwright 严格顺序 E2E — 每个测试依次执行，不并发（含 PDF/Word/Audio/Presign）"""
 import json
 import time
 from playwright.sync_api import sync_playwright
@@ -17,7 +17,9 @@ def run_sequential():
         total_start = time.time()
 
         # Run each test type sequentially
-        tests = ['chat', 'vision', 'asr', 'multimodal', 'ws_chat', 'ws_asr']
+        tests = ['chat', 'vision', 'asr', 'multimodal',
+                 'pdf_attachment', 'word_attachment', 'audio_attachment', 'minio_presign',
+                 'ws_chat', 'ws_asr']
         results = {}
 
         for test_name in tests:
@@ -33,6 +35,14 @@ def run_sequential():
                 js_code = "async () => { try { return JSON.stringify(await e2eASR()); } catch(e) { return JSON.stringify({error: e.message}); } }"
             elif test_name == 'multimodal':
                 js_code = "async () => { try { return JSON.stringify(await e2eMultimodal('qwen2.5')); } catch(e) { return JSON.stringify({error: e.message}); } }"
+            elif test_name == 'pdf_attachment':
+                js_code = "async () => { try { return JSON.stringify(await e2ePdfAttachment('qwen2.5')); } catch(e) { return JSON.stringify({error: e.message}); } }"
+            elif test_name == 'word_attachment':
+                js_code = "async () => { try { return JSON.stringify(await e2eWordAttachment('qwen2.5')); } catch(e) { return JSON.stringify({error: e.message}); } }"
+            elif test_name == 'audio_attachment':
+                js_code = "async () => { try { return JSON.stringify(await e2eAudioAttachment('qwen2.5')); } catch(e) { return JSON.stringify({error: e.message}); } }"
+            elif test_name == 'minio_presign':
+                js_code = "async () => { try { return JSON.stringify(await e2eMinioPresign()); } catch(e) { return JSON.stringify({error: e.message}); } }"
             elif test_name == 'ws_chat':
                 js_code = "async () => { try { return JSON.stringify(await e2eWSChat('qwen2.5')); } catch(e) { return JSON.stringify({error: e.message}); } }"
             elif test_name == 'ws_asr':
@@ -49,7 +59,7 @@ def run_sequential():
             content = ''
             fcm = None
 
-            if test_name == 'chat' or test_name == 'vision' or test_name == 'multimodal' or test_name == 'ws_chat':
+            if test_name in ('chat', 'vision', 'multimodal', 'ws_chat', 'pdf_attachment', 'word_attachment', 'audio_attachment'):
                 content = (output.get('content') or 'EMPTY')[:80]
                 fcm = output.get('first_chunk_ms')
                 if test_name == 'ws_chat':
@@ -59,6 +69,8 @@ def run_sequential():
             elif test_name == 'ws_asr':
                 content = (output.get('asr_text') or 'EMPTY')[:30] + ' → ' + (output.get('llm_text') or 'EMPTY')[:40]
                 fcm = (output.get('timing') or {}).get('llm_first_chunk_ms')
+            elif test_name == 'minio_presign':
+                content = (output.get('url') or 'EMPTY')[:80]
 
             print(f"  status={status} latency={lat}ms wall={elapsed:.1f}s fcm={fcm}")
             print(f"  content: {content}")

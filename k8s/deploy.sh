@@ -61,9 +61,13 @@ build_images() {
     info "构建 openclaw-litellm..."
     docker build -t openclaw-litellm:latest -f Dockerfile.litellm . 2>&1 | tail -1
 
-    # Hermes
+    # Hermes (仅 K8S workloads)
     info "构建 openclaw-hermes..."
     docker build -t openclaw-hermes:latest -f Dockerfile.hermes .. 2>&1 | tail -1
+
+    # Proxy Pod (预处理 + API 网关)
+    info "构建 openclaw-proxy..."
+    docker build -t openclaw-proxy:latest -f Dockerfile.proxy .. 2>&1 | tail -1
 
     # Stream Service
     info "构建 openclaw-stream..."
@@ -97,6 +101,7 @@ load_images() {
     local custom_images=(
         "openclaw-litellm:latest"
         "openclaw-hermes:latest"
+        "openclaw-proxy:latest"
         "openclaw-stream:latest"
         "openclaw-funasr:latest"
     )
@@ -143,6 +148,7 @@ deploy_resources() {
         "09-funasr.yaml"
         "10-minio.yaml"
         "11-nginx.yaml"
+        "12-proxy.yaml"
     )
 
     for manifest in "${manifests[@]}"; do
@@ -167,7 +173,10 @@ wait_for_ready() {
     info "  等待 LiteLLM..."
     kubectl rollout status deployment/litellm -n "$NAMESPACE" --timeout=180s 2>&1 | tail -1 || true
 
-    info "  等待 Hermes..."
+    info "  等待 Proxy Pod..."
+    kubectl rollout status deployment/proxy -n "$NAMESPACE" --timeout=120s 2>&1 | tail -1 || true
+
+    info "  等待 Hermes (K8S only)..."
     kubectl rollout status deployment/hermes -n "$NAMESPACE" --timeout=120s 2>&1 | tail -1 || true
 
     info "  等待 Stream Service..."
