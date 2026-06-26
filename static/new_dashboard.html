@@ -800,9 +800,10 @@ async function pgChat() {
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
-    var r = await fetch(API + '/v1/chat', {
+    // OpenAI 兼容格式: POST /v1/chat/completions
+    var r = await fetch(API + '/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'chat', messages: [{ role: 'user', content: input }], model: model })
+      body: JSON.stringify({ model: model, messages: [{ role: 'user', content: input }] })
     });
     var d = await r.json();
     var ms = (performance.now() - t0).toFixed(0);
@@ -834,9 +835,10 @@ async function pgVision() {
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
-    var r = await fetch(API + '/v1/chat', {
+    // OpenAI 兼容格式: POST /v1/chat/completions + Vision messages
+    var r = await fetch(API + '/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'vision', messages: [{ role: 'user', content: [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: imgUrl } }] }], model: model })
+      body: JSON.stringify({ model: model, messages: [{ role: 'user', content: [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: imgUrl } }] }] })
     });
     var d = await r.json();
     var ms = (performance.now() - t0).toFixed(0);
@@ -861,14 +863,14 @@ async function pgAsr() {
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
-    /* 将文件转为 base64，通过 /v1/chat type=asr 发送（/v1/asr 端点不存在） */
-    var buf = await file.arrayBuffer();
-    var b64 = btoa(new Uint8Array(buf).reduce(function(s,b){return s+String.fromCharCode(b)},''));
-    var mimeType = file.type || 'audio/wav';
-    var r = await fetch(API + '/v1/chat', {
+    /* OpenAI 兼容格式: POST /v1/audio/transcriptions (multipart) */
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('model', 'funasr');
+    fd.append('response_format', 'json');
+    var r = await fetch(API + '/v1/audio/transcriptions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'asr', file: 'data:' + mimeType + ';base64,' + b64 })
+      body: fd
     });
     var d = await r.json();
     var ms = (performance.now() - t0).toFixed(0);
@@ -900,9 +902,10 @@ async function pgMM() {
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
-    var r = await fetch(API + '/v1/chat', {
+    // OpenAI 兼容格式: POST /v1/chat/completions + Vision content
+    var r = await fetch(API + '/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'multimodal', messages: [{ role: 'user', content: [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: imgUrl } }] }], model: model })
+      body: JSON.stringify({ model: model, messages: [{ role: 'user', content: [{ type: 'text', text: input }, { type: 'image_url', image_url: { url: imgUrl } }] }] })
     });
     var d = await r.json();
     var ms = (performance.now() - t0).toFixed(0);
@@ -1057,21 +1060,28 @@ async function runStressTest() {
     try {
       var resp;
       if (type === 'chat') {
-        resp = await fetch(API + '/v1/chat', {
+        // OpenAI 兼容格式
+        resp = await fetch(API + '/v1/chat/completions', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'chat', messages: [{ role: 'user', content: '你好，测试 #' + idx }], model: model })
+          body: JSON.stringify({ model: model, messages: [{ role: 'user', content: '你好，测试 #' + idx }] })
         });
       } else if (type === 'vision') {
-        resp = await fetch(API + '/v1/chat', {
+        // OpenAI 兼容格式 + Vision content
+        resp = await fetch(API + '/v1/chat/completions', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'vision', messages: [{ role: 'user', content: [{ type: 'text', text: '描述图片 #' + idx }, { type: 'image_url', image_url: { url: genTestImg() } }] }], model: 'auto' })
+          body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: [{ type: 'text', text: '描述图片 #' + idx }, { type: 'image_url', image_url: { url: genTestImg() } }] }] })
         });
       } else if (type === 'asr') {
-        resp = await fetch(API + '/v1/asr', { method: 'POST' });
-      } else {
-        resp = await fetch(API + '/v1/chat', {
+        // OpenAI 兼容格式
+        resp = await fetch(API + '/v1/audio/transcriptions', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'multimodal', messages: [{ role: 'user', content: [{ type: 'text', text: '多模态测试 #' + idx }, { type: 'image_url', image_url: { url: genTestImg() } }] }], model: model })
+          body: JSON.stringify({ file: genMinioAudioUrl() })
+        });
+      } else {
+        // OpenAI 兼容格式 + Vision content
+        resp = await fetch(API + '/v1/chat/completions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: model, messages: [{ role: 'user', content: [{ type: 'text', text: '多模态测试 #' + idx }, { type: 'image_url', image_url: { url: genTestImg() } }] }] })
         });
       }
       var d = await resp.json();
@@ -1135,9 +1145,10 @@ async function runTrace() {
   steps.push({ svc: 'Client', msg: '发送请求 type=' + type, dur: 0, status: 'ok' });
 
   try {
-    var r = await fetch(API + '/v1/chat', {
+    // OpenAI 兼容格式: POST /v1/chat/completions
+    var r = await fetch(API + '/v1/chat/completions', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: type, messages: [{ role: 'user', content: input }], model: 'qwen2.5' })
+      body: JSON.stringify({ model: 'qwen2.5', messages: [{ role: 'user', content: input }] })
     });
     var d = await r.json();
     var ms = (performance.now() - t0).toFixed(0);
@@ -1211,40 +1222,40 @@ function toggleE2EDetail(id) {
 }
 
 function getE2EFlow(type) {
-  /* 返回端到端调用流程 — Proxy Pod 架构 */
+  /* 返回端到端调用流程 — OpenAI 兼容架构 */
   var flows = {
     chat: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=chat' },
-      { svc: 'Proxy', cls: 'proxy', msg: '预处理 + 路由' },
-      { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat/completions (OpenAI格式)' },
+      { svc: 'Proxy', cls: 'proxy', msg: '预处理 + 转发到 LiteLLM' },
+      { svc: 'LiteLLM', cls: 'litellm', msg: '路由到 Ollama' },
       { svc: 'Ollama', cls: 'ollama', msg: '模型推理' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
       { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     vision: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=vision' },
-      { svc: 'Proxy', cls: 'proxy', msg: '图片URL→base64 + 路由' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat/completions (image_url)' },
+      { svc: 'Proxy', cls: 'proxy', msg: '自动检测图片→切换llava + base64' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama llava' },
       { svc: 'Ollama', cls: 'ollama', msg: '视觉模型推理' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
       { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     asr: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=asr' },
-      { svc: 'Proxy', cls: 'proxy', msg: '下载音频 + ASR预处理' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/audio/transcriptions (OpenAI格式)' },
+      { svc: 'Proxy', cls: 'proxy', msg: '下载音频 + ASR级联' },
       { svc: 'FunASR', cls: 'funasr', msg: '语音识别' },
       { svc: 'Proxy', cls: 'proxy', msg: '返回识别文本' }
     ],
     multimodal: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat type=multimodal' },
-      { svc: 'Proxy', cls: 'proxy', msg: '处理 attachments + 图片base64' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat/completions (image_url)' },
+      { svc: 'Proxy', cls: 'proxy', msg: '检测图片→自动切换vision模型' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama llava' },
       { svc: 'Ollama', cls: 'ollama', msg: '多模态推理' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '返回结果' },
       { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     pdf_attachment: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat attachments=[pdf]' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat/completions + attachments' },
       { svc: 'Proxy', cls: 'proxy', msg: '下载PDF + PyMuPDF提取文本' },
       { svc: 'Proxy', cls: 'proxy', msg: '拼接文本→messages + 转发' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
@@ -1253,7 +1264,7 @@ function getE2EFlow(type) {
       { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     word_attachment: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat attachments=[word]' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat/completions + attachments' },
       { svc: 'Proxy', cls: 'proxy', msg: '下载Word + python-docx提取文本' },
       { svc: 'Proxy', cls: 'proxy', msg: '拼接文本→messages + 转发' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
@@ -1262,7 +1273,7 @@ function getE2EFlow(type) {
       { svc: 'Proxy', cls: 'proxy', msg: '响应客户端' }
     ],
     audio_attachment: [
-      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat attachments=[audio]' },
+      { svc: 'Client', cls: 'client', msg: 'POST /v1/chat/completions + attachments' },
       { svc: 'Proxy', cls: 'proxy', msg: '下载音频 + ASR→文本' },
       { svc: 'Proxy', cls: 'proxy', msg: '拼接文本→messages + 转发' },
       { svc: 'LiteLLM', cls: 'litellm', msg: '转发到 Ollama' },
@@ -1298,14 +1309,15 @@ function getE2EFlow(type) {
 }
 
 function getE2EApiInfo(type) {
+  /* OpenAI 兼容端点映射 */
   var apis = {
-    chat: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
-    vision: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
-    asr: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
-    multimodal: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
-    pdf_attachment: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
-    word_attachment: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
-    audio_attachment: { method: 'POST', url: '/v1/chat', contentType: 'application/json' },
+    chat: { method: 'POST', url: '/v1/chat/completions', contentType: 'application/json' },
+    vision: { method: 'POST', url: '/v1/chat/completions', contentType: 'application/json' },
+    asr: { method: 'POST', url: '/v1/audio/transcriptions', contentType: 'application/json' },
+    multimodal: { method: 'POST', url: '/v1/chat/completions', contentType: 'application/json' },
+    pdf_attachment: { method: 'POST', url: '/v1/chat/completions', contentType: 'application/json' },
+    word_attachment: { method: 'POST', url: '/v1/chat/completions', contentType: 'application/json' },
+    audio_attachment: { method: 'POST', url: '/v1/chat/completions', contentType: 'application/json' },
     minio_presign: { method: 'POST', url: '/v1/minio/presign', contentType: 'application/json' },
     ws_chat: { method: 'WS', url: '/v1/stream/ws?model=...', contentType: '-' },
     ws_asr: { method: 'WS', url: '/v1/stream/asr', contentType: '-' }
@@ -1405,7 +1417,8 @@ async function runE2ETests() {
   try {
     addLog('info', '[E2E] 预热 ' + model + ' 模型...');
     var ws0 = performance.now();
-    var warmupResp = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'chat', messages: [{role: 'user', content: 'hi'}], model: model, stream: false, max_tokens: 1}) });
+    // OpenAI 兼容格式预热
+    var warmupResp = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({model: model, messages: [{role: 'user', content: 'hi'}], stream: false, max_tokens: 1}) });
     await warmupResp.json();
     warmupMs = +(performance.now() - ws0).toFixed(0);
     addLog('ok', '[E2E] ' + model + ' 预热完成: ' + warmupMs + 'ms');
@@ -1484,7 +1497,8 @@ async function runE2ETests() {
       addLog('info', '[E2E] 预热 llava 视觉模型...');
       try {
         var lw0 = performance.now();
-        var llavaWarmupResp = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: 'vision', prompt: 'hi', attachments: [{type: 'image', url: genMinioImgUrl()}], model: model, stream: false, max_tokens: 1}) });
+        // OpenAI 兼容格式 llava 预热: Vision messages + image_url
+        var llavaWarmupResp = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({model: model, messages: [{role: 'user', content: [{type: 'text', text: 'hi'}, {type: 'image_url', image_url: {url: genMinioImgUrl()}}]}], stream: false, max_tokens: 1}) });
         await llavaWarmupResp.json();
         var llavaWarmupMs = +(performance.now() - lw0).toFixed(0);
         addLog('ok', '[E2E] llava 预热完成: ' + llavaWarmupMs + 'ms');
@@ -1531,12 +1545,13 @@ async function runE2ETests() {
 }
 
 async function e2eChat(model) {
-  var input = { type: 'chat', messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], model: model, stream: true, max_tokens: 64 };
+  // OpenAI 兼容格式: POST /v1/chat/completions
+  var input = { model: model, messages: [{ role: 'user', content: '你好，这是一个端到端测试' }], stream: true, max_tokens: 64 };
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     if (!r.ok) {
       var text = await r.text();
@@ -1578,14 +1593,15 @@ async function e2eChat(model) {
 }
 
 async function e2eVision(model) {
+  // OpenAI 兼容格式: POST /v1/chat/completions + Vision content
   var imgUrl = genMinioImgUrl();
-  var input = { type: 'vision', prompt: '描述这张图片', attachments: [{ type: 'image', url: imgUrl }], model: model, stream: true };
+  var input = { model: model, messages: [{ role: 'user', content: [{ type: 'text', text: '描述这张图片' }, { type: 'image_url', image_url: { url: imgUrl } }] }], stream: true };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserImgUrl() });
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     if (!r.ok) {
       var text = await r.text();
@@ -1626,14 +1642,15 @@ async function e2eVision(model) {
 }
 
 async function e2eASR() {
+  // OpenAI 兼容格式: POST /v1/audio/transcriptions (JSON URL模式)
   var audioUrl = genMinioAudioUrl();
-  var input = { type: 'asr', file: audioUrl };
-  var displayInput = { type: 'asr', file: audioUrl, _browserUrl: genBrowserAudioUrl() };
+  var input = { file: audioUrl };
+  var displayInput = { file: audioUrl, _browserUrl: genBrowserAudioUrl() };
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/audio/transcriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     var text = await r.text();
     var d;
@@ -1647,13 +1664,15 @@ async function e2eASR() {
 }
 
 async function e2eMultimodal(model) {
-  var input = { type: 'multimodal', prompt: '多模态端到端测试', attachments: [{ type: 'image', url: genMinioImgUrl() }], model: model, stream: true };
+  // OpenAI 兼容格式: POST /v1/chat/completions + Vision content (合并多模态到chat)
+  var imgUrl = genMinioImgUrl();
+  var input = { model: model, messages: [{ role: 'user', content: [{ type: 'text', text: '多模态端到端测试' }, { type: 'image_url', image_url: { url: imgUrl } }] }], stream: true };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserImgUrl() });
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     if (!r.ok) {
       var text = await r.text();
@@ -1905,16 +1924,17 @@ function e2eStreamConsume(r, t0) {
   });
 }
 
-/* PDF 附件对话 */
+/* PDF 附件对话 — OpenAI 兼容格式 */
 async function e2ePdfAttachment(model) {
   var pdfUrl = genMinioPdfUrl();
-  var input = { type: 'chat', messages: [{ role: 'user', content: '请简要总结以下PDF文档的内容' }], attachments: [{ type: 'pdf', url: pdfUrl }], model: model, stream: true, max_tokens: 128 };
+  // OpenAI 兼容格式: POST /v1/chat/completions + attachments 扩展字段
+  var input = { model: model, messages: [{ role: 'user', content: '请简要总结以下PDF文档的内容' }], attachments: [{ type: 'pdf', url: pdfUrl }], stream: true, max_tokens: 128 };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserPdfUrl() });
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     if (!r.ok) {
       var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
@@ -1929,16 +1949,17 @@ async function e2ePdfAttachment(model) {
   }
 }
 
-/* Word 附件对话 */
+/* Word 附件对话 — OpenAI 兼容格式 */
 async function e2eWordAttachment(model) {
   var docxUrl = genMinioDocxUrl();
-  var input = { type: 'chat', messages: [{ role: 'user', content: '请简要总结以下Word文档的内容' }], attachments: [{ type: 'word', url: docxUrl }], model: model, stream: true, max_tokens: 128 };
+  // OpenAI 兼容格式: POST /v1/chat/completions + attachments 扩展字段
+  var input = { model: model, messages: [{ role: 'user', content: '请简要总结以下Word文档的内容' }], attachments: [{ type: 'word', url: docxUrl }], stream: true, max_tokens: 128 };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserDocxUrl() });
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     if (!r.ok) {
       var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }
@@ -1953,16 +1974,17 @@ async function e2eWordAttachment(model) {
   }
 }
 
-/* 音频附件对话（语音→文字→模型回复） */
+/* 音频附件对话（语音→文字→模型回复）— OpenAI 兼容格式 */
 async function e2eAudioAttachment(model) {
   var audioUrl = genMinioAudioUrl();
-  var input = { type: 'chat', messages: [{ role: 'user', content: '请根据以下语音内容回答问题' }], attachments: [{ type: 'audio', url: audioUrl }], model: model, stream: true, max_tokens: 128 };
+  // OpenAI 兼容格式: POST /v1/chat/completions + attachments 扩展字段
+  var input = { model: model, messages: [{ role: 'user', content: '请根据以下语音内容回答问题' }], attachments: [{ type: 'audio', url: audioUrl }], stream: true, max_tokens: 128 };
   var displayInput = Object.assign({}, input, { _browserUrl: genBrowserAudioUrl() });
   var t0 = performance.now();
   var controller = new AbortController();
   var timeout = setTimeout(function() { controller.abort(); }, 60000);
   try {
-    var r = await fetch(API + '/v1/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
+    var r = await fetch(API + '/v1/chat/completions', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(input), signal: controller.signal });
     clearTimeout(timeout);
     if (!r.ok) {
       var text = await r.text(); var d; try { d = JSON.parse(text); } catch(_) { d = { raw: text.substring(0, 500) }; }

@@ -806,11 +806,18 @@ async def embeddings(request: EmbeddingRequest):
     }
 
 
-@litellm_router.post("/audio/transcriptions", summary="语音识别接口")
+@litellm_router.post("/audio/transcriptions", summary="语音识别接口（OpenAI 兼容）")
 async def audio_transcriptions(request: Request):
     """OpenAI 兼容的 Audio Transcriptions 接口。
 
-    支持 multipart 文件上传和 JSON 请求。
+    支持两种请求模式:
+    1. multipart/form-data — 文件上传（标准 OpenAI SDK 格式）
+    2. application/json — URL 引用音频文件（扩展格式）: {"file": "http://...", "model": "funasr"}
+
+    OpenAI Python SDK 使用:
+      client.audio.transcriptions.create(model="funasr", file=open("audio.wav", "rb"))
+    URL 模式需要直接 HTTP 调用:
+      POST /v1/audio/transcriptions {"file": "http://minio:9000/openclaw/audio.wav"}
     """
     content_type = request.headers.get("content-type", "")
 
@@ -843,18 +850,38 @@ async def audio_transcriptions(request: Request):
             except Exception as e:
                 raise HTTPException(status_code=502, detail=f"ASR 服务不可用: {e}")
 
-        raise HTTPException(status_code=501, detail="ASR 需要配置 EXTERNAL_LITELLM_URL")
+        # 无外部 LiteLLM Proxy — 使用本地 FunASR 级联
+        # 从 multipart 中提取音频文件
+        audio_file = files.get("file")
+        if audio_file and FUNASR_URL and _funasr_asr_client:
+            try:
+                local_files = {"file": audio_file}
+                local_data = {"model": FUNASR_MODEL, "response_format": "json"}
+                resp = await _funasr_asr_client.post(
+                    "/v1/audio/transcriptions",
+                    files=local_files, data=local_data,
+                )
+                resp.raise_for_status()
+                result = resp.json()
+                text = result.get("text", "")
+                if text:
+                    text = _clean_funasr_text(text)
+                return {"text": text, "model": FUNASR_MODEL, "language": "zh"}
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"本地 ASR 服务不可用: {e}")
+
+        raise HTTPException(status_code=501, detail="ASR 需要配置 EXTERNAL_LITELLM_URL 或 FUNASR_URL")
     else:
-        # JSON 请求（通过 URL 引用音频文件）
+        # JSON 请求（通过 URL 引用音频文件）— 扩展格式
         body = await request.json()
         audio_url = body.get("file", "")
-        model = body.get("model", "doubao-asr")
+        model = body.get("model", "funasr")
 
         if not audio_url:
             raise HTTPException(status_code=400, detail="缺少 file 字段")
 
         text = await _transcribe_audio(audio_url)
-        return {"text": text, "model": model}
+        return {"text": text, "model": model, "language": "zh"}
 
 
 @litellm_router.post("/multimodal/chat", summary="多模态对话接口（MinIO/URL 文件）")
@@ -940,28 +967,40 @@ async def minio_presign(request: Request):
         raise HTTPException(status_code=500, detail=f"MinIO 预签名失败: {e}")
 
 
-@litellm_router.post("/chat", summary="统一入口 — 根据 type 字段自动路由到对应端点")
+@litellm_router.post("/chat", summary="统一入口（向后兼容）— 推荐使用 /v1/chat/completions")
 async def unified_chat(request: Request):
-    """统一入口接口 — 前端只需调用 /v1/chat，根据 type 自动路由。
+    """向后兼容的统一入口接口 — 根据 type 自动路由。
 
-    请求体:
+    推荐直接使用 OpenAI 兼容端点:
+      - chat/vision/附件: POST /v1/chat/completions (支持 attachments 扩展字段)
+      - 语音识别: POST /v1/audio/transcriptions
+      - 多模态: POST /v1/chat/completions (支持 attachments 扩展字段)
+
+    此端点保留用于向后兼容。新代码建议直接调用 OpenAI 兼容端点，
+    可直接对接 OpenAI Python/JS SDK:
+      from openai import OpenAI
+      client = OpenAI(base_url="http://host:8090/v1", api_key="sk-...")
+      r = client.chat.completions.create(model="qwen2.5", messages=[...],
+                                          extra_body={"attachments": [...]})
+
+    请求体 (向后兼容格式):
     {
       "type": "chat|vision|asr|multimodal|stream_asr",
       "model": "auto",
       "messages": [{"role": "user", "content": "..."}],
       "attachments": [{"type": "image", "url": "..."}],
-      "prompt": "...",            // multimodal 模式的提示词
+      "prompt": "...",
       "stream": false,
       "temperature": 0.7,
-      "auto_llm": false,         // stream_asr 模式: ASR 后自动 LLM 回复
-      "file": "http://...",       // asr 模式: 音频文件 URL
+      "auto_llm": false,
+      "file": "http://...",
     }
 
     路由规则:
       - type=chat       → /v1/chat/completions (纯文本对话)
       - type=vision     → /v1/chat/completions (自动切换 vision 模型)
       - type=asr        → /v1/audio/transcriptions (语音识别)
-      - type=multimodal → /v1/multimodal/chat (多模态混合)
+      - type=multimodal → /v1/chat/completions (多模态混合, 支持 attachments)
       - type=stream_asr → 返回 stream-service 的 WebSocket 地址提示
       - type 缺失/空    → 根据 attachments 自动判断
     """

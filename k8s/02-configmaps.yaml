@@ -110,8 +110,12 @@ data:
             add_header Content-Type text/plain;
         }
 
+        # ---------- OpenAI 兼容接口 — 全部路由到 Proxy Pod ----------
+        # Proxy Pod 包含预处理能力（附件、Vision自动路由、ASR级联）
+        # 并在内部转发到 LiteLLM CLI Pod，作为唯一 LLM API 入口
+
         location /v1/chat/completions {
-            proxy_pass http://litellm_backend;
+            proxy_pass http://proxy_backend;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
@@ -125,16 +129,17 @@ data:
         }
 
         location /v1/completions {
-            proxy_pass http://litellm_backend;
+            proxy_pass http://proxy_backend;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
             proxy_buffering off;
             proxy_read_timeout 300s;
         }
 
         location /v1/embeddings {
-            proxy_pass http://litellm_backend;
+            proxy_pass http://proxy_backend;
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_set_header Host $host;
@@ -150,8 +155,11 @@ data:
             proxy_read_timeout 120s;
         }
 
+        # 模型列表 — Proxy Pod (已有 /v1/models 端点)
         location /v1/models {
-            proxy_pass http://litellm_backend;
+            proxy_pass http://proxy_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
             proxy_set_header Host $host;
         }
 
