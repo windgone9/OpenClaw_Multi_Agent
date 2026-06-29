@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenClaw Multi-Agent — OpenAI Compatible Architecture</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 20px;
+  min-height: 100vh;
+}
+
+/* ===== Header ===== */
+.header {
+  text-align: center;
+  padding: 24px 0 16px;
+}
+.header h1 {
+  font-size: 32px;
+  background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+}
+.header .subtitle {
+  color: #94a3b8;
+  font-size: 14px;
+}
+.header .env-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 14px;
+  border-radius: 20px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  font-size: 12px;
+  color: #64748b;
+}
+.header .env-badge .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #22c55e;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+}
+
+/* ===== Architecture Layers ===== */
+.arch-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.layer {
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 8px;
+  position: relative;
+  background: #1e293b;
+}
+.layer-tag {
+  position: absolute;
+  top: -10px; left: 16px;
+  background: #1e293b;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+/* Arrows between layers */
+.arrow-bar {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  padding: 6px 0;
+}
+.arr-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.arr-line {
+  width: 2px; height: 20px;
+  background: linear-gradient(to bottom, #475569, transparent);
+}
+.arr-head {
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #475569;
+}
+.arr-label {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  white-space: nowrap;
+  max-width: 120px;
+  text-align: center;
+}
+
+/* ===== Service Cards ===== */
+.cards-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.card {
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 180px;
+  flex: 1;
+  max-width: 280px;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: default;
+}
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+}
+.card-name {
+  font-size: 14px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 4px;
+}
+.card-port {
+  font-size: 11px;
+  background: rgba(255,255,255,0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.card-desc {
+  font-size: 12px; color: #94a3b8;
+  margin-bottom: 8px;
+}
+.card-list {
+  list-style: none; font-size: 12px;
+}
+.card-list li {
+  padding: 3px 0 3px 14px;
+  position: relative;
+  color: #cbd5e1;
+}
+.card-list li::before {
+  content: '';
+  position: absolute; left: 0; top: 8px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+}
+
+/* Card color themes */
+.card-client { background: linear-gradient(135deg, #1e3a5f, #1e293b); border: 1px solid #2563eb40; }
+.card-client .card-list li::before { background: #3b82f6; }
+.card-nginx { background: linear-gradient(135deg, #1a3333, #1e293b); border: 1px solid #14b8a640; }
+.card-nginx .card-list li::before { background: #14b8a6; }
+.card-proxy { background: linear-gradient(135deg, #2d1b4e, #1e293b); border: 1px solid #a855f740; }
+.card-proxy .card-list li::before { background: #a855f7; }
+.card-litellm { background: linear-gradient(135deg, #3b1b1b, #1e293b); border: 1px solid #ef444440; }
+.card-litellm .card-list li::before { background: #ef4444; }
+.card-stream { background: linear-gradient(135deg, #1b2e1b, #1e293b); border: 1px solid #22c55e40; }
+.card-stream .card-list li::before { background: #22c55e; }
+.card-ollama { background: linear-gradient(135deg, #1b1b3b, #1e293b); border: 1px solid #6366f140; }
+.card-ollama .card-list li::before { background: #6366f1; }
+.card-funasr { background: linear-gradient(135deg, #3b2b1b, #1e293b); border: 1px solid #eab30840; }
+.card-funasr .card-list li::before { background: #eab308; }
+.card-minio { background: linear-gradient(135deg, #1b2b3b, #1e293b); border: 1px solid #38bdf840; }
+.card-minio .card-list li::before { background: #38bdf8; }
+.card-hermes { background: linear-gradient(135deg, #2b1b3b, #1e293b); border: 1px solid #f9731640; }
+.card-hermes .card-list li::before { background: #f97316; }
+.card-cloud { background: linear-gradient(135deg, #1b3b3b, #1e293b); border: 1px solid #06b6d440; }
+.card-cloud .card-list li::before { background: #06b6d4; }
+
+/* Wide card */
+.card-wide { max-width: 100%; }
+
+/* ===== REST API Table ===== */
+.api-section {
+  max-width: 1200px;
+  margin: 20px auto 0;
+}
+.api-section h2 {
+  font-size: 20px;
+  background: linear-gradient(135deg, #a855f7, #38bdf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+
+.api-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.api-table th {
+  background: #334155;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #e2e8f0;
+  border-bottom: 2px solid #475569;
+}
+.api-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #1e293b;
+  color: #cbd5e1;
+  vertical-align: top;
+}
+.api-table tr:hover td { background: #1e293b; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.b-openai { background: #22c55e20; color: #4ade80; }
+.b-custom { background: #ef444420; color: #f87171; }
+.b-compat { background: #eab30820; color: #facc15; }
+.b-proxy { background: #a855f720; color: #c084fc; }
+.b-stream { background: #22c55e20; color: #86efac; }
+.b-litellm { background: #ef444420; color: #fca5a5; }
+.b-hermes { background: #f9731620; color: #fdba74; }
+.b-minio { background: #38bdf820; color: #7dd3fc; }
+.b-get { background: #3b82f620; color: #60a5fa; }
+.b-post { background: #a855f720; color: #c084fc; }
+.b-ws { background: #22c55e20; color: #86efac; }
+.b-sse { background: #14b8a620; color: #5eead4; }
+
+/* ===== Flow Diagrams ===== */
+.flow-section {
+  max-width: 1200px;
+  margin: 20px auto 0;
+}
+.flow-section h2 {
+  font-size: 20px;
+  background: linear-gradient(135deg, #22c55e, #38bdf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+
+.flow-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.3s;
+}
+.flow-card:hover { border-color: #475569; }
+
+.flow-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.flow-title .num {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800;
+}
+
+.flow-chain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.flow-node {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-arrow { color: #475569; font-size: 14px; }
+
+.fn-client { background: #2563eb30; color: #60a5fa; border: 1px solid #2563eb50; }
+.fn-nginx { background: #14b8a630; color: #5eead4; border: 1px solid #14b8a650; }
+.fn-proxy { background: #a855f730; color: #d8b4fe; border: 1px solid #a855f750; }
+.fn-litellm { background: #ef444430; color: #fca5a5; border: 1px solid #ef444450; }
+.fn-ollama { background: #6366f130; color: #a5b4fc; border: 1px solid #6366f150; }
+.fn-stream { background: #22c55e30; color: #86efac; border: 1px solid #22c55e50; }
+.fn-funasr { background: #eab30830; color: #fde047; border: 1px solid #eab30850; }
+.fn-doubao { background: #06b6d430; color: #67e8f9; border: 1px solid #06b6d450; }
+.fn-hermes { background: #f9731630; color: #fdba74; border: 1px solid #f9731650; }
+.fn-minio { background: #38bdf830; color: #7dd3fc; border: 1px solid #38bdf850; }
+.fn-cloud { background: #06b6d430; color: #67e8f9; border: 1px solid #06b6d450; }
+
+.flow-detail {
+  background: #0f172a;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.flow-detail code {
+  color: #d8b4fe;
+  font-size: 11px;
+}
+.flow-detail .req-example {
+  margin-top: 6px;
+  padding: 8px;
+  background: #0c1220;
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+/* Color numbers */
+.num-chat { background: #a855f7; color: white; }
+.num-vision { background: #3b82f6; color: white; }
+.num-asr { background: #eab308; color: #1e293b; }
+.num-pdf { background: #ef4444; color: white; }
+.num-word { background: #14b8a6; color: white; }
+.num-audio { background: #f97316; color: white; }
+.num-mm { background: #22c55e; color: white; }
+.num-wschat { background: #06b6d4; color: white; }
+.num-wsasr { background: #6366f1; color: white; }
+.num-minio { background: #38bdf8; color: white; }
+
+/* ===== SDK Section ===== */
+.sdk-section {
+  max-width: 1200px;
+  margin: 20px auto 0;
+}
+.sdk-section h2 {
+  font-size: 20px;
+  background: linear-gradient(135deg, #38bdf8, #22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+
+.sdk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px;
+}
+.sdk-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 14px;
+}
+.sdk-card h4 {
+  font-size: 14px; margin-bottom: 8px;
+}
+.sdk-card pre {
+  background: #0c1220;
+  padding: 10px;
+  border-radius: 8px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #94a3b8;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+.sdk-card pre .kw { color: #c084fc; }
+.sdk-card pre .str { color: #4ade80; }
+.sdk-card pre .fn { color: #60a5fa; }
+.sdk-card pre .cm { color: #64748b; }
+.sdk-card pre .num { color: #fde047; }
+
+/* ===== Legend ===== */
+.legend {
+  max-width: 1200px;
+  margin: 20px auto 0;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 14px;
+  background: #1e293b;
+  border-radius: 10px;
+  border: 1px solid #334155;
+}
+.legend-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.legend-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+
+/* ===== Tabs ===== */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.tab-btn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.tab-btn:hover { background: #334155; color: #e2e8f0; }
+.tab-btn.active { background: #a855f720; color: #c084fc; border-color: #a855f750; }
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  .cards-row { flex-direction: column; }
+  .card { max-width: 100%; }
+  .arrow-bar { gap: 16px; }
+  .flow-chain { flex-direction: column; align-items: flex-start; }
+  .sdk-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OpenClaw Multi-Agent 系统架构</h1>
+  <p class="subtitle">OpenAI 兼容 REST API 多层架构 — Nginx → Proxy → LiteLLM → Ollama/Cloud</p>
+  <div class="env-badge">
+    <span class="dot"></span>
+    <span>K8S 部署 | 入口 :8090 (NodePort 30080) | 分支 feature_OpenAI_compatible</span>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-group"><span class="legend-dot" style="background:#a855f7"></span> Proxy Pod (预处理 + API网关)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#ef4444"></span> LiteLLM CLI (模型路由)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#22c55e"></span> Stream Service (实时推流)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#f97316"></span> Hermes (任务调度)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#6366f1"></span> Ollama (本地推理)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#eab308"></span> FunASR (本地ASR)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#14b8a6"></span> Nginx (反向代理)</div>
+  <div class="legend-group"><span class="legend-dot" style="background:#38bdf8"></span> MinIO (对象存储)</div>
+</div>
+
+<!-- ===== Layer 1: Client ===== -->
+<div class="arch-wrap">
+<div class="layer">
+  <span class="layer-tag" style="color:#3b82f6">Client Layer</span>
+  <div class="cards-row">
+    <div class="card card-client">
+      <div class="card-name">🖥️ OpenAI SDK 客户端</div>
+      <div class="card-desc">Python/JS SDK 直接对接，无需自定义格式</div>
+      <ul class="card-list">
+        <li><code>client.chat.completions.create()</code></li>
+        <li><code>client.audio.transcriptions.create()</code></li>
+        <li><code>client.embeddings.create()</code></li>
+        <li><code>extra_body={"attachments":[...]}</code></li>
+      </ul>
+    </div>
+    <div class="card card-client">
+      <div class="card-name">🌐 Dashboard / 浏览器</div>
+      <div class="card-desc">E2E 测试 + Playground 交互界面</div>
+      <ul class="card-list">
+        <li>Chat / Vision / ASR Playground</li>
+        <li>WebSocket 实时语音推流</li>
+        <li>10 个 E2E 场景测试</li>
+      </ul>
+    </div>
+    <div class="card card-client">
+      <div class="card-name">⚡ 自定义 HTTP 客户端</div>
+      <div class="card-desc">curl / httpx / requests 直接调用</div>
+      <ul class="card-list">
+        <li>OpenAI 格式 POST 请求</li>
+        <li>WebSocket 音频推流</li>
+        <li>SSE 流式接收</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-bar">
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">HTTP REST<br/>:8090 → :80</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">WebSocket<br/>Upgrade</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">SSE<br/>长连接</div>
+  </div>
+</div>
+
+<!-- ===== Layer 2: Nginx ===== -->
+<div class="layer">
+  <span class="layer-tag" style="color:#14b8a6">Gateway Layer</span>
+  <div class="card card-wide card-nginx" style="max-width:100%">
+    <div class="card-name">🔀 Nginx 反向代理 + 负载均衡 <span class="card-port">:80 → NodePort :30080 → Host :8090</span></div>
+    <div class="card-desc">唯一外部入口 — 按 URL 路径分发到内部服务，协议适配 (HTTP/WS/SSE)</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px">
+      <div style="background:#0f172a;border-radius:8px;padding:10px;font-size:12px">
+        <div style="color:#5eead4;font-weight:700;margin-bottom:4px">Upstream 配置</div>
+        <div style="color:#cbd5e1"><code style="color:#d8b4fe">proxy_backend</code> → proxy:4000 (least_conn, keepalive 32)</div>
+        <div style="color:#cbd5e1"><code style="color:#fca5a5">litellm_backend</code> → litellm:4000 (least_conn, keepalive 32)</div>
+        <div style="color:#cbd5e1"><code style="color:#86efac">stream_backend</code> → stream:8084 (ip_hash, 会话粘性)</div>
+        <div style="color:#cbd5e1"><code style="color:#fdba74">hermes_backend</code> → hermes:8082 (least_conn, keepalive 16)</div>
+      </div>
+      <div style="background:#0f172a;border-radius:8px;padding:10px;font-size:12px">
+        <div style="color:#5eead4;font-weight:700;margin-bottom:4px">OpenAI 兼容路由 → Proxy</div>
+        <div style="color:#cbd5e1"><code style="color:#d8b4fe">/v1/chat/completions</code> → proxy_backend (Chat/Vision/Attach)</div>
+        <div style="color:#cbd5e1"><code style="color:#d8b4fe">/v1/audio/*</code> → proxy_backend (ASR)</div>
+        <div style="color:#cbd5e1"><code style="color:#d8b4fe">/v1/embeddings</code> → proxy_backend (Embedding)</div>
+        <div style="color:#cbd5e1"><code style="color:#d8b4fe">/v1/models</code> → proxy_backend (模型列表)</div>
+        <div style="color:#cbd5e1"><code style="color:#d8b4fe">/v1/chat</code> → proxy_backend (向后兼容)</div>
+      </div>
+      <div style="background:#0f172a;border-radius:8px;padding:10px;font-size:12px">
+        <div style="color:#5eead4;font-weight:700;margin-bottom:4px">自定义协议路由</div>
+        <div style="color:#cbd5e1"><code style="color:#86efac">/v1/stream/ws</code> → stream_ws_backend (WS 升级, 3600s)</div>
+        <div style="color:#cbd5e1"><code style="color:#86efac">/v1/stream/asr</code> → stream_ws_backend (WS 升级, 3600s)</div>
+        <div style="color:#cbd5e1"><code style="color:#5eead4">/v1/stream/sse</code> → stream_backend (SSE, no-buffer)</div>
+        <div style="color:#cbd5e1"><code style="color:#fdba74">/k8s/*</code> → hermes_backend (任务调度)</div>
+        <div style="color:#cbd5e1"><code style="color:#fca5a5">/ui/ /litellm/</code> → litellm_backend (管理UI, 注入auth)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="arrow-bar">
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">proxy_pass<br/>proxy_backend</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">proxy_pass<br/>stream_backend</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">proxy_pass<br/>hermes_backend</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">proxy_pass<br/>litellm_backend<br/>(管理UI)</div>
+  </div>
+</div>
+
+<!-- ===== Layer 3: Preprocessing + Routing ===== -->
+<div class="layer">
+  <span class="layer-tag" style="color:#a855f7">Preprocessing + Routing Layer</span>
+  <div class="cards-row">
+
+    <div class="card card-proxy" style="max-width:340px;flex:2">
+      <div class="card-name">⚡ Proxy Pod <span class="card-port">:4000</span></div>
+      <div class="card-desc">唯一 LLM API 入口 — OpenAI 兼容 + 预处理 + 模型路由</div>
+      <ul class="card-list">
+        <li><strong style="color:#4ade80">✅ OpenAI 兼容端点:</strong></li>
+        <li><code style="color:#4ade80">POST /v1/chat/completions</code> (Chat/Vision/Attach)</li>
+        <li><code style="color:#4ade80">POST /v1/audio/transcriptions</code> (ASR)</li>
+        <li><code style="color:#4ade80">POST /v1/embeddings</code> (Embedding)</li>
+        <li><code style="color:#4ade80">GET /v1/models</code> (模型列表)</li>
+        <li><strong style="color:#facc15">⚠️ 向后兼容:</strong></li>
+        <li><code>POST /v1/chat</code> (type 字段路由)</li>
+        <li><code>POST /v1/multimodal/chat</code> (多模态)</li>
+        <li><strong style="color:#f87171">❌ 自定义:</strong></li>
+        <li><code>POST /v1/minio/presign</code> (MinIO URL)</li>
+        <li><strong style="color:#d8b4fe">预处理能力:</strong></li>
+        <li>图片 URL → base64 → llava 自动路由</li>
+        <li>音频附件 → FunASR ASR → 文本替换</li>
+        <li>PDF/Word → 文本提取 → Chat</li>
+        <li>MinIO presigned URL 生成</li>
+      </ul>
+    </div>
+
+    <div class="card card-stream" style="max-width:240px">
+      <div class="card-name">🌊 Stream Service <span class="card-port">:8084</span></div>
+      <div class="card-desc">实时推流 — WebSocket + SSE + 流式 ASR</div>
+      <ul class="card-list">
+        <li><strong style="color:#86efac">WS 双向:</strong></li>
+        <li><code>/v1/stream/ws</code> (对话+语音)</li>
+        <li><code>/v1/stream/asr</code> (PCM推流+auto_llm)</li>
+        <li><strong style="color:#5eead4">HTTP:</strong></li>
+        <li><code>/v1/stream/sse</code> (SSE推流)</li>
+        <li><code>/v1/stream/asr/file</code> (文件ASR)</li>
+        <li><strong style="color:#d8b4fe">内部调用:</strong></li>
+        <li>LiteLLM/Ollama → LLM 流式</li>
+        <li>FunASR/Doubao → ASR 级联</li>
+      </ul>
+    </div>
+
+    <div class="card card-hermes" style="max-width:200px">
+      <div class="card-name">🧭 Hermes <span class="card-port">:8082</span></div>
+      <div class="card-desc">任务调度 + 自学习路由</div>
+      <ul class="card-list">
+        <li>K8S AIWorkload 管理</li>
+        <li>队列调度 (4 worker)</li>
+        <li>自学习 MEMORY.md 闭环</li>
+        <li>系统资源监控</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div class="arrow-bar">
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">模型推理<br/>→ LiteLLM</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">Fallback<br/>→ Ollama</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">ASR 级联<br/>→ FunASR</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">文件存储<br/>→ MinIO</div>
+  </div>
+</div>
+
+<!-- ===== Layer 4: Model Routing ===== -->
+<div class="layer">
+  <span class="layer-tag" style="color:#ef4444">Model Routing Layer</span>
+  <div class="cards-row">
+
+    <div class="card card-litellm" style="max-width:340px;flex:2">
+      <div class="card-name">🔴 LiteLLM CLI Pod <span class="card-port">:4000</span></div>
+      <div class="card-desc">模型路由网关 — 延迟优先路由 + 云模型代理 + 管理 UI</div>
+      <ul class="card-list">
+        <li><strong style="color:#fca5a5">本地模型 (Ollama):</strong></li>
+        <li>qwen2.5:3b (K8S) / qwen2.5:7b (Docker) — 对话</li>
+        <li>llava:7b — Vision</li>
+        <li>nomic-embed-text — Embedding</li>
+        <li><strong style="color:#67e8f9">云模型 (API Key):</strong></li>
+        <li>deepseek-chat — DeepSeek 云推理</li>
+        <li>moonshot-v1-8k — Moonshot 云推理</li>
+        <li><strong style="color:#5eead4">路由策略:</strong></li>
+        <li>latency-based-routing (延迟优先)</li>
+        <li>2 retries, 120s timeout, 60s cooldown</li>
+        <li>别名: chat→qwen2.5, vision→llava, asr→funasr</li>
+        <li><strong style="color:#fca5a5">管理功能:</strong></li>
+        <li>/ui/ — Web 管理 UI</li>
+        <li>/key/, /model/ — Key/模型管理</li>
+        <li>PostgreSQL 模型数据持久化</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<div class="arrow-bar">
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">本地推理<br/>→ Ollama</div>
+  </div>
+  <div class="arr-col">
+    <div class="arr-line"></div><div class="arr-head"></div>
+    <div class="arr-label">云推理<br/>→ DeepSeek/Moonshot</div>
+  </div>
+</div>
+
+<!-- ===== Layer 5: Inference + Storage ===== -->
+<div class="layer">
+  <span class="layer-tag" style="color:#6366f1">Inference + Storage Layer</span>
+  <div class="cards-row">
+
+    <div class="card card-ollama">
+      <div class="card-name">🦙 Ollama <span class="card-port">:11434</span></div>
+      <div class="card-desc">本地 LLM 推理引擎 (GPU/CPU)</div>
+      <ul class="card-list">
+        <li>qwen2.5:3b/7b — Chat</li>
+        <li>llava:7b — Vision</li>
+        <li>nomic-embed-text — Embedding</li>
+        <li>whisper — ASR Fallback</li>
+        <li>KEEP_ALIVE=30m</li>
+        <li>4Gi-12Gi 内存</li>
+      </ul>
+    </div>
+
+    <div class="card card-funasr">
+      <div class="card-name">🎤 FunASR <span class="card-port">:8199</span></div>
+      <div class="card-desc">本地 ASR — SenseVoice 模型</div>
+      <ul class="card-list">
+        <li>SenseVoice 中英文识别</li>
+        <li>特殊标签清理</li>
+        <li>CPU 推理</li>
+        <li>2Gi-4Gi 内存</li>
+      </ul>
+    </div>
+
+    <div class="card card-minio">
+      <div class="card-name">📦 MinIO <span class="card-port">:9000</span></div>
+      <div class="card-desc">S3 兼容对象存储</div>
+      <ul class="card-list">
+        <li>文件上传/下载</li>
+        <li>Presigned URL 生成</li>
+        <li>Bucket: openclaw</li>
+        <li>20Gi PVC</li>
+      </ul>
+    </div>
+
+    <div class="card card-cloud">
+      <div class="card-name">☁️ 云模型 API</div>
+      <div class="card-desc">云端 LLM + ASR 推理</div>
+      <ul class="card-list">
+        <li>DeepSeek — 云对话</li>
+        <li>Moonshot — 云对话</li>
+        <li>Doubao — 云 ASR</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ===== REST API Paths Table ===== -->
+<div class="api-section">
+<h2>📋 REST API 路径 — 按场景分类</h2>
+
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('tab-openai')">OpenAI 兼容 ✅</button>
+  <button class="tab-btn" onclick="switchTab('tab-compat')">向后兼容 ⚠️</button>
+  <button class="tab-btn" onclick="switchTab('tab-custom')">自定义协议 ❌</button>
+  <button class="tab-btn" onclick="switchTab('tab-admin')">管理端点</button>
+</div>
+
+<div id="tab-openai" class="tab-content active">
+<table class="api-table">
+<thead>
+<tr><th>场景</th><th>方法</th><th>Nginx 路径</th><th>→ 目标</th><th>请求格式</th><th>OpenAI SDK</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td style="color:#c084fc;font-weight:600">1. Chat</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/chat/completions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, messages, stream}</code></td>
+  <td><code>client.chat.completions.create()</code></td>
+</tr>
+<tr>
+  <td style="color:#60a5fa;font-weight:600">2. Vision</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/chat/completions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, messages:[{content:[{type:image_url}]}]}</code></td>
+  <td><code>client.chat.completions.create()</code></td>
+</tr>
+<tr>
+  <td style="color:#ef4444;font-weight:600">3. PDF Attachment</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/chat/completions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, messages, attachments:[{type:pdf}]}</code></td>
+  <td><code>extra_body={"attachments":[...]}</code></td>
+</tr>
+<tr>
+  <td style="color:#14b8a6;font-weight:600">4. Word Attachment</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/chat/completions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, messages, attachments:[{type:word}]}</code></td>
+  <td><code>extra_body={"attachments":[...]}</code></td>
+</tr>
+<tr>
+  <td style="color:#f97316;font-weight:600">5. Audio Attachment</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/chat/completions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, messages, attachments:[{type:audio}]}</code></td>
+  <td><code>extra_body={"attachments":[...]}</code></td>
+</tr>
+<tr>
+  <td style="color:#fde047;font-weight:600">6. ASR</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/audio/transcriptions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{file: url}</code> 或 multipart</td>
+  <td><code>client.audio.transcriptions.create()</code></td>
+</tr>
+<tr>
+  <td style="color:#4ade80;font-weight:600">7. Multimodal</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/chat/completions</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, messages:[{content:[{type:text},{type:image_url}]}]}</code></td>
+  <td><code>client.chat.completions.create()</code></td>
+</tr>
+<tr>
+  <td>Embedding</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/embeddings</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{model, input}</code></td>
+  <td><code>client.embeddings.create()</code></td>
+</tr>
+<tr>
+  <td>模型列表</td>
+  <td><span class="badge b-get">GET</span></td>
+  <td><code>/v1/models</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td>—</td>
+  <td><code>client.models.list()</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div id="tab-compat" class="tab-content">
+<table class="api-table">
+<thead>
+<tr><th>场景</th><th>方法</th><th>Nginx 路径</th><th>→ 目标</th><th>请求格式</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>向后兼容入口</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>= /v1/chat</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{type:"chat", messages, model}</code></td>
+  <td>内部转发到 <code>/v1/chat/completions</code></td>
+</tr>
+<tr>
+  <td>多模态自定义</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/multimodal/chat</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td><code>{prompt, attachments}</code></td>
+  <td>自动路由: image→vision, audio→asr, pdf→text</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div id="tab-custom" class="tab-content">
+<table class="api-table">
+<thead>
+<tr><th>场景</th><th>方法</th><th>Nginx 路径</th><th>→ 目标</th><th>协议</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td style="color:#86efac;font-weight:600">8. WS Chat</td>
+  <td><span class="badge b-ws">WS</span></td>
+  <td><code>/v1/stream/ws</code></td>
+  <td><span class="badge b-stream">Stream</span></td>
+  <td>WebSocket 双向</td>
+  <td>文本/音频 → ASR → LLM 流式回复</td>
+</tr>
+<tr>
+  <td style="color:#a5b4fc;font-weight:600">9. WS ASR</td>
+  <td><span class="badge b-ws">WS</span></td>
+  <td><code>/v1/stream/asr</code></td>
+  <td><span class="badge b-stream">Stream</span></td>
+  <td>WebSocket 双向</td>
+  <td>PCM 推流 → ASR + auto_llm 边听边答</td>
+</tr>
+<tr>
+  <td style="color:#5eead4;font-weight:600">SSE 推流</td>
+  <td><span class="badge b-sse">GET</span></td>
+  <td><code>/v1/stream/sse</code></td>
+  <td><span class="badge b-stream">Stream</span></td>
+  <td>HTTP SSE 单向</td>
+  <td>prompt+model → LLM 流式推流</td>
+</tr>
+<tr>
+  <td>ASR 文件上传</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/v1/stream/asr/file</code></td>
+  <td><span class="badge b-stream">Stream</span></td>
+  <td>HTTP multipart</td>
+  <td>上传音频文件 → 纯 ASR 转写</td>
+</tr>
+<tr>
+  <td style="color:#7dd3fc;font-weight:600">10. MinIO Presign</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>= /v1/minio/presign</code></td>
+  <td><span class="badge b-proxy">Proxy</span></td>
+  <td>HTTP JSON</td>
+  <td>生成 MinIO presigned URL</td>
+</tr>
+<tr>
+  <td>K8S 工作负载</td>
+  <td><span class="badge b-post">POST</span></td>
+  <td><code>/k8s/workloads</code></td>
+  <td><span class="badge b-hermes">Hermes</span></td>
+  <td>HTTP JSON</td>
+  <td>K8S AIWorkload 提交/查询/删除</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div id="tab-admin" class="tab-content">
+<table class="api-table">
+<thead>
+<tr><th>功能</th><th>方法</th><th>Nginx 路径</th><th>→ 目标</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>LiteLLM 管理 UI</td>
+  <td><span class="badge b-get">GET</span></td>
+  <td><code>/ui/</code></td>
+  <td><span class="badge b-litellm">LiteLLM</span></td>
+  <td>Web UI (注入 Bearer auth, 无需手动登录)</td>
+</tr>
+<tr>
+  <td>Key 管理</td>
+  <td>ALL</td>
+  <td><code>/key/*</code></td>
+  <td><span class="badge b-litellm">LiteLLM</span></td>
+  <td>API Key CRUD</td>
+</tr>
+<tr>
+  <td>模型管理</td>
+  <td>ALL</td>
+  <td><code>/model/*</code></td>
+  <td><span class="badge b-litellm">LiteLLM</span></td>
+  <td>模型配置 CRUD</td>
+</tr>
+<tr>
+  <td>Hermes 健康</td>
+  <td><span class="badge b-get">GET</span></td>
+  <td><code>/hermes/health</code></td>
+  <td><span class="badge b-hermes">Hermes</span></td>
+  <td>Hermes 服务状态</td>
+</tr>
+<tr>
+  <td>系统指标</td>
+  <td><span class="badge b-get">GET</span></td>
+  <td><code>/v1/system/metrics</code></td>
+  <td><span class="badge b-hermes">Hermes</span></td>
+  <td>CPU/GPU/内存指标</td>
+</tr>
+<tr>
+  <td>MinIO Console</td>
+  <td><span class="badge b-get">GET</span></td>
+  <td><code>:9002</code> (NodePort)</td>
+  <td><span class="badge b-minio">MinIO</span></td>
+  <td>MinIO Web Console</td>
+</tr>
+<tr>
+  <td>服务健康代理</td>
+  <td><span class="badge b-get">GET</span></td>
+  <td><code>/svc/proxy/ /svc/stream/ /svc/funasr/ /svc/ollama/</code></td>
+  <td>各服务</td>
+  <td>Dashboard 用的服务健康检查</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+<!-- ===== Request Flow Diagrams ===== -->
+<div class="flow-section">
+<h2>🔀 请求流路径 — 每个场景的完整链路</h2>
+
+<!-- 1. Chat -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-chat">1</span> <span style="color:#c084fc">Chat — OpenAI 兼容 ✅</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">POST /v1/chat/completions {model, messages, stream}</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client (OpenAI SDK)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx :8090</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-proxy">Proxy :4000</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-litellm">LiteLLM :4000</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-ollama">Ollama qwen2.5</span>
+  </div>
+  <div class="flow-detail">
+    <strong>Proxy 预处理:</strong> 解析 ChatCompletionRequest → 检查 attachments (无) → 检查 vision (无) → 转发 LiteLLM
+    <div class="req-example">from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8090/v1", api_key="sk-litellm-local")
+r = client.chat.completions.create(
+    model="qwen2.5",
+    messages=[{"role": "user", "content": "你好"}],
+    stream=True
+)</div>
+  </div>
+</div>
+
+<!-- 2. Vision -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-vision">2</span> <span style="color:#60a5fa">Vision — OpenAI 兼容 ✅</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">POST /v1/chat/completions {content:[{type:image_url}]}</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-proxy">Proxy</span>
+    <span style="color:#4ade80;font-size:11px;font-weight:600">① vision检测 → 自动切换llava</span>
+    <span style="color:#4ade80;font-size:11px;font-weight:600">② 下载图片URL → base64</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-litellm">LiteLLM</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-ollama">Ollama llava:7b</span>
+  </div>
+  <div class="flow-detail">
+    <strong>Proxy 预处理:</strong> 检测 content 含 image_url → model 自动切换 llava → 外部 URL 下载 → base64 编码 → 构建 Ollama images 格式
+    <div class="req-example">r = client.chat.completions.create(
+    model="qwen2.5",  # 自动切换 llava
+    messages=[{"role": "user", "content": [
+        {"type": "text", "text": "描述这张图片"},
+        {"type": "image_url", "image_url": {"url": "http://minio/img.png"}}
+    ]}]
+)</div>
+  </div>
+</div>
+
+<!-- 3-5. Attachments -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-pdf">3</span><span class="num num-word" style="margin-left:4px">4</span><span class="num num-audio" style="margin-left:4px">5</span> <span style="color:#f87171">PDF/Word/Audio Attachment — OpenAI 兼容 ✅</span></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-proxy">Proxy</span>
+    <span style="color:#c084fc;font-size:11px;font-weight:600">attachments预处理</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-litellm">LiteLLM</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-ollama">Ollama qwen2.5</span>
+  </div>
+  <div class="flow-detail" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+    <div>
+      <strong style="color:#ef4444">PDF:</strong> PDF URL → PyMuPDF 提取文本 → 替换 prompt
+      <div class="req-example" style="margin-top:4px">extra_body={"attachments":
+  [{"type":"pdf",
+    "url":"http://minio/doc.pdf"}]}</div>
+    </div>
+    <div>
+      <strong style="color:#14b8a6">Word:</strong> DOCX URL → python-docx 提取文本 → 替换 prompt
+      <div class="req-example" style="margin-top:4px">extra_body={"attachments":
+  [{"type":"word",
+    "url":"http://minio/doc.docx"}]}</div>
+    </div>
+    <div>
+      <strong style="color:#f97316">Audio:</strong> Audio URL → 下载 → FunASR ASR → 文本替换 prompt
+      <div class="req-example" style="margin-top:4px">extra_body={"attachments":
+  [{"type":"audio",
+    "url":"http://minio/audio.wav"}]}</div>
+    </div>
+  </div>
+</div>
+
+<!-- 6. ASR -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-asr">6</span> <span style="color:#fde047">ASR — OpenAI 兼容 ✅</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">POST /v1/audio/transcriptions</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-proxy">Proxy</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-funasr">FunASR SenseVoice</span>
+    <span style="color:#64748b;font-size:10px">fallback:</span>
+    <span class="flow-node fn-doubao" style="font-size:11px">Doubao</span>
+    <span class="flow-arrow" style="font-size:10px">→</span>
+    <span class="flow-node fn-ollama" style="font-size:11px">Ollama Whisper</span>
+  </div>
+  <div class="flow-detail">
+    <strong>两种模式:</strong>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
+      <div>
+        <strong style="color:#4ade80">JSON URL 模式:</strong> <code>{file: "http://minio/audio.wav"}</code>
+        → Proxy 下载音频 → FunASR/Doubao/Whisper 级联
+      </div>
+      <div>
+        <strong style="color:#4ade80">multipart 模式:</strong> 直接上传文件
+        → Proxy 转发到 FunASR 本地 ASR
+      </div>
+    </div>
+    <div class="req-example" style="margin-top:6px"># JSON URL 模式
+r = requests.post("http://localhost:8090/v1/audio/transcriptions",
+    json={"file": "http://minio:9000/openclaw/audio.wav"})
+
+# multipart 模式 (OpenAI SDK)
+with open("audio.wav", "rb") as f:
+    r = client.audio.transcriptions.create(model="funasr", file=f)</div>
+  </div>
+</div>
+
+<!-- 7. Multimodal -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-mm">7</span> <span style="color:#4ade80">Multimodal — OpenAI 兼容 ✅</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">POST /v1/chat/completions {content:[text+image_url]}</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-proxy">Proxy</span>
+    <span style="color:#4ade80;font-size:11px;font-weight:600">vision检测→llava</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-litellm">LiteLLM</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-ollama">Ollama llava</span>
+  </div>
+  <div class="flow-detail">
+    <strong>与 Vision 流程相同:</strong> 多模态 = Chat + Vision content 格式合并。图片自动路由到 llava，音频自动路由到 ASR → 文本。
+    <div class="req-example">r = client.chat.completions.create(
+    model="qwen2.5",
+    messages=[{"role": "user", "content": [
+        {"type": "text", "text": "多模态端到端测试"},
+        {"type": "image_url", "image_url": {"url": "http://minio/img.png"}}
+    ]}]
+)</div>
+  </div>
+</div>
+
+<!-- 8. WS Chat -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-wschat">8</span> <span style="color:#67e8f9">WS Chat — 自定义协议 ❌</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">WS /v1/stream/ws</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client (WebSocket)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx (WS Upgrade)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-stream">Stream Service :8084</span>
+    <span style="color:#64748b;font-size:10px">文本路径:</span>
+    <span class="flow-node fn-litellm" style="font-size:11px">LiteLLM→Ollama</span>
+    <span style="color:#64748b;font-size:10px">音频路径:</span>
+    <span class="flow-node fn-funasr" style="font-size:11px">FunASR→ASR</span>
+    <span class="flow-arrow" style="font-size:10px">→</span>
+    <span class="flow-node fn-litellm" style="font-size:11px">LiteLLM→LLM回复</span>
+  </div>
+  <div class="flow-detail">
+    <strong>双向实时对话:</strong> 发送文本 <code>{type:"text",content:"你好"}</code> → llm_chunk 流式回复<br>
+    发送二进制音频 → ASR 转写 → asr_text → LLM 流式回复<br>
+    <span style="color:#f87171">⚠️ OpenAI 无 WebSocket 标准协议，需直接 WebSocket 调用</span>
+  </div>
+</div>
+
+<!-- 9. WS ASR -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-wsasr">9</span> <span style="color:#a5b4fc">WS ASR — 自定义协议 ❌</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">WS /v1/stream/asr</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client (WS)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx (WS Upgrade)</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-stream">Stream :8084</span>
+    <span style="color:#eab308;font-size:11px;font-weight:600">PCM缓冲→_pcm_to_wav()</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-funasr">FunASR ASR 级联</span>
+    <span style="color:#22c55e;font-size:11px;font-weight:600">auto_llm ≥2 ASR结果</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-litellm">LiteLLM→Ollama LLM</span>
+  </div>
+  <div class="flow-detail">
+    <strong>PCM 推流流程:</strong> connected → config → config_ack → PCM 分块推流 (16kHz 16bit mono) → asr_partial 中间结果 → auto_llm 边听边答 → stop → asr_final → LLM 最终回复<br>
+    <span style="color:#f87171">⚠️ OpenAI 无流式 ASR 标准协议</span>
+  </div>
+</div>
+
+<!-- 10. MinIO Presign -->
+<div class="flow-card">
+  <div class="flow-title"><span class="num num-minio">10</span> <span style="color:#7dd3fc">MinIO Presign — 自定义 ❌</span> <code style="font-size:11px;color:#94a3b8;margin-left:8px">POST /v1/minio/presign</code></div>
+  <div class="flow-chain">
+    <span class="flow-node fn-client">Client</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-nginx">Nginx</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-proxy">Proxy</span>
+    <span class="flow-arrow">→</span>
+    <span class="flow-node fn-minio">MinIO :9000</span>
+  </div>
+  <div class="flow-detail">
+    <strong>Presigned URL 生成:</strong> <code>{bucket, key}</code> → MinIO AWS4-HMAC-SHA256 签名 → 返回可公开访问的临时 URL<br>
+    用于 Dashboard 文件上传: 先获取 presigned URL → 上传文件到 MinIO → 在请求中引用 URL
+  </div>
+</div>
+</div>
+
+<!-- ===== OpenAI SDK Examples ===== -->
+<div class="sdk-section">
+<h2>🐍 OpenAI Python SDK 调用示例</h2>
+<div class="sdk-grid">
+
+<div class="sdk-card">
+  <h4 style="color:#c084fc">Chat 对话 ✅</h4>
+  <pre><span class="kw">from</span> openai <span class="kw">import</span> OpenAI
+client = OpenAI(
+    base_url=<span class="str">"http://localhost:8090/v1"</span>,
+    api_key=<span class="str">"sk-litellm-local"</span>
+)
+
+r = client.chat.completions.<span class="fn">create</span>(
+    model=<span class="str">"qwen2.5"</span>,
+    messages=[{<span class="str">"role"</span>:<span class="str">"user"</span>,
+               <span class="str">"content"</span>:<span class="str">"你好"</span>}],
+    stream=<span class="kw">True</span>
+)</pre>
+</div>
+
+<div class="sdk-card">
+  <h4 style="color:#60a5fa">Vision 图片 ✅</h4>
+  <pre>r = client.chat.completions.<span class="fn">create</span>(
+    model=<span class="str">"qwen2.5"</span>,  <span class="cm"># 自动切换 llava</span>
+    messages=[{<span class="str">"role"</span>:<span class="str">"user"</span>, <span class="str">"content"</span>: [
+        {<span class="str">"type"</span>:<span class="str">"text"</span>,
+         <span class="str">"text"</span>:<span class="str">"描述这张图片"</span>},
+        {<span class="str">"type"</span>:<span class="str">"image_url"</span>,
+         <span class="str">"image_url"</span>: {<span class="str">"url"</span>:<span class="str">"http://..."</span>}}
+    ]}]
+)</pre>
+</div>
+
+<div class="sdk-card">
+  <h4 style="color:#f87171">Attachments 扩展 ✅</h4>
+  <pre><span class="cm"># PDF/Word/Audio 附件</span>
+r = client.chat.completions.<span class="fn">create</span>(
+    model=<span class="str">"qwen2.5"</span>,
+    messages=[{<span class="str">"role"</span>:<span class="str">"user"</span>,
+               <span class="str">"content"</span>:<span class="str">"总结文档"</span>}],
+    extra_body={<span class="str">"attachments"</span>: [
+        {<span class="str">"type"</span>:<span class="str">"pdf"</span>,
+         <span class="str">"url"</span>:<span class="str">"http://minio/doc.pdf"</span>}
+    ]}
+)</pre>
+</div>
+
+<div class="sdk-card">
+  <h4 style="color:#fde047">ASR 语音 ✅</h4>
+  <pre><span class="cm"># multipart 文件上传</span>
+<span class="kw">with</span> <span class="fn">open</span>(<span class="str">"audio.wav"</span>, <span class="str">"rb"</span>) <span class="kw">as</span> f:
+    r = client.audio.transcriptions.<span class="fn">create</span>(
+        model=<span class="str">"funasr"</span>,
+        file=f
+    )
+<span class="fn">print</span>(r.text)  <span class="cm"># → "今天天气怎么样"</span>
+
+<span class="cm"># URL 模式 (需要直接 HTTP)</span>
+r = requests.<span class="fn">post</span>(<span class="str">".../v1/audio/transcriptions"</span>,
+    json={<span class="str">"file"</span>: <span class="str">"http://minio/audio.wav"</span>})</pre>
+</div>
+
+<div class="sdk-card">
+  <h4 style="color:#4ade80">Embedding 向量 ✅</h4>
+  <pre>r = client.embeddings.<span class="fn">create</span>(
+    model=<span class="str">"bge-embedding"</span>,
+    input=<span class="str">"你好"</span>
+)
+<span class="fn">print</span>(r.data[<span class="num">0</span>].embedding)</pre>
+</div>
+
+<div class="sdk-card">
+  <h4 style="color:#f87171">❌ 不兼容功能</h4>
+  <pre><span class="cm"># WebSocket — 无 OpenAI 标准</span>
+ws = websocket.<span class="fn">create_connection</span>(
+    <span class="str">"ws://localhost:8090/v1/stream/asr"</span>)
+ws.<span class="fn">send</span>(json.<span class="fn">dumps</span>({
+    <span class="str">"type"</span>:<span class="str">"config"</span>,
+    <span class="str">"auto_llm"</span>:<span class="kw">True</span>,
+    <span class="str">"model"</span>:<span class="str">"qwen2.5"</span>
+}))
+<span class="cm"># → config_ack → PCM 推流 → ...</span></pre>
+</div>
+
+</div>
+</div>
+
+<!-- ===== Key Design ===== -->
+<div class="api-section" style="margin-top:20px">
+<h2>🎯 关键架构设计</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+
+<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+  <div style="font-size:14px;font-weight:700;color:#c084fc;margin-bottom:8px">Proxy Pod — 唯一 LLM API 入口</div>
+  <div style="font-size:12px;color:#94a3b8">
+    所有 OpenAI 兼容请求经 Nginx 路由到 Proxy (:4000)。Proxy 负责预处理 (附件→文本、图片→base64、音频→ASR) 再转发到 LiteLLM。
+    <br><br>
+    <span style="color:#4ade80">好处:</span> 预处理能力对所有请求生效，Nginx 路由更简单，LiteLLM 不直接对外。
+  </div>
+</div>
+
+<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+  <div style="font-size:14px;font-weight:700;color:#fca5a5;margin-bottom:8px">LiteLLM CLI — 模型路由网关</div>
+  <div style="font-size:12px;color:#94a3b8">
+    LiteLLM CLI Pod (:4000) 负责实际模型推理路由: 本地模型 → Ollama, 云模型 → DeepSeek/Moonshot。
+    <br><br>
+    <span style="color:#4ade80">策略:</span> latency-based-routing (延迟优先) + 2 retries + 60s cooldown。
+    <br>不对外直接暴露，仅接受 Proxy 和 Stream 内部调用。
+  </div>
+</div>
+
+<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+  <div style="font-size:14px;font-weight:700;color:#86efac;margin-bottom:8px">Stream Service — 实时推流</div>
+  <div style="font-size:12px;color:#94a3b8">
+    Stream Service (:8084) 处理所有 WebSocket 和 SSE 推流。ip_hash upstream 保证 WebSocket 会话粘性。
+    <br><br>
+    <span style="color:#4ade80">auto_llm:</span> ws_asr 累积 ≥2 个 ASR 结果后自动触发 LLM，实现边听边答。
+    <br><span style="color:#f87171">限制:</span> OpenAI 无 WS 标准，这 3 个功能无法兼容。
+  </div>
+</div>
+
+<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+  <div style="font-size:14px;font-weight:700;color:#fdba74;margin-bottom:8px">Hermes — 任务调度 + 自学习</div>
+  <div style="font-size:12px;color:#94a3b8">
+    Hermes (:8082) 专注 K8S 任务调度，不再是 LLM 预处理入口。`/v1/chat` 预处理功能已迁移到 Proxy Pod。
+    <br><br>
+    <span style="color:#4ade80">自学习:</span> MEMORY.md 闭环 — 路由→执行→反馈→规则演化→下一轮。
+    <br><span style="color:#4ade80">4 worker:</span> 队列调度，信号量控制 GPU 并发。
+  </div>
+</div>
+
+<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+  <div style="font-size:14px;font-weight:700;color:#5eead4;margin-bottom:8px">Nginx — 统一入口 + 负载均衡</div>
+  <div style="font-size:12px;color:#94a3b8">
+    单一外部入口 (:8090)，按 URL 路径分发: `/v1/*` → Proxy, `/v1/stream/*` → Stream, `/k8s/*` → Hermes, `/ui/*` → LiteLLM UI。
+    <br><br>
+    <span style="color:#4ade80">协议适配:</span> WebSocket Upgrade + SSE no-buffering + 大文件上传。
+    <br><span style="color:#4ade80">auth注入:</span> LiteLLM UI 路径自动注入 Bearer token。
+  </div>
+</div>
+
+<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:14px">
+  <div style="font-size:14px;font-weight:700;color:#a5b4fc;margin-bottom:8px">ASR 级联 — 3 层 Fallback</div>
+  <div style="font-size:12px;color:#94a3b8">
+    <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
+      <div><span style="color:#fde047">①</span> FunASR (本地 SenseVoice) — 优先</div>
+      <div><span style="color:#67e8f9">②</span> Doubao (豆包云 ASR) — 需要 API Key</div>
+      <div><span style="color:#a5b4fc">③</span> Ollama Whisper (本地 fallback) — 最后</div>
+    </div>
+    <br>
+    <span style="color:#4ade80">PCM→WAV:</span> Stream Service 的 <code>_pcm_to_wav()</code> 包装 44 字节 WAV 头。
+  </div>
+</div>
+
+</div>
+</div>
+
+<!-- ===== Compatibility Summary ===== -->
+<div class="api-section" style="margin-top:20px">
+<h2>📊 OpenAI 兼容性总览</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+  <div style="background:#1e293b;border:1px solid #22c55e30;border-radius:10px;padding:14px">
+    <div style="font-size:14px;font-weight:700;color:#4ade80;margin-bottom:8px">✅ 兼容 (7/10) — OpenAI SDK 可直接调用</div>
+    <div style="font-size:12px;color:#cbd5e1;line-height:1.8">
+      <div><code style="color:#c084fc">POST /v1/chat/completions</code> → Chat, Vision, PDF, Word, Audio, Multimodal</div>
+      <div><code style="color:#fde047">POST /v1/audio/transcriptions</code> → ASR</div>
+      <div><code style="color:#60a5fa">POST /v1/embeddings</code> → Embedding</div>
+      <div><code style="color:#7dd3fc">GET /v1/models</code> → 模型列表</div>
+    </div>
+  </div>
+  <div style="background:#1e293b;border:1px solid #ef444430;border-radius:10px;padding:14px">
+    <div style="font-size:14px;font-weight:700;color:#f87171;margin-bottom:8px">❌ 不兼容 (3/10) — OpenAI 无对应标准</div>
+    <div style="font-size:12px;color:#cbd5e1;line-height:1.8">
+      <div><code style="color:#67e8f9">WS /v1/stream/ws</code> → WebSocket 实时对话</div>
+      <div><code style="color:#a5b4fc">WS /v1/stream/asr</code> → PCM 流式 ASR + auto_llm</div>
+      <div><code style="color:#7dd3fc">POST /v1/minio/presign</code> → MinIO 文件存储</div>
+    </div>
+    <div style="font-size:11px;color:#64748b;margin-top:6px">这三个功能 OpenAI API 规范中没有定义，保留自定义协议</div>
+  </div>
+</div>
+</div>
+
+<script>
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>
