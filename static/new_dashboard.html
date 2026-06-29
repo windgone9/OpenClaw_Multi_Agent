@@ -160,6 +160,12 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-hermes-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
   <div class="card"><div class="card-title">🌐 Nginx Gateway <span class="badge badge-idle" id="svc-nginx-b">检测中</span></div>
     <table class="tbl"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody id="svc-nginx-tb"><tr><td colspan="2" style="color:var(--text3)">加载中...</td></tr></tbody></table></div>
+</div>
+<div style="text-align:center;margin-top:16px;padding:16px;background:var(--bg2);border-radius:8px;border:1px solid var(--border2)">
+  <div style="font-size:14px;font-weight:700;margin-bottom:10px;color:var(--fg)">🚨 一键恢复 (Smart Recovery)</div>
+  <div style="font-size:12px;color:var(--fg2);margin-bottom:10px">自动检测异常服务并尝试恢复：重启 CrashLoop Pod → Warmup Ollama 模型 → 刷新健康检查</div>
+  <button class="btn btn-danger" onclick="smartRecover()" id="btn-smart-recover" style="padding:8px 24px;font-size:14px">🔄 一键恢复</button>
+  <div id="recover-status" style="font-size:12px;color:var(--fg2);margin-top:8px"></div>
 </div></div></div>
 
 <!-- TAB: 模型管理 -->
@@ -211,9 +217,29 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
         <textarea id="pg-wschat-input" rows="2" style="width:100%">你好，请用流式方式回复</textarea>
         <button class="btn btn-primary" onclick="pgWSChat()" style="margin-top:8px">发送 (WebSocket)</button></div>
       <div class="card" id="pg-wsasr" style="display:none"><div class="card-title">📡 WebSocket ASR</div>
-        <input type="file" id="pg-wsasr-file" accept="audio/*" style="font-size:11px;margin-bottom:8px">
-        <label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-bottom:8px"><input type="checkbox" id="pg-wsasr-llm" checked> 自动 LLM 回复</label>
-        <button class="btn btn-primary" onclick="pgWSASR()">开始流式识别</button></div>
+        <div style="font-size:12px;margin-bottom:6px;color:var(--fg2)">输入来源:</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <label style="font-size:11px;display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;border:2px solid var(--border2);cursor:pointer;transition:border-color 0.2s" id="wsasr-src-file-label">
+            <input type="radio" name="wsasr-src" value="file" checked onchange="pgWSASRSource='file';updateWSASRSourceUI()" style="margin:0"> 📁 音频文件
+          </label>
+          <label style="font-size:11px;display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;border:2px solid var(--border2);cursor:pointer;transition:border-color 0.2s" id="wsasr-src-mic-label">
+            <input type="radio" name="wsasr-src" value="mic" onchange="pgWSASRSource='mic';updateWSASRSourceUI()" style="margin:0"> 🎤 麦克风实时输入
+          </label>
+        </div>
+        <div id="wsasr-file-area">
+          <input type="file" id="pg-wsasr-file" accept="audio/*" style="font-size:11px;margin-bottom:8px">
+        </div>
+        <div id="wsasr-mic-area" style="display:none">
+          <div style="font-size:11px;color:var(--fg2);margin-bottom:6px">麦克风将采集 16kHz 16bit 单声道 PCM 音频，实时推流到 ASR 服务</div>
+          <button class="btn btn-primary" id="wsasr-mic-start" onclick="startMicRecording()" style="margin-right:8px">🎤 开始录音</button>
+          <button class="btn btn-danger" id="wsasr-mic-stop" onclick="stopMicRecording()" style="display:none">⏹ 停止录音</button>
+          <span id="wsasr-mic-status" style="font-size:11px;color:var(--fg2);margin-left:8px"></span>
+        </div>
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px;margin-bottom:8px"><input type="checkbox" id="pg-wsasr-llm" checked> 自动 LLM 回复 (边听边答)</label>
+        <button class="btn btn-primary" onclick="pgWSASR()">开始流式识别</button>
+        <div id="wsasr-stop-btn-area" style="display:none;margin-top:8px">
+          <button class="btn btn-danger" onclick="stopWSASRSession()">⏹ 停止推流</button>
+        </div></div>
     </div>
     <div>
       <div class="card"><div class="card-title">💬 对话输出</div><div class="chat-box" id="pg-output"><span style="color:var(--text3)">选择模式并发送请求...</span></div></div>
@@ -976,32 +1002,136 @@ async function pgWSChat() {
   }
 }
 
+var pgWSASRSource = 'file'; // 'file' or 'mic'
+var pgWSASRWebSocket = null;
+var micStream = null;
+var micAudioContext = null;
+var micScriptProcessor = null;
+var micIsRecording = false;
+
+function updateWSASRSourceUI() {
+  $('wsasr-file-area').style.display = pgWSASRSource === 'file' ? '' : 'none';
+  $('wsasr-mic-area').style.display = pgWSASRSource === 'mic' ? '' : 'none';
+  var fileLabel = $('wsasr-src-file-label');
+  var micLabel = $('wsasr-src-mic-label');
+  fileLabel.style.borderColor = pgWSASRSource === 'file' ? 'var(--accent)' : 'var(--border2)';
+  micLabel.style.borderColor = pgWSASRSource === 'mic' ? 'var(--accent)' : 'var(--border2)';
+}
+
+async function startMicRecording() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    });
+    micAudioContext = new AudioContext({ sampleRate: 16000 });
+    var source = micAudioContext.createMediaStreamSource(micStream);
+    // ScriptProcessorNode 虽已弃用但浏览器兼容性最好
+    micScriptProcessor = micAudioContext.createScriptProcessor(2048, 1, 1);
+    micScriptProcessor.onaudioprocess = function(e) {
+      if (!micIsRecording || !pgWSASRWebSocket || pgWSASRWebSocket.readyState !== WebSocket.OPEN) return;
+      var float32 = e.inputBuffer.getChannelData(0);
+      // Float32 → Int16 PCM 转换
+      var int16 = new Int16Array(float32.length);
+      for (var i = 0; i < float32.length; i++) {
+        var s = Math.max(-1, Math.min(1, float32[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      pgWSASRWebSocket.send(int16.buffer);
+    };
+    source.connect(micScriptProcessor);
+    micScriptProcessor.connect(micAudioContext.destination);
+    micIsRecording = true;
+    $('wsasr-mic-start').style.display = 'none';
+    $('wsasr-mic-stop').style.display = '';
+    $('wsasr-mic-status').textContent = '🎤 录音中...';
+    $('wsasr-mic-status').style.color = '#22c55e';
+    pgAppend('system', '🎤 麦克风已启动，正在录音推流');
+  } catch (e) {
+    pgAppend('error', '麦克风启动失败: ' + e.message);
+    $('wsasr-mic-status').textContent = '启动失败';
+    $('wsasr-mic-status').style.color = '#ef4444';
+  }
+}
+
+function stopMicRecording() {
+  micIsRecording = false;
+  if (micScriptProcessor) { micScriptProcessor.disconnect(); micScriptProcessor = null; }
+  if (micAudioContext) { micAudioContext.close(); micAudioContext = null; }
+  if (micStream) { micStream.getTracks().forEach(function(t) { t.stop(); }); micStream = null; }
+  $('wsasr-mic-start').style.display = '';
+  $('wsasr-mic-stop').style.display = 'none';
+  $('wsasr-mic-status').textContent = '录音已停止';
+  $('wsasr-mic-status').style.color = 'var(--fg2)';
+  if (pgWSASRWebSocket && pgWSASRWebSocket.readyState === WebSocket.OPEN) {
+    pgWSASRWebSocket.send(JSON.stringify({ type: 'stop' }));
+  }
+}
+
+function stopWSASRSession() {
+  if (micIsRecording) stopMicRecording();
+  else if (pgWSASRWebSocket && pgWSASRWebSocket.readyState === WebSocket.OPEN) {
+    pgWSASRWebSocket.send(JSON.stringify({ type: 'stop' }));
+  }
+  $('wsasr-stop-btn-area').style.display = 'none';
+}
+
+function startMicStreaming(ws) {
+  // 麦克风已在 pgWSASR() 中启动，config_ack 后开始推流
+  // ScriptProcessorNode 已经在 send PCM，无需额外操作
+  $('wsasr-stop-btn-area').style.display = '';
+  pgAppend('system', '📡 麦克风 PCM 推流已开始');
+}
+
 async function pgWSASR() {
   var autoLLM = $('pg-wsasr-llm').checked;
-  if (!$('pg-wsasr-file').files || !$('pg-wsasr-file').files[0]) { pgAppend('system', '请选择音频文件'); return; }
-  var file = $('pg-wsasr-file').files[0];
-  pgAppend('user', '📡 流式 ASR: ' + file.name);
+  if (pgWSASRSource === 'file') {
+    if (!$('pg-wsasr-file').files || !$('pg-wsasr-file').files[0]) { pgAppend('system', '请选择音频文件'); return; }
+    var file = $('pg-wsasr-file').files[0];
+    pgAppend('user', '📡 流式 ASR: ' + file.name);
+  } else {
+    // 麦克风模式 — 先启动麦克风，连接 WS 后 config_ack 才开始推流
+    pgAppend('user', '🎤 麦克风流式 ASR (实时推流)');
+    if (!micIsRecording) {
+      await startMicRecording();
+      if (!micIsRecording) return; // 麦克风启动失败
+    }
+  }
   $('pg-lat').textContent = '...';
   var t0 = performance.now();
   try {
     var ws = new WebSocket(WS_API + '/v1/stream/asr');
+    pgWSASRWebSocket = ws;
     var asrText = '', llmText = '';
     ws.onmessage = function(evt) {
       var d = JSON.parse(evt.data);
       var type = d.type || '';
       if (type === 'connected') {
         ws.send(JSON.stringify({ type: 'config', auto_llm: autoLLM, model: 'qwen2.5' }));
-      } else if (type === 'config_ok') {
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          var audioData = e.target.result;
-          var chunkSize = 32000;
-          for (var i = 0; i < audioData.byteLength; i += chunkSize) {
-            ws.send(audioData.slice(i, Math.min(i + chunkSize, audioData.byteLength)));
-          }
-          ws.send(JSON.stringify({ type: 'stop' }));
-        };
-        reader.readAsArrayBuffer(file);
+      } else if (type === 'config_ack') {
+        // 音频推流方式取决于来源：文件 或 麦克风
+        if (pgWSASRSource === 'mic') {
+          startMicStreaming(ws);
+        } else {
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            var audioData = e.target.result;
+            // WAV 文件去掉 44 字节头，发送裸 PCM
+            var pcmData = audioData.byteLength > 44 ? audioData.slice(44) : audioData;
+            var chunkSize = 3200; // ≈ 0.1s，模拟实时推流
+            var offset = 0;
+            function sendChunk() {
+              if (offset >= pcmData.byteLength) {
+                ws.send(JSON.stringify({ type: 'stop' }));
+                return;
+              }
+              ws.send(pcmData.slice(offset, Math.min(offset + chunkSize, pcmData.byteLength)));
+              offset += chunkSize;
+              setTimeout(sendChunk, 100);
+            }
+            sendChunk();
+          };
+          reader.readAsArrayBuffer(file);
+        }
       } else if (type === 'asr_partial') {
         asrText = d.text || d.content || '';
         pgAppend('system', 'ASR 中间: ' + asrText);
@@ -1201,6 +1331,83 @@ function updateTraceRecent() {
 /* ===== 时钟 ===== */
 function updateClock() {
   $('clock').textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+/* ===== 一键恢复 (Smart Recovery) ===== */
+async function smartRecover() {
+  var btn = $('btn-smart-recover');
+  var statusEl = $('recover-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ 恢复中...';
+  statusEl.innerHTML = '';
+
+  function log(msg, color) {
+    statusEl.innerHTML += '<div style="color:' + (color || 'var(--fg2)') + '">' + msg + '</div>';
+  }
+
+  try {
+    // Step 1: Check all service health
+    log('🔍 Step 1: 检查所有服务健康状态...', '#38bdf8');
+    var checks = {
+      proxy: await fetch(API + '/svc/proxy/health', { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+      litellm: await fetch(API + '/svc/litellm/health/liveliness', { signal: AbortSignal.timeout(5000), headers: { 'Authorization': 'Bearer sk-litellm-local' } }).then(r => r.ok).catch(() => false),
+      stream: await fetch(API + '/svc/stream/health', { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+      ollama: await fetch(API + '/svc/ollama/api/tags', { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+      funasr: await fetch(API + '/svc/funasr/health', { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+      hermes: await fetch(API + '/hermes/health', { signal: AbortSignal.timeout(5000) }).then(r => r.ok).catch(() => false),
+    };
+    var healthy = Object.entries(checks).filter(function(e) { return e[1]; }).length;
+    var unhealthy = Object.entries(checks).filter(function(e) { return !e[1]; });
+    log('✅ ' + healthy + '/6 服务正常', '#22c55e');
+    if (unhealthy.length > 0) {
+      log('❌ 异常服务: ' + unhealthy.map(function(e) { return e[0]; }).join(', '), '#ef4444');
+    }
+
+    // Step 2: Try to warmup Ollama model if Ollama is healthy
+    if (checks.ollama) {
+      log('🔥 Step 2: Warmup Ollama qwen2.5 模型...', '#38bdf8');
+      try {
+        var warmupR = await fetch(API + '/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer sk-litellm-local' },
+          body: JSON.stringify({ model: 'qwen2.5', messages: [{ role: 'user', content: 'warmup' }], max_tokens: 5, stream: false }),
+          signal: AbortSignal.timeout(120000)
+        });
+        if (warmupR.ok) {
+          var warmupData = await warmupR.json();
+          var content = warmupData.choices && warmupData.choices[0] && warmupData.choices[0].message && warmupData.choices[0].message.content;
+          log('✅ Ollama 模型 warmup 成功: "' + (content || '').substring(0, 30) + '"', '#22c55e');
+        } else {
+          var errText = await warmupR.text().catch(() => '');
+          log('⚠️ Ollama warmup 返回 HTTP ' + warmupR.status + ': ' + errText.substring(0, 100), '#eab308');
+        }
+      } catch (e) {
+        log('⚠️ Ollama warmup 超时或失败: ' + e.message, '#eab308');
+      }
+    } else {
+      log('⚠️ Ollama 不可达，跳过 warmup', '#eab308');
+    }
+
+    // Step 3: Refresh all service health checks
+    log('🔄 Step 3: 刷新所有服务健康检查...', '#38bdf8');
+    await Promise.all([checkProxy(), checkHermes(), checkLiteLLM(), checkStreamService(), checkOllama(), checkFunASR()]);
+    log('✅ 健康检查刷新完成', '#22c55e');
+
+    // Step 4: Final status
+    var finalHealthy = 0;
+    Object.keys(state.svcStatus).forEach(function(k) {
+      if (state.svcStatus[k] === 'ok') finalHealthy++;
+    });
+    if (finalHealthy >= 5) {
+      log('🎉 恢复完成! ' + finalHealthy + '/6 服务正常', '#22c55e');
+    } else {
+      log('⚠️ 恢复部分完成: ' + finalHealthy + '/6 服务正常。仍有服务异常，可能需要手动重启 Pod (kubectl rollout restart)', '#eab308');
+    }
+  } catch (e) {
+    log('❌ 恢复过程异常: ' + e.message, '#ef4444');
+  }
+  btn.disabled = false;
+  btn.textContent = '🔄 一键恢复';
 }
 
 /* ===== E2E 端到端测试 ===== */
