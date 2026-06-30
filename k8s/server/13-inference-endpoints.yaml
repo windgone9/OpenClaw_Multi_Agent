@@ -63,3 +63,24 @@ subsets:
     ports:
       - port: 8000                      # ★ 按实际 vLLM 端口改
         name: http
+
+# ============================================
+# 占位 ollama Service (兼容 nginx 启动)
+# ============================================
+# nginx 配置 (base 02-configmaps) 有 `proxy_pass http://ollama:11434/` (location /svc/ollama/),
+# nginx 在启动时解析字面主机名; 服务器无 Ollama → "ollama" 不解析 → nginx 拒绝启动。
+# 此 Service 无 selector/无 Endpoints, 仅让 "ollama" 在集群 DNS 可解析, nginx 正常启动;
+# /svc/ollama/ 请求会 503 (dashboard ollama 健康检查显示 down, 属已知 cosmetic, 不影响 E2E)。
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: openclaw
+spec:
+  type: ClusterIP                        # 普通 ClusterIP: DNS 返回 clusterIP (可解析, nginx 能启动);
+                                         # 无 selector/无 Endpoints → 请求落到该 IP 无后端, 快速失败 (503)
+  ports:
+    - port: 11434
+      targetPort: 11434
+      name: http
