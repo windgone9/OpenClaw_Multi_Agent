@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # ============================================
-# deploy-server.sh — 部署到测试服务器 (已有真实 K8S 集群, vLLM, 无 Ollama)
+# deploy-server.sh — 部署到测试服务器 (方案A: vLLM 复用 GPUStack, 直连)
 # ============================================
+# 服务器 K8S 只跑 OpenClaw pod (litellm/proxy/stream/funasr/hermes/minio/nginx/litellm-db);
+# vLLM 由 GPUStack 托管于 http://192.168.0.151/v1 (集群外), litellm 直连 + API key。
+# 无 Ollama (保留占位 ollama Service 仅供 nginx 启动)。
+#
 # 前置:
 #   - kubectl 已指向目标集群 (kubectl config get-contexts)
-#   - 服务器上 vLLM 已跑: deepseek-r1-distill-qwen-32b (文本) + qwen3-vl-32b-instruct (视觉)
+#   - 集群节点能访问 192.168.0.151:80 (GPUStack 同网段; 跨网段需额外网络配置)
+#   - GPUStack 已跑: deepseek-r1-distill-qwen-32b + qwen3-vl-32b-instruct
 #   - 集群节点能拉到/加载 openclaw-* 镜像 (单节点直接 build; 多节点设 REGISTRY 推 registry)
 #
 # 用法:
-#   ./k8s/deploy-server.sh              # build + apply + minio 灌数据
-#   ./k8s/deploy-server.sh --skip-build # 跳过 build
-#   REGISTRY=registry.example.com/openclaw- ./k8s/deploy-server.sh   # 多节点: retag+push
+#   VLLM_API_KEY=gpustack_xxx ./k8s/deploy-server.sh              # build + 注入key + apply + minio 灌数据
+#   VLLM_API_KEY=gpustack_xxx ./k8s/deploy-server.sh --skip-build # 跳过 build
+#   VLLM_API_KEY=gpustack_xxx REGISTRY=registry.example.com/openclaw- ./k8s/deploy-server.sh
 #
+# ★ VLLM_API_KEY 经环境变量传入, 写入 K8S secret, 不落 git。
 # 部署后访问: http://<节点IP>:30080/new_dashboard.html
 # (本机 kind 是 8090, 因 kind extraPortMapping 8090->30080; 真实集群直接用 NodePort 30080)
 # ============================================
@@ -37,6 +43,12 @@ command -v kubectl >/dev/null 2>&1 || { R "kubectl 未安装"; exit 1; }
 kubectl cluster-info >/dev/null 2>&1 || { R "kubectl 连不上集群, 检查 kubeconfig"; exit 1; }
 B "目标集群: $(kubectl config current-context 2>/dev/null || echo '?')"
 
+if [[ -z "${VLLM_API_KEY:-}" ]]; then
+  R "缺少 VLLM_API_KEY 环境变量 (GPUStack http://192.168.0.151/ 的 API key)。"
+  R "用法: VLLM_API_KEY=gpustack_xxx $0"
+  exit 1
+fi
+
 SKIP_BUILD=0
 [[ "${1:-}" == "--skip-build" ]] && SKIP_BUILD=1
 
@@ -49,7 +61,7 @@ IMAGES=(
   "openclaw-funasr:Dockerfile.funasr:.."
 )
 if [[ $SKIP_BUILD -eq 0 ]]; then
-  B "==== [1/4] 构建镜像 ===="
+  B "==== [1/5] 构建镜像 ===="
   cd "$PROJECT_DIR/docker"
   for entry in "${IMAGES[@]}"; do
     IFS=':' read -r name df ctx <<< "$entry"
@@ -64,44 +76,53 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
   done
   cd "$PROJECT_DIR"
 else
-  Y "==== [1/4] 跳过 build (--skip-build) ===="
+  Y "==== [1/5] 跳过 build (--skip-build) ===="
 fi
 
 if [[ -z "$REGISTRY" ]]; then
-  Y "提示: REGISTRY 未设 — 镜像须已存在于各节点 (单节点 build 即可; 多节点请设 REGISTRY 推 registry, 并取消 kustomization images: 注释或手改清单)"
+  Y "提示: REGISTRY 未设 — 镜像须已存在于各节点 (单节点 build 即可; 多节点请设 REGISTRY 推 registry)"
 fi
 
-# ---------- 2. apply 清单 (跳过 04-ollama; 用 server 版替换 06/07/08/09/12) ----------
-B "==== [2/4] apply K8S 清单 (server, 无 Ollama) ===="
-# 顺序: namespace -> secrets -> base configmaps(含 nginx) -> storage -> litellm-db
-#       -> server litellm-config(覆盖 config.yaml) -> server litellm/hermes/stream/funasr/proxy
-#       -> nginx -> inference endpoints
+# ---------- 2. 先 apply secret + 注入 VLLM_API_KEY (不落 git) ----------
+B "==== [2/5] apply secret + 注入 VLLM_API_KEY (不落 git) ===="
+# 先建 secret (01-secrets.yaml, vllm-api-key 默认 EMPTY), 再 patch 真实 key,
+# 保证后续 06-litellm 启动时 key 已就位。
+kubectl apply -f "$SCRIPT_DIR/01-secrets.yaml" 2>&1 | sed 's/^/    /'
+kubectl patch secret openclaw-secrets -n "$NAMESPACE" \
+  -p "{\"stringData\":{\"vllm-api-key\":\"$VLLM_API_KEY\"}}" >/dev/null 2>&1 \
+  && G "secret openclaw-secrets/vllm-api-key 已更新 (真实 key)" \
+  || { R "patch secret 失败"; exit 1; }
+
+# ---------- 3. apply 其余清单 (跳过 04-ollama; 用 server 版替换 06/07/08/09/12) ----------
+B "==== [3/5] apply K8S 清单 (server, vLLM 直连 GPUStack, 无 Ollama) ===="
+# 顺序: namespace -> base configmaps(含 nginx) -> storage -> litellm-db
+#       -> server litellm-config(覆盖 config.yaml → 192.168.0.151) -> server litellm/hermes/stream/funasr/proxy
+#       -> nginx -> 占位 ollama Service (nginx 启动兼容)
+# 注: 01-secrets 已在 step 2 apply; 不 apply base 04-ollama / 06 / 07 / 08 / 09 / 12 (用 server 版替代)
 BASE_AGG=(
   "$SCRIPT_DIR/00-namespace.yaml"
-  "$SCRIPT_DIR/01-secrets.yaml"
   "$SCRIPT_DIR/02-configmaps.yaml"
   "$SCRIPT_DIR/03-storage.yaml"
   "$SCRIPT_DIR/05-litellm-db.yaml"
 )
 SERVER_AGG=(
-  "$SERVER_DIR/02-litellm-config-server.yaml"   # 覆盖 litellm config.yaml (vLLM)
-  "$SERVER_DIR/06-litellm-server.yaml"
+  "$SERVER_DIR/02-litellm-config-server.yaml"   # 覆盖 litellm config.yaml (→ http://192.168.0.151/v1)
+  "$SERVER_DIR/06-litellm-server.yaml"          # +VLLM_API_KEY env, IfNotPresent
   "$SERVER_DIR/07-hermes-server.yaml"
-  "$SERVER_DIR/08-stream-service-server.yaml"
+  "$SERVER_DIR/08-stream-service-server.yaml"   # OLLAMA_URL=""
   "$SERVER_DIR/09-funasr-server.yaml"
-  "$SERVER_DIR/12-proxy-server.yaml"
-  "$SERVER_DIR/13-inference-endpoints.yaml"
+  "$SERVER_DIR/12-proxy-server.yaml"            # OLLAMA_URL="", STRIP_REASONING_TAGS=true
+  "$SERVER_DIR/13-inference-endpoints.yaml"     # 仅占位 ollama Service (vLLM 在 K8S 外)
   "$SCRIPT_DIR/10-minio.yaml"
   "$SCRIPT_DIR/11-nginx.yaml"
 )
-# 注: 不 apply base 04-ollama / 06 / 07 / 08 / 09 / 12 (用 server 版替代)
 for f in "${BASE_AGG[@]}" "${SERVER_AGG[@]}"; do
   G "apply $f"
   kubectl apply -f "$f" 2>&1 | sed 's/^/    /'
 done
 
-# ---------- 3. 等 minio Ready, 灌测试数据 ----------
-B "==== [3/4] 等待 MinIO Ready 并灌入测试数据 ===="
+# ---------- 4. 等 minio Ready, 灌测试数据 ----------
+B "==== [4/5] 等待 MinIO Ready 并灌入测试数据 ===="
 Y "等待 minio pod Ready (最长 180s)..."
 kubectl wait --for=condition=Ready pod -l app=minio -n "$NAMESPACE" --timeout=180s 2>&1 | sed 's/^/    /' || R "minio 未就绪, 跳过灌数据 (可后续手动跑 scripts/minio_setup.py)"
 
@@ -119,34 +140,36 @@ else
 fi
 kill "$PF_PID" 2>/dev/null || true
 
-# ---------- 4. 完成 + 下一步 ----------
-B "==== [4/4] 部署完成 ===="
-G "已 apply 全部 server 清单 (无 Ollama). Pod 状态:"
+# ---------- 5. 完成 + 下一步 ----------
+B "==== [5/5] 部署完成 ===="
+G "已 apply 全部 server 清单 (vLLM 直连 GPUStack, 无 Ollama). Pod 状态:"
 kubectl get pods -n "$NAMESPACE" 2>&1 | sed 's/^/    /'
 
 cat <<EOF
 
 ${G}下一步:${R}
-${G}1.${R} ★ 填 vLLM 端点: 编辑 $SERVER_DIR/13-inference-endpoints.yaml,
-   把 REPLACE_TEXT_VLLM_IP / REPLACE_VISION_VLLM_IP 改为服务器 vLLM 真实 IP, 端口按实际改;
-   然后: kubectl apply -f $SERVER_DIR/13-inference-endpoints.yaml
+${G}1.${R} 等 pod Ready: kubectl get pods -n $NAMESPACE -w
+   (不应有 ollama pod; vLLM 在 K8S 外经 GPUStack 提供)
 
-${G}2.${R} 等 pod Ready: kubectl get pods -n $NAMESPACE -w
-
-${G}3.${R} 验证文本模型:
+${G}2.${R} 验证文本模型 (经 nginx → proxy → litellm → GPUStack):
    curl http://<节点IP>:30080/v1/chat/completions -H 'Content-Type: application/json' \\
      -d '{"model":"qwen2.5","messages":[{"role":"user","content":"你好"}]}'
 
-${G}4.${R} 验证视觉模型:
+${G}3.${R} 验证视觉模型 (proxy 自动下载 minio 图片 → base64 → qwen3-vl):
    curl http://<节点IP>:30080/v1/chat/completions -H 'Content-Type: application/json' \\
      -d '{"model":"qwen2.5","messages":[{"role":"user","content":[{"type":"text","text":"图里有什么"},{"type":"image_url","image_url":{"url":"http://minio:9000/openclaw-test/test_image.png"}}]}]}'
 
-${G}5.${R} Dashboard: http://<节点IP>:30080/new_dashboard.html
+${G}4.${R} Dashboard: http://<节点IP>:30080/new_dashboard.html
 
-${G}6.${R} Playwright E2E (本机跑, 指向服务器):
-   DASHBOARD_URL 不支持覆盖; 可改 tests/e2e_full_playwright.py 的 DASHBOARD_URL
-   或临时: kubectl port-forward svc/nginx -n $NAMESPACE 30080:80
-   ~/MyWork/Multi-Agent/venv/bin/python tests/e2e_full_playwright.py  (DASHBOARD_URL 改 http://localhost:30080)
+${G}5.${R} Playwright E2E (本机跑, 指向服务器 — DASHBOARD_URL 支持 env 覆盖):
+   kubectl port-forward svc/nginx -n $NAMESPACE 30080:80
+   DASHBOARD_URL=http://localhost:30080/new_dashboard.html \\
+     ~/MyWork/Multi-Agent/venv/bin/python tests/e2e_full_playwright.py
+
+${G}6.${R} 性能/容量基准 (本机跑, 指向服务器):
+   DASHBOARD_URL 不影响 perf 脚本; 改 scripts/vllm_perf.py 的 KIND_BASE 为 http://localhost:30080 后:
+   python3 scripts/vllm_perf.py --ramp        # 并发阶梯
+   python3 scripts/vllm_perf.py --longctx     # 长上下文
 
 详见 docs/SERVER_DEPLOY.md
 EOF

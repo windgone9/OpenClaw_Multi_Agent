@@ -1,76 +1,16 @@
 # ============================================
-# vLLM 推理端点 (Server) — 桥接服务器 vLLM 为集群内稳定 DNS
+# 占位 ollama Service (兼容 nginx 启动) — vLLM 在 K8S 外
 # ============================================
-# 服务器上两个 vLLM 实例 (独立端口) 集群内可达, 但不由本仓 K8S 管理。
-# 这里用 "无 selector Service + 手动 Endpoints" 把它们映射为集群内 DNS:
-#   text-inference:8000    → deepseek-r1-distill-qwen-32b (文本)
-#   vision-inference:8000  → qwen3-vl-32b-instruct        (视觉)
-# LiteLLM 配置里 api_base 引用 http://text-inference:8000/v1 等。
+# 方案 A: vLLM 由 GPUStack (http://192.168.0.151) 托管, 不在 K8S 集群内。
+# litellm 直连 192.168.0.151 (见 02-litellm-config-server.yaml), 故本文件不再定义
+# text-inference / vision-inference 的 Service+Endpoints。
 #
-# ★ 部署前必填: 把下方 REPLACE_TEXT_VLLM_IP / REPLACE_VISION_VLLM_IP 改为
-#   服务器 vLLM 真实 IP (集群内可达的地址), 端口按实际改 (默认 8000)。
-#   若 vLLM 已是集群内某 Service, 可直接把 Service 名填进下方 Service 的
-#   externalName 或改 api_base; 但手动 Endpoints 方式最通用。
+# 仅保留占位 ollama Service: nginx 配置 (base 02-configmaps) 有
+# `proxy_pass http://ollama:11434/` (location /svc/ollama/), nginx 启动时解析字面主机名;
+# 服务器无 Ollama → "ollama" 不解析 → nginx 拒绝启动。此 Service 无 selector/无 Endpoints,
+# 仅让 "ollama" 在集群 DNS 可解析, nginx 正常启动; /svc/ollama/ 请求 503 (dashboard
+# ollama 健康检查显示 down, 属已知 cosmetic, 不影响 E2E)。
 # ============================================
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: text-inference
-  namespace: openclaw
-spec:
-  type: ClusterIP
-  # 无 selector — 由手动 Endpoints 提供地址
-  ports:
-    - port: 8000
-      targetPort: 8000
-      protocol: TCP
-      name: http
----
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: text-inference
-  namespace: openclaw
-subsets:
-  - addresses:
-      - ip: REPLACE_TEXT_VLLM_IP        # ★ 改为 deepseek-r1 vLLM 真实 IP
-    ports:
-      - port: 8000                      # ★ 按实际 vLLM 端口改
-        name: http
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: vision-inference
-  namespace: openclaw
-spec:
-  type: ClusterIP
-  ports:
-    - port: 8000
-      targetPort: 8000
-      protocol: TCP
-      name: http
----
-apiVersion: v1
-kind: Endpoints
-metadata:
-  name: vision-inference
-  namespace: openclaw
-subsets:
-  - addresses:
-      - ip: REPLACE_VISION_VLLM_IP      # ★ 改为 qwen3-vl vLLM 真实 IP
-    ports:
-      - port: 8000                      # ★ 按实际 vLLM 端口改
-        name: http
-
-# ============================================
-# 占位 ollama Service (兼容 nginx 启动)
-# ============================================
-# nginx 配置 (base 02-configmaps) 有 `proxy_pass http://ollama:11434/` (location /svc/ollama/),
-# nginx 在启动时解析字面主机名; 服务器无 Ollama → "ollama" 不解析 → nginx 拒绝启动。
-# 此 Service 无 selector/无 Endpoints, 仅让 "ollama" 在集群 DNS 可解析, nginx 正常启动;
-# /svc/ollama/ 请求会 503 (dashboard ollama 健康检查显示 down, 属已知 cosmetic, 不影响 E2E)。
 ---
 apiVersion: v1
 kind: Service

@@ -4,11 +4,11 @@
 # 由 deploy-server.sh 在 base 02-configmaps.yaml 之后 apply,
 # strategic-merge 覆盖 litellm-config 的 config.yaml (nginx configmap 不受影响)。
 #
-# 模型映射:
-#   qwen2.5 (别名) / deepseek-r1-distill-qwen-32b (真实名) → 文本 vLLM (text-inference)
-#   llava   (别名) / qwen3-vl-32b-instruct        (真实名) → 视觉 vLLM (vision-inference)
+# 模型映射 (vLLM 在 K8S 外, 由 GPUStack http://192.168.0.151 托管):
+#   qwen2.5 (别名) / deepseek-r1-distill-qwen-32b (真实名) → 文本 (GPUStack)
+#   llava   (别名) / qwen3-vl-32b-instruct        (真实名) → 视觉 (GPUStack)
 # 保留 qwen2.5/llava 别名, 使 proxy/stream/dashboard/server.py 零改动即可工作。
-# vLLM 用 openai/<model> + api_base (OpenAI 兼容, Qwen-VL image_url 透传)。
+# litellm 直连 GPUStack; api_key 走 VLLM_API_KEY (secret, 不落 git)。
 # ============================================
 apiVersion: v1
 kind: ConfigMap
@@ -22,13 +22,13 @@ data:
       - model_name: deepseek-r1-distill-qwen-32b
         litellm_params:
           model: openai/deepseek-r1-distill-qwen-32b
-          api_base: http://text-inference:8000/v1
+          api_base: http://192.168.0.151/v1
           api_key: os.environ/VLLM_API_KEY
           timeout: 300
       - model_name: qwen2.5            # 兼容旧调用方 (dashboard/proxy 默认发 qwen2.5)
         litellm_params:
           model: openai/deepseek-r1-distill-qwen-32b
-          api_base: http://text-inference:8000/v1
+          api_base: http://192.168.0.151/v1
           api_key: os.environ/VLLM_API_KEY
           timeout: 300
 
@@ -36,13 +36,13 @@ data:
       - model_name: qwen3-vl-32b-instruct
         litellm_params:
           model: openai/qwen3-vl-32b-instruct
-          api_base: http://vision-inference:8000/v1
+          api_base: http://192.168.0.151/v1
           api_key: os.environ/VLLM_API_KEY
           timeout: 300
       - model_name: llava              # 兼容旧调用方 (proxy 含图自动切 llava)
         litellm_params:
           model: openai/qwen3-vl-32b-instruct
-          api_base: http://vision-inference:8000/v1
+          api_base: http://192.168.0.151/v1
           api_key: os.environ/VLLM_API_KEY
           timeout: 300
 
