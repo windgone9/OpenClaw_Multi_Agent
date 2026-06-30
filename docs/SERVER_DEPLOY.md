@@ -37,8 +37,9 @@
 
 ## 部署步骤
 
-### 1. 一键部署 (VLLM_API_KEY 必填)
+### 1. 一键部署
 
+**情况 A — 全新部署 (我们自己装 litellm+db):**
 ```bash
 cd <repo>
 VLLM_API_KEY=gpustack_xxx ./k8s/deploy-server.sh
@@ -46,7 +47,26 @@ VLLM_API_KEY=gpustack_xxx ./k8s/deploy-server.sh
 # 多节点:       VLLM_API_KEY=gpustack_xxx REGISTRY=your-registry/openclaw- ./k8s/deploy-server.sh
 ```
 
-★ `VLLM_API_KEY` 经环境变量传入, 写入 K8S secret (`openclaw-secrets/vllm-api-key`), **不落 git**。
+**情况 B — 复用现有 LiteLLM (服务器已独立装好 litellm+db, 在 default ns, Service litellm:4000):**
+```bash
+cd <repo>
+VLLM_API_KEY=gpustack_xxx LITELLM_MASTER_KEY=sk-xxx ./k8s/deploy-server.sh
+# 强制复用 (跳过自动检测): REUSE_EXISTING_LITELLM=true ...
+# 现有 litellm 在其它 ns/Service: EXISTING_LITELLM_NS=... EXISTING_LITELLM_SVC=... (并改 14-litellm-bridge.yaml 的 externalName)
+```
+
+★ `VLLM_API_KEY` / `LITELLM_MASTER_KEY` 经环境变量传入, 写入 K8S secret, **不落 git**。
+
+#### 复用模式如何工作 (情况 B)
+- `deploy-server.sh` 自动检测 `default` ns 有无 `litellm` Service (`REUSE_EXISTING_LITELLM=auto`), 或 `=true` 强制。
+- 复用时: **跳过** `05-litellm-db` + `06-litellm` + `02-litellm-config-server` (现有 litellm 有自己的配置/DB); **改用** `14-litellm-bridge.yaml` (ExternalName Service `litellm` in openclaw → `litellm.default.svc.cluster.local`), 使 nginx/proxy/stream 的 `litellm:4000` 解析到现有 litellm。
+- 注入 `LITELLM_MASTER_KEY` 到 secret → nginx init container envsubst → `/ui/`、`/sso/` 等注入正确 `Authorization` (**UI 鉴权关键**)。
+- 经 litellm API 把 `qwen2.5`/`llava`/`deepseek-r1`/`qwen3-vl`/`funasr` 模型路由注册到现有 litellm 的 DB (`scripts/litellm_configure.py`, 幂等) — 否则现有 litellm 不认识这些 model_name, proxy 调用会 model not found。
+- 跳过 `openclaw-litellm` 镜像构建 (省时)。
+
+#### 自装模式 (情况 A) 如何工作
+- 部署 `05-litellm-db` (postgres) + `06-litellm` (我们的 litellm) + `02-litellm-config-server` (configmap, qwen2.5/llava → 192.168.0.151)。
+- `LITELLM_MASTER_KEY` 默认 `sk-litellm-local` (可经 env 覆盖)。
 
 脚本会: build 5 镜像 → 注入 `VLLM_API_KEY` 到 secret → 按序 apply 清单 (跳过 ollama, 用 server 版替换 06/07/08/09/12) → 等 minio Ready → 端口转发灌入测试数据 (bucket + public-read + test_image.png + speech_test.wav) → 打印下一步。
 
@@ -64,10 +84,12 @@ kubectl get pods -n openclaw -w
 
 服务器 nginx 是 NodePort **30080** (本机 kind 的 8090 是 kind extraPortMapping 映射, 真实集群直接用 NodePort):
 
-- Dashboard: `http://<节点IP>:30080/new_dashboard.html`
-- API: `http://<节点IP>:30080/v1/chat/completions`
+- **Dashboard**: `http://<节点IP>:30080/new_dashboard.html`
+- **LiteLLM UI**: `http://<节点IP>:30080/ui/` (nginx 注入 master key, 可直接访问; 复用模式需 `LITELLM_MASTER_KEY` 正确)
+- **API**: `http://<节点IP>:30080/v1/chat/completions`
 
 也可端口转发: `kubectl port-forward svc/nginx -n openclaw 30080:80` → `http://localhost:30080`。
+直连现有 litellm (复用模式): `kubectl -n default port-forward svc/litellm 4000:4000` → `http://localhost:4000/ui/`。
 
 ## 验证
 
@@ -123,4 +145,7 @@ DASHBOARD_URL=http://<节点IP>:30080/new_dashboard.html \
 - **litellm 报 `connection refused 192.168.0.151:80`**: 节点访问不到 GPUStack → 检查 K8S 节点到 192.168.0.151 的网络/防火墙; 确认 GPUStack 在线 (`curl http://192.168.0.151/v1/models`)。本机验证时偶发此错是 GPUStack 瞬态 (worker 重启), 自愈后恢复。
 - **长上下文报 400 Bad Request**: GPUStack 的 vLLM `max_model_len`≈8192 (实测), 输入超 8k 即 400。若业务需更长上下文, 服务器侧 vLLM 调高 `max_model_len` (2×H100 跑 32B 可支持 32k+)。
 - **ImagePullBackOff**: 镜像不在节点上 → 单节点在该节点 build; 多节点设 `REGISTRY` 推 registry。
+- **LiteLLM UI 打不开 / 401**: 复用模式下最常见。① 确认 `LITELLM_MASTER_KEY` 是现有 litellm 的真实 master key (不是 sk-litellm-local); ② 确认 `14-litellm-bridge` 已 apply 且 `externalName` 指向正确的现有 litellm (`litellm.default.svc.cluster.local`); ③ nginx pod 重启使 envsubst 生效: `kubectl rollout restart deploy/nginx -n openclaw`; ④ 直连验证: `kubectl -n default port-forward svc/litellm 4000:4000` → `http://localhost:4000/ui/` 能开说明 litellm 本身 OK, 问题在 nginx 桥接/key。
+- **proxy 报 model not found (复用模式)**: 现有 litellm 未注册 qwen2.5/llava → 重跑 `scripts/litellm_configure.py` (经 port-forward), 或在 LiteLLM UI 手动加模型。`kubectl logs deploy/proxy -n openclaw` 看具体 model_name。
+- **nginx 启动报 `host not found in upstream "litellm"`**: 复用模式下 14-bridge 未 apply 或 externalName 错 → `kubectl apply -f k8s/server/14-litellm-bridge.yaml` 并核对 externalName。
 - **ollama 服务卡片显示异常**: 服务器无 ollama, dashboard 服务监控的 ollama 卡片会显示 down — 属已知 cosmetic, 不影响 E2E (smartRecover 的 warmup 已改走 litellm)。

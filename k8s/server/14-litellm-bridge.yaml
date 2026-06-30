@@ -1,0 +1,27 @@
+# ============================================
+# LiteLLM ExternalName 桥接 (复用现有 litellm, 方案A)
+# ============================================
+# 仅在"复用现有 LiteLLM"模式 apply (deploy-server.sh 检测到 default ns 已有 litellm)。
+# OpenClaw 的 nginx/proxy/stream 都引用 litellm:4000, 但现有 litellm Service 在 default
+# namespace, 从 openclaw ns 解析 "litellm" 找不到 → nginx 拒绝启动 / 连接失败。
+# 此 ExternalName Service 在 openclaw ns 建一个 "litellm" DNS 名, CNAME 到
+# litellm.default.svc.cluster.local, 使 nginx/proxy/stream 的 litellm:4000 解析到现有 litellm。
+#
+# ★ 若现有 litellm 在其它 namespace 或 Service 名不同, 改下方 externalName:
+#     <svc-name>.<namespace>.svc.cluster.local
+# ============================================
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: openclaw
+  annotations:
+    openclaw.io/purpose: "bridge-to-existing-litellm-in-default-ns"
+spec:
+  type: ExternalName
+  externalName: litellm.default.svc.cluster.local   # ★ 现有 litellm (default ns, Service litellm:4000)
+  ports:
+    - port: 4000
+      targetPort: 4000
+      name: http
