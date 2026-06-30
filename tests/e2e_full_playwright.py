@@ -1,9 +1,11 @@
 """Playwright 全量 E2E 测试 — 先切换到 E2E tab 再运行"""
 import json
+import os
 import time
 from playwright.sync_api import sync_playwright
 
-DASHBOARD_URL = "http://localhost:8090/new_dashboard.html"
+# 可用环境变量覆盖, 便于指向服务器: DASHBOARD_URL=http://<server>:30080/new_dashboard.html ...
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:8090/new_dashboard.html")
 
 def run_full_e2e():
     with sync_playwright() as p:

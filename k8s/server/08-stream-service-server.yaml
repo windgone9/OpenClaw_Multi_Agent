@@ -1,0 +1,112 @@
+# ============================================
+# Stream Service (Server) — 实时推流 (WebSocket + SSE)
+# OLLAMA_URL 置空 (服务器无 Ollama, 直走 LiteLLM→vLLM)
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-service
+  namespace: openclaw
+  labels:
+    app: stream-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stream-service
+  template:
+    metadata:
+      labels:
+        app: stream-service
+    spec:
+      containers:
+        - name: stream-service
+          image: openclaw-stream:latest
+          imagePullPolicy: IfNotPresent          # Server: 真实集群
+          ports:
+            - containerPort: 8084
+          env:
+            - name: OLLAMA_URL
+              value: ""                          # Server: 无 Ollama, 跳过直连探针/降级
+            - name: EXTERNAL_LITELLM_URL
+              value: "http://litellm:4000"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: litellm-master-key
+            - name: DOUBAO_ASR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: doubao-asr-key
+                  optional: true
+            - name: FUNASR_URL
+              value: "http://funasr:8199"
+            - name: FUNASR_MODEL
+              value: "sensevoice"
+            - name: STREAM_PORT
+              value: "8084"
+            - name: DEFAULT_CHAT_MODEL
+              value: "qwen2.5"                   # LiteLLM 别名 → deepseek-r1-distill-qwen-32b
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stream-service
+  namespace: openclaw
+spec:
+  selector:
+    app: stream-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+  type: ClusterIP
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stream-service-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stream-service
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600

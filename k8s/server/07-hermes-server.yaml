@@ -1,0 +1,75 @@
+# ============================================
+# Hermes Agent (Server) — 仅保留 K8S 任务调度功能
+# (本机 base 07 的 IfNotPresent 版本; /v1/chat 预处理已迁移到 Proxy Pod)
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: openclaw
+  labels:
+    app: hermes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes
+  template:
+    metadata:
+      labels:
+        app: hermes
+    spec:
+      containers:
+        - name: hermes
+          image: openclaw-hermes:latest
+          imagePullPolicy: IfNotPresent          # Server: 真实集群
+          ports:
+            - containerPort: 8082
+          env:
+            - name: HERMES_PORT
+              value: "8082"
+            - name: QUEUE_BACKEND
+              value: "inprocess"
+            - name: OPENCLAW_OFFICIAL_GATEWAY_URL
+              value: "http://openclaw-gw:3005"
+            - name: OPENCLAW_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: openclaw-token
+                  optional: true
+            - name: WATCHDOG_ENABLED
+              value: "false"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes
+  namespace: openclaw
+spec:
+  selector:
+    app: hermes
+  ports:
+    - port: 8082
+      targetPort: 8082
+  type: ClusterIP

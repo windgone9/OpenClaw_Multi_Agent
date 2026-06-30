@@ -1,0 +1,146 @@
+# ============================================
+# LiteLLM Proxy (Server) — LLM 网关, 路由到服务器 vLLM
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: openclaw
+  labels:
+    app: litellm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: openclaw-litellm:latest
+          imagePullPolicy: IfNotPresent          # Server: 真实集群 (非 kind load)
+          command: ["litellm", "--config", "/app/config.yaml", "--port", "4000"]
+          ports:
+            - containerPort: 4000
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: litellm-master-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: database-url
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: deepseek-api-key
+                  optional: true
+            - name: MOONSHOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: moonshot-api-key
+                  optional: true
+            - name: DOUBAO_ASR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: doubao-asr-key
+                  optional: true
+            # vLLM 访问密钥 (vLLM 默认无需鉴权, 留 EMPTY; 服务器若设 --api-key 则改 secret)
+            - name: VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: vllm-api-key
+                  optional: true
+            - name: LITELLM_MODE
+              value: "PRODUCTION"
+            - name: DROP_PARAMS
+              value: "True"
+            - name: LITELLM_LOCAL_MODEL_COST_MAP
+              value: "True"
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+              httpHeaders:
+                - name: Authorization
+                  value: "Bearer sk-litellm-local"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: 4000
+              httpHeaders:
+                - name: Authorization
+                  value: "Bearer sk-litellm-local"
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: litellm-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: openclaw
+spec:
+  selector:
+    app: litellm
+  ports:
+    - port: 4000
+      targetPort: 4000
+  type: ClusterIP
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: litellm-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: litellm
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

@@ -194,11 +194,11 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
   <div class="grid2">
     <div>
       <div class="card" id="pg-chat"><div class="card-title">💬 Chat 对话</div>
-        <select id="pg-chat-model" style="width:100%;margin-bottom:8px"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
+        <select id="pg-chat-model" style="width:100%;margin-bottom:8px"><option value="qwen2.5">qwen2.5 (→文本模型)</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
         <textarea id="pg-chat-input" rows="3" style="width:100%">你好，请介绍一下你自己</textarea>
         <div style="display:flex;gap:6px;margin-top:8px"><button class="btn btn-primary" onclick="pgChat()">发送</button><button class="btn btn-ghost" onclick="pgClear()">清空</button></div></div>
       <div class="card" id="pg-vision" style="display:none"><div class="card-title">👁 Vision</div>
-        <select id="pg-vision-model" style="width:100%;margin-bottom:8px"><option value="auto">auto (llava)</option><option value="llava">llava</option></select>
+        <select id="pg-vision-model" style="width:100%;margin-bottom:8px"><option value="auto">auto (llava→视觉模型)</option><option value="llava">llava (→视觉模型)</option></select>
         <input type="file" id="pg-vision-file" accept="image/*" onchange="previewImg(this,'pg-vision-prev')" style="font-size:11px;margin-bottom:6px">
         <div id="pg-vision-prev" style="margin-bottom:6px"></div>
         <textarea id="pg-vision-input" rows="2" style="width:100%">请描述这张图片</textarea>
@@ -1363,9 +1363,9 @@ async function smartRecover() {
       log('❌ 异常服务: ' + unhealthy.map(function(e) { return e[0]; }).join(', '), '#ef4444');
     }
 
-    // Step 2: Try to warmup Ollama model if Ollama is healthy
-    if (checks.ollama) {
-      log('🔥 Step 2: Warmup Ollama qwen2.5 模型...', '#38bdf8');
+    // Step 2: Warmup 文本模型 (经 LiteLLM, 服务器走 vLLM, 本机走 Ollama)
+    if (checks.litellm) {
+      log('🔥 Step 2: Warmup 文本模型 (qwen2.5 经 LiteLLM)...', '#38bdf8');
       try {
         var warmupR = await fetch(API + '/v1/chat/completions', {
           method: 'POST',
@@ -1376,16 +1376,16 @@ async function smartRecover() {
         if (warmupR.ok) {
           var warmupData = await warmupR.json();
           var content = warmupData.choices && warmupData.choices[0] && warmupData.choices[0].message && warmupData.choices[0].message.content;
-          log('✅ Ollama 模型 warmup 成功: "' + (content || '').substring(0, 30) + '"', '#22c55e');
+          log('✅ 文本模型 warmup 成功: "' + (content || '').substring(0, 30) + '"', '#22c55e');
         } else {
           var errText = await warmupR.text().catch(() => '');
-          log('⚠️ Ollama warmup 返回 HTTP ' + warmupR.status + ': ' + errText.substring(0, 100), '#eab308');
+          log('⚠️ 文本模型 warmup 返回 HTTP ' + warmupR.status + ': ' + errText.substring(0, 100), '#eab308');
         }
       } catch (e) {
-        log('⚠️ Ollama warmup 超时或失败: ' + e.message, '#eab308');
+        log('⚠️ 文本模型 warmup 超时或失败: ' + e.message, '#eab308');
       }
     } else {
-      log('⚠️ Ollama 不可达，跳过 warmup', '#eab308');
+      log('⚠️ LiteLLM 不可达，跳过 warmup', '#eab308');
     }
 
     // Step 3: Refresh all service health checks

@@ -20,6 +20,7 @@ LiteLLM Proxy 独立服务 — 提供 OpenAI 兼容的同步直调 API
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from typing import Dict, List, Optional, Union
@@ -154,6 +155,24 @@ async def _close_persistent_clients():
 DEFAULT_CHAT_MODEL = os.getenv("DEFAULT_CHAT_MODEL", "qwen2.5:3b")
 DEFAULT_VISION_MODEL = os.getenv("DEFAULT_VISION_MODEL", "llava:7b")
 DEFAULT_EMBEDDING_MODEL = os.getenv("DEFAULT_EMBEDDING_MODEL", "qwen2.5:3b")
+
+# 推理模型 (如 deepseek-r1-distill) 可能内联 think 块; 置 true 时从 content 剥离。
+# 本机默认 false (qwen2.5 无 think); 服务器清单置 true。
+STRIP_REASONING_TAGS = os.getenv("STRIP_REASONING_TAGS", "false").lower() == "true"
+
+# think 块正则: 用拼接构造标签, 避免字面分隔符; 匹配开闭标签 (含未闭合尾部)
+_THINK_OPEN = "<" + "think" + ">"
+_THINK_CLOSE = "<" + "/think" + ">"
+_THINK_RE = re.compile(_THINK_OPEN + r".*?(?:" + _THINK_CLOSE + r"|$)", re.DOTALL)
+
+
+def _strip_reasoning(text: str) -> str:
+    """剥离推理模型内联 think 块。仅作用于同步响应的 content 字段。"""
+    if not text or not STRIP_REASONING_TAGS:
+        return text
+    cleaned = _THINK_RE.sub("", text)
+    # 去掉剥离后可能残留的前导空白
+    return cleaned.lstrip() if cleaned != text else text
 
 # MinIO 配置
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "")
@@ -579,7 +598,14 @@ async def call_litellm_chat(payload: dict):
             headers=headers,
         )
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        # 剥离推理模型内联 think 块 (仅同步响应; 服务器 STRIP_REASONING_TAGS=true)
+        if STRIP_REASONING_TAGS and data.get("choices"):
+            for ch in data["choices"]:
+                msg = ch.get("message") or {}
+                if msg.get("content"):
+                    msg["content"] = _strip_reasoning(msg["content"])
+        return data
 
     # 直接调用 Ollama
     model = payload.get("model", DEFAULT_CHAT_MODEL)

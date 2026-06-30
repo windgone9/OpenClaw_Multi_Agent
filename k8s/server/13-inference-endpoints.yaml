@@ -1,0 +1,65 @@
+# ============================================
+# vLLM 推理端点 (Server) — 桥接服务器 vLLM 为集群内稳定 DNS
+# ============================================
+# 服务器上两个 vLLM 实例 (独立端口) 集群内可达, 但不由本仓 K8S 管理。
+# 这里用 "无 selector Service + 手动 Endpoints" 把它们映射为集群内 DNS:
+#   text-inference:8000    → deepseek-r1-distill-qwen-32b (文本)
+#   vision-inference:8000  → qwen3-vl-32b-instruct        (视觉)
+# LiteLLM 配置里 api_base 引用 http://text-inference:8000/v1 等。
+#
+# ★ 部署前必填: 把下方 REPLACE_TEXT_VLLM_IP / REPLACE_VISION_VLLM_IP 改为
+#   服务器 vLLM 真实 IP (集群内可达的地址), 端口按实际改 (默认 8000)。
+#   若 vLLM 已是集群内某 Service, 可直接把 Service 名填进下方 Service 的
+#   externalName 或改 api_base; 但手动 Endpoints 方式最通用。
+# ============================================
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: text-inference
+  namespace: openclaw
+spec:
+  type: ClusterIP
+  # 无 selector — 由手动 Endpoints 提供地址
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: text-inference
+  namespace: openclaw
+subsets:
+  - addresses:
+      - ip: REPLACE_TEXT_VLLM_IP        # ★ 改为 deepseek-r1 vLLM 真实 IP
+    ports:
+      - port: 8000                      # ★ 按实际 vLLM 端口改
+        name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vision-inference
+  namespace: openclaw
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: vision-inference
+  namespace: openclaw
+subsets:
+  - addresses:
+      - ip: REPLACE_VISION_VLLM_IP      # ★ 改为 qwen3-vl vLLM 真实 IP
+    ports:
+      - port: 8000                      # ★ 按实际 vLLM 端口改
+        name: http

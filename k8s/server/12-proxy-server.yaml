@@ -1,0 +1,126 @@
+# ============================================
+# Proxy Pod (Server) — 多模态预处理 + API 网关
+# OLLAMA_URL 置空 (服务器无 Ollama); 模型别名保持 qwen2.5/llava
+# STRIP_REASONING_TAGS=true 去除 deepseek-r1 内联推理块
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  namespace: openclaw
+  labels:
+    app: proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy
+  template:
+    metadata:
+      labels:
+        app: proxy
+    spec:
+      containers:
+        - name: proxy
+          image: openclaw-proxy:latest
+          imagePullPolicy: IfNotPresent          # Server: 真实集群
+          ports:
+            - containerPort: 4000
+          env:
+            - name: APP_PORT
+              value: "4000"
+            - name: EXTERNAL_LITELLM_URL
+              value: "http://litellm:4000"
+            - name: OLLAMA_URL
+              value: ""                          # Server: 无 Ollama
+            - name: FUNASR_URL
+              value: "http://funasr:8199"
+            - name: FUNASR_MODEL
+              value: "sensevoice"
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: litellm-master-key
+            - name: DOUBAO_ASR_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: doubao-asr-key
+                  optional: true
+            - name: DEFAULT_CHAT_MODEL
+              value: "qwen2.5"                   # LiteLLM 别名 -> deepseek-r1-distill-qwen-32b
+            - name: DEFAULT_VISION_MODEL
+              value: "llava"                     # LiteLLM 别名 -> qwen3-vl-32b-instruct
+            - name: STRIP_REASONING_TAGS
+              value: "true"                      # 去除 r1 推理模型内联 think 块
+            - name: MINIO_ENDPOINT
+              value: "minio:9000"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: minio-root-user
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-secrets
+                  key: minio-root-password
+            - name: MINIO_BUCKET
+              value: "openclaw"
+            - name: MINIO_SECURE
+              value: "false"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "500m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy
+  namespace: openclaw
+spec:
+  selector:
+    app: proxy
+  ports:
+    - port: 4000
+      targetPort: 4000
+  type: ClusterIP
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: proxy-hpa
+  namespace: openclaw
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: proxy
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
