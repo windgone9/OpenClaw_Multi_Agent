@@ -9,6 +9,7 @@
 - **vision**: `qwen2.5`+图 → qwen3-vl-32b-instruct 回复 `"红色背景上有一个黄色圆圈。"` ✓
 - **LiteLLM UI**: `http://192.168.0.151:30080/ui/` 可打开 ✓
 - **Dashboard**: `http://192.168.0.151:30080/new_dashboard.html`
+- **Playwright E2E**: 10/10 PASS (100%, 54.7s) ✓ — chat/ws_chat/pdf/word/audio 附件/asr/ws_asr/minio_presign/vision/multimodal 全过。本机 Mac 跑, 经 SSH 隧道 `ssh -N -L 8090:localhost:30080 ubuntu@192.168.0.151` (dashboard 只认 8080/8090, 服务器 NodePort 30080 需隧道映射到 8090), `DASHBOARD_URL=http://localhost:8090/new_dashboard.html python3 tests/e2e_full_playwright.py`。
 
 ### 拓扑
 ```
