@@ -52,6 +52,20 @@ bucket `openclaw-test` (public-read) + `test_image.png` + `speech_test.wav` 已�
 | 7 | `kubectl port-forward` 报 `socat not found` | 节点未装 socat (port-forward 依赖它) | 绕开 port-forward: 注册模型用 `kubectl exec` 进 proxy pod (经 14-bridge 直达 litellm); minio 灌数据用 ClusterIP 直连 |
 | 8 | `kubectl cp deploy/proxy` 报 `pods "proxy" not found` | kubectl cp 不解析 deployment 名 | 改 stdin 管道: `kubectl exec -i deploy/proxy -- python3 - < script` (exec 解析 deployment) |
 | 9 | vision 报 `图片加载失败 403` | minio_setup.py 走 port-forward 失败 (socat) → bucket 未建/未传图 → proxy 取不到图 → URL 直送 vLLM → 403 | minio_setup.py 改经 minio ClusterIP 直连 (节点能达 ClusterIP): `MINIO_ENDPOINT=http://<minio-clusterIP>:9000 python3 scripts/minio_setup.py` |
+| 10 | pin 后 4 个新 pod `FailedScheduling: didn't match node affinity` | `deploy-server.sh` 用 `$(hostname)` 返回 `k8s-master02-Ceph-01` (大写 C), 但 K8S 节点名是 `k8s-master02-ceph-01` (小写, kubelet 注册时小写化) → nodeSelector 指向不存在节点 | `PIN_NODE=$(hostname \| tr 'A-Z' 'a-z')` 小写化 + apply 前 `kubectl get node` 校验存在 (pin-to-node.sh 同步改) |
+
+## deploy-server.sh 一键可复现 ✅ (已验证)
+
+三步手动修复 (钉节点 / 注册模型 / minio 灌数据) 已烘焙进 `deploy-server.sh` (步数 /5→/7), 全部绕开 port-forward (节点缺 socat):
+- `[4/7]` 钉节点: `PIN_NODE=$(hostname|tr A-Z a-z)` + 校验 + pin-to-node.sh (幂等, 已钉则 no-change 不触发滚动)
+- `[5/7]` 注册模型 (复用): `kubectl set env STORE_MODEL_IN_DB=True` + 重启 + `kubectl exec -i deploy/proxy` stdin 管道跑 litellm_configure.py (经 litellm:4000 桥接)
+- `[6/7]` minio 灌数据: 等 Ready + 取 ClusterIP + 装 boto3 + `MINIO_ENDPOINT=http://<ClusterIP>:9000 minio_setup.py`
+
+服务器上验证可复现 (镜像已 build 加 --skip-build):
+```
+DOCKER_BUILDKIT=0 VLLM_API_KEY=... LITELLM_MASTER_KEY=sk-1234 ./k8s/deploy-server.sh --skip-build
+→ [4/7] patched (no change) / [5/7] 全部模型就绪 ✓ / [6/7] minio 完成 / [7/7] 全 pod Running
+```
 
 ---
 
@@ -130,7 +144,7 @@ DASHBOARD_URL=http://192.168.0.151:30080/new_dashboard.html \
 1. **deepseek-r1 内联推理未剥离**: GPUStack 的 vLLM 返回 r1 推理为内联文本 (无 ` Wooden` 标签), proxy 的 `STRIP_REASONING_TAGS` (标签剥离) 不作用; content 含推理 (非空, 不影响功能)。若要干净输出, 需在 proxy 加 "无标签推理" 的启发式剥离, 或 vLLM 侧开 `reasoning_content` 分离。
 2. **pod 钉 master02**: 4 个 openclaw deployment 集中在 master02 (镜像在该节点 docker store)。要分散到 worker 需: `docker save` + 跨节点 `docker load` (runtime=docker), 或搭 registry + REGISTRY 前缀。
 3. **节点缺 socat**: `kubectl port-forward` 不可用 (已用 ClusterIP/exec 绕开)。若要恢复 port-forward: `sudo apt install -y socat` 各节点。
-4. **deploy-server.sh 未烘焙所有修复**: 当前 deploy 仍需手动补三步 (pin-to-node, register-models-incluster, minio ClusterIP 灌数据)——因 socat 缺失致 deploy 内置的 port-forward 步骤失效。后续可把这三步改进 deploy-server.sh (用 ClusterIP/exec 替代 port-forward) 实现真正一键。
+4. **deploy-server.sh 未烘焙所有修复**: ~~当前 deploy 仍需手动补三步~~ **已烘焙** (步数 /5→/7): `[4/7]` 钉节点 + `[5/7]` incluster 注册模型 + `[6/7]` minio ClusterIP 灌数据, 全绕开 port-forward, 已验证一键可复现 (见上节)。
 5. **max_model_len≈8k**: GPUStack 的 vLLM 上下文上限 ~8192 (deepseek-r1 原生 128k, GPUStack 限了)。长输入 (>8k token) 报 400。需长上下文时调高 vLLM `max_model_len`。
 6. **H100 容量 (本机验证数据)**: 文本 ~760 t/s @40并发, 视觉 ~660 t/s @80并发, 低延迟甜点 ≤20并发。服务器配置输入见 `docs/NEXT_STEPS.md`。
 
