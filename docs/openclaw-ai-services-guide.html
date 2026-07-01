@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenClaw AI 服务使用指南</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --page: #ffffff;
+      --text: #24292f;
+      --muted: #57606a;
+      --border: #d0d7de;
+      --code-bg: #f6f8fa;
+      --accent: #0969da;
+      --danger-bg: #fff1f1;
+      --danger-border: #cf222e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 32px 16px;
+      color: var(--text); background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+    main {
+      max-width: 980px; margin: 0 auto; padding: 40px 48px;
+      background: var(--page); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: 0 8px 24px rgba(140,149,159,0.18);
+    }
+    h1,h2,h3 { line-height: 1.3; }
+    h1 { margin-top: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); font-size: 32px; }
+    h2 { margin-top: 36px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 24px; }
+    h3 { margin-top: 28px; font-size: 19px; }
+    p { margin: 12px 0; }
+    .confidential { margin: 16px 0 20px; padding: 14px 16px; border-left: 5px solid var(--danger-border); background: var(--danger-bg); border-radius: 8px; }
+    .confidential strong { color: var(--danger-border); }
+    .meta { margin: 16px 0 24px; padding: 14px 16px; color: var(--muted); background: #f6f8fa; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; margin: 16px 0; border-collapse: collapse; display: block; overflow-x: auto; white-space: nowrap; }
+    th,td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; font-weight: 600; }
+    code { padding: 0.2em 0.4em; border-radius: 6px; background: var(--code-bg); font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Consolas, "Liberation Mono", monospace; font-size: 0.92em; }
+    pre { margin: 16px 0; padding: 16px; overflow-x: auto; background: #0d1117; border-radius: 8px; line-height: 1.5; }
+    pre code { padding: 0; color: #e6edf3; background: transparent; font-size: 14px; white-space: pre; }
+    blockquote, .note { margin: 16px 0; padding: 12px 16px; color: var(--muted); background: #f6f8fa; border-left: 4px solid var(--accent); border-radius: 8px; }
+    ul { padding-left: 24px; }
+    @media print {
+      body { padding: 0; background: #fff; }
+      main { max-width: none; padding: 0; border: 0; box-shadow: none; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>OpenClaw AI 服务使用指南</h1>
+
+    <div class="confidential">
+      <strong>Confidential / 内部保密</strong><br>
+      本文档仅供内部研发团队使用，未经授权不得外传、转发或公开发布。
+    </div>
+
+    <div class="meta">
+      状态：可用<br>
+      版本：v1.0<br>
+      更新时间：2026-07-01<br>
+      维护方：OpenClaw Multi-Agent Team<br>
+      适用对象：内部研发团队
+    </div>
+
+    <h2>1. 概述</h2>
+    <p>OpenClaw Multi-Agent 是 LLM 请求多智能体调度系统。当前部署在测试服务器 <code>192.168.0.151</code>（4×H100），以 K8S 形式运行：OpenClaw 自身 pod（proxy / stream-service / funasr / hermes / minio / nginx）+ 复用现有 LiteLLM（<code>lite-helm-litellm</code>），推理后端为 GPUStack 托管的 vLLM（集群外，两模型常驻 tp2）。</p>
+
+    <p>对外统一入口为 nginx NodePort <code>30080</code>，请求链路：<code>客户端 → nginx(:30080) → proxy(预处理) → litellm(路由) → GPUStack vLLM</code>。proxy 提供附件预处理、图片自动切视觉模型、ASR 级联等增强能力，兼容 OpenAI API。</p>
+
+    <table>
+      <thead>
+        <tr><th>服务</th><th>模型</th><th>能力</th><th>状态</th><th>后端</th><th>适用场景</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>文本推理</td><td><code>deepseek-r1-distill-qwen-32b</code></td><td>文本</td><td>可用</td><td>GPUStack vLLM (2×H100, tp2)</td><td>推理、代码、复杂问答、附件总结</td></tr>
+        <tr><td>多模态/视觉</td><td><code>qwen3-vl-32b-instruct</code></td><td>文本 + 图片</td><td>可用</td><td>GPUStack vLLM (2×H100, tp2)</td><td>图片理解、视觉问答、多模态分析</td></tr>
+        <tr><td>语音识别 (ASR)</td><td><code>funasr</code> (sensevoice)</td><td>音频转文字</td><td>可用</td><td>FunASR pod (CPU)</td><td>语音转写、语音→LLM 级联回答</td></tr>
+        <tr><td>流式对话</td><td>同文本/视觉</td><td>SSE + WebSocket</td><td>可用</td><td>stream-service pod</td><td>实时逐字输出、实时语音流</td></tr>
+      </tbody>
+    </table>
+
+    <h2>2. 接入信息</h2>
+    <table>
+      <thead><tr><th>项目</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>服务地址（OpenClaw API）</td><td><code>http://192.168.0.151:30080</code>（nginx NodePort）</td></tr>
+        <tr><td>对话/补全接口</td><td><code>POST /v1/chat/completions</code>（OpenAI 兼容）</td></tr>
+        <tr><td>ASR 接口</td><td><code>POST /v1/audio/transcriptions</code></td></tr>
+        <tr><td>流式 WebSocket</td><td><code>ws://192.168.0.151:30080/v1/stream/ws</code>（对话）、<code>ws://192.168.0.151:30080/v1/stream/asr</code>（实时语音）</td></tr>
+        <tr><td>对象存储代理</td><td><code>http://192.168.0.151:30080/v1/minio/&lt;bucket&gt;/&lt;key&gt;</code>（MinIO，匿名读）</td></tr>
+        <tr><td>认证方式</td><td>OpenClaw API（<code>/v1/*</code>）<strong>无需认证</strong>（内网开放，proxy 不校验 key）；LiteLLM 原生接口/UI 需 master key <code>sk-1234</code>（<code>Authorization: Bearer sk-1234</code>）</td></tr>
+        <tr><td>API 格式</td><td>兼容 OpenAI API</td></tr>
+        <tr><td>网络范围</td><td>内网访问</td></tr>
+        <tr><td>管理界面</td><td>LiteLLM UI：<code>http://192.168.0.151:30080/ui/</code>（nginx 注入 master key，可直接访问）；Dashboard：<code>http://192.168.0.151:30080/new_dashboard.html</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">OpenClaw API（<code>/v1/chat/completions</code> 等）经 nginx→proxy，<strong>无需 API key</strong>，适合内部应用直接调用。如需鉴权，建议在 nginx 前再加一层网关。LiteLLM 原生管理（<code>/ui/</code>、<code>/model/</code>、<code>/litellm/</code>）由 nginx 注入 master key <code>sk-1234</code>。</div>
+
+    <h2>3. 文本场景</h2>
+    <p>文本对话使用 <code>deepseek-r1-distill-qwen-32b</code>（推理模型，输出可能含推理过程）。</p>
+
+    <h3>3.1 非流式（curl）</h3>
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [
+      {"role": "user", "content": "请用三句话解释 Kubernetes 调度。"}
+    ],
+    "max_tokens": 512,
+    "stream": false
+  }'</code></pre>
+
+    <h3>3.2 Python（openai SDK）</h3>
+    <pre><code class="language-python">from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://192.168.0.151:30080/v1",
+    api_key="not-needed",  # OpenClaw API 无需 key, SDK 字段必填, 任意值即可
+)
+
+resp = client.chat.completions.create(
+    model="deepseek-r1-distill-qwen-32b",
+    messages=[{"role": "user", "content": "请用三句话解释 Kubernetes 调度。"}],
+    max_tokens=512,
+)
+print(resp.choices[0].message.content)</code></pre>
+
+    <h3>3.3 返回示例</h3>
+    <pre><code class="language-json">{
+  "id": "chatcmpl-...",
+  "model": "deepseek-r1-distill-qwen-32b",
+  "choices": [
+    {"finish_reason": "stop", "index": 0,
+     "message": {"role": "assistant", "content": "..."}}
+  ],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 64, "total_tokens": 74}
+}</code></pre>
+
+    <div class="note"><code>deepseek-r1-distill-qwen-32b</code> 是推理模型，<code>content</code> 可能含内联推理文本。proxy 默认 <code>STRIP_REASONING_TAGS=true</code> 会剥离 <code>&lt;think&gt;...&lt;/think&gt;</code> 标签块；GPUStack 当前返回内联推理（无标签），此时剥离不作用，content 含推理过程（非空即正常）。</div>
+
+    <h2>4. 多模态 / 视觉场景</h2>
+    <p>图片理解使用 <code>qwen3-vl-32b-instruct</code>。两种方式：① 直接指定视觉模型；② 发文本模型 + 图片，proxy 自动检测图片切到视觉模型（推荐，调用方无需关心）。</p>
+
+    <h3>4.1 直接指定视觉模型</h3>
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-vl-32b-instruct",
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "请描述这张图片的主要内容。"},
+        {"type": "image_url", "image_url": {"url": "http://192.168.0.151:30080/v1/minio/openclaw-test/test_image.png"}}
+      ]
+    }],
+    "max_tokens": 256
+  }'</code></pre>
+
+    <h3>4.2 自动切视觉模型（推荐）</h3>
+    <p>发文本模型 <code>deepseek-r1-distill-qwen-32b</code> + 图片，proxy 检测到 <code>image_url</code> 自动切到 <code>qwen3-vl-32b-instruct</code>，并把外部图片 URL 下载转 base64（vLLM 直连需 data URI）。</p>
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "图里有什么?"},
+        {"type": "image_url", "image_url": {"url": "http://192.168.0.151:30080/v1/minio/openclaw-test/test_image.png"}}
+      ]
+    }],
+    "max_tokens": 128
+  }'</code></pre>
+
+    <div class="note"><code>image_url.url</code> 可用：① 经 MinIO 代理的 URL（如上，<code>/v1/minio/&lt;bucket&gt;/&lt;key&gt;</code>，匿名可读）；② 公网/内网可达的图片 URL；③ <code>data:image/png;base64,&lt;BASE64&gt;</code> data URI。proxy 会下载外部 URL 转 base64 再转发 vLLM。</div>
+
+    <h2>5. 语音场景（ASR）</h2>
+    <p>语音转文字使用 FunASR（<code>sensevoice</code> 模型）。支持音频文件/URL 转写，以及"语音→LLM 级联回答"。</p>
+
+    <h3>5.1 音频转文字</h3>
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/audio/transcriptions \
+  -F 'file=http://192.168.0.151:30080/v1/minio/openclaw-test/speech_test.wav'</code></pre>
+    <pre><code class="language-json">{"text": "你好这是一个语音识别的端到端测试请确认你能听懂我说的话"}</code></pre>
+
+    <h3>5.2 语音→LLM 级联（音频附件）</h3>
+    <p>用 <code>/v1/chat/completions</code> 的 <code>attachments</code> 字段传音频 URL，proxy 先 ASR 转写，再把转写文本拼入 prompt 送 LLM 回答。</p>
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{"role": "user", "content": "请根据以下语音内容回答问题"}],
+    "attachments": [{"type": "audio", "url": "http://192.168.0.151:30080/v1/minio/openclaw-test/speech_test.wav"}],
+    "max_tokens": 256
+  }'</code></pre>
+
+    <h2>6. 流式场景</h2>
+
+    <h3>6.1 SSE 流式对话（HTTP）</h3>
+    <p><code>/v1/chat/completions</code> 设 <code>"stream": true</code>，返回 <code>text/event-stream</code>，逐 token 输出。</p>
+    <pre><code class="language-bash">curl -N http://192.168.0.151:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{"role": "user", "content": "讲个短故事"}],
+    "stream": true,
+    "max_tokens": 256
+  }'</code></pre>
+    <p>每个 chunk：<code>data: {"choices":[{"delta":{"content":"..."}}]}</code>，结束：<code>data: [DONE]</code></p>
+
+    <h3>6.2 WebSocket 流式对话（<code>/v1/stream/ws</code>）</h3>
+    <p>双向 WebSocket，适合交互式对话。连接后发 JSON 文本消息，后端流式回 LLM 文字。</p>
+    <pre><code>ws://192.168.0.151:30080/v1/stream/ws?model=deepseek-r1-distill-qwen-32b</code></pre>
+    <pre><code class="language-json">// 客户端 → 服务端
+{"type": "text", "content": "你好,请简短回复"}
+
+// 服务端 → 客户端 (流式)
+{"type": "llm_chunk", "content": "你"}
+{"type": "llm_chunk", "content": "好"}
+{"type": "llm_done",  "content": "你好!..."}</code></pre>
+
+    <h3>6.3 WebSocket 实时语音流（<code>/v1/stream/asr</code>）</h3>
+    <p>实时语音流式 ASR + LLM。前端推 16kHz/16bit/mono PCM 裸数据，后端 FunASR 实时转写并可选自动 LLM 回答。</p>
+    <pre><code>ws://192.168.0.151:30080/v1/stream/asr</code></pre>
+    <pre><code class="language-json">// 1. 客户端连上后发配置
+{"type": "config", "auto_llm": true, "model": "deepseek-r1-distill-qwen-32b"}
+// 2. 收到 {"type":"config_ack"} 后, 持续发送二进制 PCM (3200 字节/块 ≈ 0.1s)
+// 3. 服务端流式返回:
+{"type": "asr_partial", "content": "部分识别"}
+{"type": "asr_final",   "content": "最终识别"}
+{"type": "llm_chunk",   "content": "回复片段"}
+{"type": "llm_done",    "content": "完整回复"}
+// 4. 客户端发 {"type":"stop"} 结束当前会话</code></pre>
+    <div class="note">PCM 推流：WAV 文件需去掉 44 字节头发裸 PCM；麦克风实时输入用 Web Audio API 采 16kHz/16bit/mono。详见 <code>static/new_dashboard.html</code> 的 pgWSASR 实现。</div>
+
+    <h2>7. 附件场景（PDF / Word / 音频）</h2>
+    <p><code>/v1/chat/completions</code> 扩展 <code>attachments</code> 字段，proxy 自动预处理：PDF/Word 提取文本、音频转写，拼入 prompt 送 LLM。</p>
+    <table>
+      <thead><tr><th>attachment.type</th><th>处理</th><th>示例 URL</th></tr></thead>
+      <tbody>
+        <tr><td><code>pdf</code></td><td>PyMuPDF 提取文本</td><td><code>.../test_document.pdf</code></td></tr>
+        <tr><td><code>word</code></td><td>python-docx 提取文本</td><td><code>.../test_document.docx</code></td></tr>
+        <tr><td><code>audio</code></td><td>FunASR 转写→文本</td><td><code>.../speech_test.wav</code></td></tr>
+        <tr><td><code>image</code></td><td>转 base64 → 视觉模型</td><td><code>.../test_image.png</code></td></tr>
+      </tbody>
+    </table>
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{"role": "user", "content": "请简要总结以下PDF文档的内容"}],
+    "attachments": [{"type": "pdf", "url": "http://192.168.0.151:30080/v1/minio/openclaw-test/test_document.pdf"}],
+    "stream": true,
+    "max_tokens": 256
+  }'</code></pre>
+
+    <h2>8. 模型与路由说明</h2>
+    <p>模型路由由 LiteLLM 管理（<code>/model/info</code> 可查）。当前注册：</p>
+    <table>
+      <thead><tr><th>model_name（调用方用）</th><th>litellm_params.model</th><th>api_base</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>deepseek-r1-distill-qwen-32b</code></td><td><code>openai/deepseek-r1-distill-qwen-32b</code></td><td><code>http://192.168.0.151/v1</code></td><td>文本</td></tr>
+        <tr><td><code>qwen3-vl-32b-instruct</code></td><td><code>openai/qwen3-vl-32b-instruct</code></td><td><code>http://192.168.0.151/v1</code></td><td>视觉</td></tr>
+        <tr><td><code>qwen2.5</code>（别名）</td><td><code>openai/deepseek-r1-distill-qwen-32b</code></td><td><code>http://192.168.0.151/v1</code></td><td>文本（向后兼容）</td></tr>
+        <tr><td><code>llava</code>（别名）</td><td><code>openai/qwen3-vl-32b-instruct</code></td><td><code>http://192.168.0.151/v1</code></td><td>视觉（向后兼容）</td></tr>
+        <tr><td><code>funasr</code></td><td><code>openai/whisper-1</code></td><td><code>http://funasr:8199/v1</code></td><td>ASR</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8.1 <code>deepseek-r1-distill-qwen-32b</code>（文本推理）</h3>
+    <table>
+      <thead><tr><th>项目</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>能力</td><td>文本推理（推理模型，含思维链）</td></tr>
+        <tr><td>适用场景</td><td>代码分析、复杂问答、长文本总结、附件内容总结</td></tr>
+        <tr><td>GPU 资源</td><td>2×H100 (tp2)，常驻</td></tr>
+        <tr><td>性能（实测）</td><td>单流 ~46 tokens/s；聚合吞吐峰值 ~760 tokens/s @40 并发；低延迟甜点 ≤20 并发（TTFT &lt; 1s）</td></tr>
+        <tr><td>限制</td><td>上下文 <code>max_model_len</code> ≈ 8192（GPUStack 当前配置，原生支持 128k）；输入超 8k 报 400</td></tr>
+      </tbody>
+    </table>
+
+    <h3>8.2 <code>qwen3-vl-32b-instruct</code>（视觉）</h3>
+    <table>
+      <thead><tr><th>项目</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>能力</td><td>文本 + 图片理解（支持 <code>image_url</code>）</td></tr>
+        <tr><td>适用场景</td><td>图片问答、截图分析、视觉内容总结、多模态推理</td></tr>
+        <tr><td>GPU 资源</td><td>2×H100 (tp2)，常驻</td></tr>
+        <tr><td>性能（实测）</td><td>单流 ~34 tokens/s；聚合吞吐峰值 ~660 tokens/s @80 并发</td></tr>
+        <tr><td>限制</td><td>图片不宜过小（1×1 会被 vLLM 拒绝，建议 ≥64×64）；图片大小/并发受 vLLM 配置约束</td></tr>
+      </tbody>
+    </table>
+
+    <h2>9. 管理与监控</h2>
+    <table>
+      <thead><tr><th>入口</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td><code>http://192.168.0.151:30080/ui/</code></td><td>LiteLLM 管理台（模型/密钥/日志/用量，nginx 注入 master key 可直接开）</td></tr>
+        <tr><td><code>http://192.168.0.151:30080/new_dashboard.html</code></td><td>OpenClaw Dashboard（E2E 测试、压测、链路追踪、服务监控、一键恢复）</td></tr>
+        <tr><td><code>http://192.168.0.151:30080/model/info</code></td><td>查询 LiteLLM 已注册模型（GET，nginx 注入 master key）</td></tr>
+        <tr><td><code>http://192.168.0.151:30080/v1/minio/&lt;bucket&gt;/&lt;key&gt;</code></td><td>MinIO 对象代理（匿名读，存测试素材/附件）</td></tr>
+      </tbody>
+    </table>
+
+    <h2>10. 支持与反馈</h2>
+    <p>使用中遇到问题，或有新模型、新能力、配额提升等需求，可联系 OpenClaw 团队反馈。</p>
+    <p>反馈问题时请尽量提供：</p>
+    <ul>
+      <li>模型名称与调用场景（文本/视觉/ASR/流式/附件）</li>
+      <li>请求时间、请求 ID（响应 <code>id</code>）</li>
+      <li>输入规模（token 数、图片大小、音频时长）</li>
+      <li>错误信息或异常现象（如 404 / 400 / connection refused）</li>
+      <li>是否流式、是否经 OpenClaw API（<code>:30080</code>）还是直连 LiteLLM</li>
+      <li>最小请求示例</li>
+    </ul>
+
+    <div class="note">排错速查：图片 404 → MinIO bucket/对象缺失，跑 <code>scripts/minio_setup.py</code> 灌入；长输入 400 → 超 <code>max_model_len</code>(~8k)；<code>connection refused 192.168.0.151</code> → GPUStack 瞬态（worker 重启），稍候自愈；模型 not found → LiteLLM 未注册，跑 <code>scripts/register-models-incluster.sh</code>。详见 <code>docs/SERVER_DEPLOY_HANDOFF.md</code>。</div>
+  </main>
+</body>
+</html>
