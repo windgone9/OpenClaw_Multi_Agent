@@ -70,7 +70,7 @@
     </div>
 
     <h2>1. 概述</h2>
-    <p>星脑AI服务是 LLM 请求多智能体调度系统。当前部署在测试服务器 <code>192.168.0.151</code>（4×H100），以 K8S 形式运行：网关自身 pod（proxy / stream-service / funasr / hermes / minio / nginx）+ 复用现有 LiteLLM（<code>lite-helm-litellm</code>），推理后端为 GPUStack 托管的 vLLM（集群外，两模型常驻 tp2）。</p>
+    <p>星脑AI服务是 LLM 请求多智能体调度系统。当前部署在测试服务器 <code>192.168.0.151</code>（4×H100），以 K8S 形式运行：网关自身 pod（proxy / stream-service / funasr / hermes / nginx）+ 复用现有 LiteLLM（<code>lite-helm-litellm</code>），推理后端为 GPUStack 托管的 vLLM（集群外，两模型常驻 tp2）。</p>
 
     <p>对外统一入口为 nginx NodePort <code>30080</code>，请求链路：<code>客户端 → nginx(:30080) → proxy(预处理) → litellm(路由) → GPUStack vLLM</code>。proxy 提供附件预处理、图片自动切视觉模型、ASR 级联等增强能力，兼容 OpenAI API。</p>
 
@@ -94,7 +94,6 @@
         <tr><td>对话/补全接口</td><td><code>POST /v1/chat/completions</code>（OpenAI 兼容）</td></tr>
         <tr><td>ASR 接口</td><td><code>POST /v1/audio/transcriptions</code></td></tr>
         <tr><td>流式 WebSocket</td><td><code>ws://192.168.0.151:30080/v1/stream/ws</code>（对话）、<code>ws://192.168.0.151:30080/v1/stream/asr</code>（实时语音）</td></tr>
-        <tr><td>对象存储代理</td><td><code>http://192.168.0.151:30080/v1/minio/&lt;bucket&gt;/&lt;key&gt;</code>（MinIO，匿名读）</td></tr>
         <tr><td>认证方式</td><td>本服务 API（<code>/v1/*</code>）<strong>无需认证</strong>（内网开放，proxy 不校验 key）；LiteLLM 原生接口/UI 需 master key <code>sk-1234</code>（<code>Authorization: Bearer sk-1234</code>）</td></tr>
         <tr><td>API 格式</td><td>兼容 OpenAI API</td></tr>
         <tr><td>网络范围</td><td>内网访问</td></tr>
@@ -159,7 +158,7 @@ print(resp.choices[0].message.content)</code></pre>
       "role": "user",
       "content": [
         {"type": "text", "text": "请描述这张图片的主要内容。"},
-        {"type": "image_url", "image_url": {"url": "http://192.168.0.151:30080/v1/minio/openclaw-test/test_image.png"}}
+        {"type": "image_url", "image_url": {"url": "http://<image-url>"}}
       ]
     }],
     "max_tokens": 256
@@ -175,20 +174,20 @@ print(resp.choices[0].message.content)</code></pre>
       "role": "user",
       "content": [
         {"type": "text", "text": "图里有什么?"},
-        {"type": "image_url", "image_url": {"url": "http://192.168.0.151:30080/v1/minio/openclaw-test/test_image.png"}}
+        {"type": "image_url", "image_url": {"url": "http://<image-url>"}}
       ]
     }],
     "max_tokens": 128
   }'</code></pre>
 
-    <div class="note"><code>image_url.url</code> 可用：① 经 MinIO 代理的 URL（如上，<code>/v1/minio/&lt;bucket&gt;/&lt;key&gt;</code>，匿名可读）；② 公网/内网可达的图片 URL；③ <code>data:image/png;base64,&lt;BASE64&gt;</code> data URI。proxy 会下载外部 URL 转 base64 再转发 vLLM。</div>
+    <div class="note"><code>image_url.url</code> 可用：① 公网/内网可达的图片 URL；② <code>data:image/png;base64,&lt;BASE64&gt;</code> data URI。proxy 会下载外部 URL 转 base64 再转发 vLLM。</div>
 
     <h2>5. 语音场景（ASR）</h2>
     <p>语音转文字使用 FunASR（<code>sensevoice</code> 模型）。支持音频文件/URL 转写，以及"语音→LLM 级联回答"。</p>
 
     <h3>5.1 音频转文字</h3>
     <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/audio/transcriptions \
-  -F 'file=http://192.168.0.151:30080/v1/minio/openclaw-test/speech_test.wav'</code></pre>
+  -F 'file=http://<audio-url>'</code></pre>
     <pre><code class="language-json">{"text": "你好这是一个语音识别的端到端测试请确认你能听懂我说的话"}</code></pre>
 
     <h3>5.2 语音→LLM 级联（音频附件）</h3>
@@ -198,7 +197,7 @@ print(resp.choices[0].message.content)</code></pre>
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
     "messages": [{"role": "user", "content": "请根据以下语音内容回答问题"}],
-    "attachments": [{"type": "audio", "url": "http://192.168.0.151:30080/v1/minio/openclaw-test/speech_test.wav"}],
+    "attachments": [{"type": "audio", "url": "http://<audio-url>"}],
     "max_tokens": 256
   }'</code></pre>
 
@@ -257,7 +256,7 @@ print(resp.choices[0].message.content)</code></pre>
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
     "messages": [{"role": "user", "content": "请简要总结以下PDF文档的内容"}],
-    "attachments": [{"type": "pdf", "url": "http://192.168.0.151:30080/v1/minio/openclaw-test/test_document.pdf"}],
+    "attachments": [{"type": "pdf", "url": "http://<pdf-url>"}],
     "stream": true,
     "max_tokens": 256
   }'</code></pre>
@@ -306,7 +305,6 @@ print(resp.choices[0].message.content)</code></pre>
         <tr><td><code>http://192.168.0.151:30080/ui/</code></td><td>LiteLLM 管理台（模型/密钥/日志/用量，nginx 注入 master key 可直接开）</td></tr>
         <tr><td><code>http://192.168.0.151:30080/new_dashboard.html</code></td><td>管理 Dashboard（E2E 测试、压测、链路追踪、服务监控、一键恢复）</td></tr>
         <tr><td><code>http://192.168.0.151:30080/model/info</code></td><td>查询 LiteLLM 已注册模型（GET，nginx 注入 master key）</td></tr>
-        <tr><td><code>http://192.168.0.151:30080/v1/minio/&lt;bucket&gt;/&lt;key&gt;</code></td><td>MinIO 对象代理（匿名读，存测试素材/附件）</td></tr>
       </tbody>
     </table>
 
@@ -322,7 +320,7 @@ print(resp.choices[0].message.content)</code></pre>
       <li>最小请求示例</li>
     </ul>
 
-    <div class="note">排错速查：图片 404 → MinIO bucket/对象缺失，跑 <code>scripts/minio_setup.py</code> 灌入；长输入 400 → 超 <code>max_model_len</code>(~8k)；<code>connection refused 192.168.0.151</code> → GPUStack 瞬态（worker 重启），稍候自愈；模型 not found → LiteLLM 未注册，跑 <code>scripts/register-models-incluster.sh</code>。详见 <code>docs/SERVER_DEPLOY_HANDOFF.md</code>。</div>
+    <div class="note">排错速查：长输入 400 → 超 <code>max_model_len</code>(~8k)；<code>connection refused 192.168.0.151</code> → GPUStack 瞬态（worker 重启），稍候自愈；模型 not found → LiteLLM 未注册，跑 <code>scripts/register-models-incluster.sh</code>。详见 <code>docs/SERVER_DEPLOY_HANDOFF.md</code>。</div>
   </main>
 </body>
 </html>
