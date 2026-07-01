@@ -9,7 +9,7 @@
 - **vision**: `qwen2.5`+图 → qwen3-vl-32b-instruct 回复 `"红色背景上有一个黄色圆圈。"` ✓
 - **LiteLLM UI**: `http://192.168.0.151:30080/ui/` 可打开 ✓
 - **Dashboard**: `http://192.168.0.151:30080/new_dashboard.html`
-- **Playwright E2E**: 10/10 PASS (100%, 54.7s) ✓ — chat/ws_chat/pdf/word/audio 附件/asr/ws_asr/minio_presign/vision/multimodal 全过。本机 Mac 跑, 经 SSH 隧道 `ssh -N -L 8090:localhost:30080 ubuntu@192.168.0.151` (dashboard 只认 8080/8090, 服务器 NodePort 30080 需隧道映射到 8090), `DASHBOARD_URL=http://localhost:8090/new_dashboard.html python3 tests/e2e_full_playwright.py`。
+- **Playwright E2E**: 10/10 PASS (100%) ✓ — 本机 Mac **直连** `http://192.168.0.151:30080/new_dashboard.html` (无需 SSH 隧道; dashboard nginxPorts 已含 30080 字符串数组, API/WS_API 走 location.origin)。`DASHBOARD_URL=http://192.168.0.151:30080/new_dashboard.html python3 tests/e2e_full_playwright.py`。chat/ws_chat/pdf/word/audio 附件/asr/ws_asr/minio_presign/vision/multimodal 全过。
 
 ### 拓扑
 ```
@@ -53,6 +53,7 @@ bucket `openclaw-test` (public-read) + `test_image.png` + `speech_test.wav` 已�
 | 8 | `kubectl cp deploy/proxy` 报 `pods "proxy" not found` | kubectl cp 不解析 deployment 名 | 改 stdin 管道: `kubectl exec -i deploy/proxy -- python3 - < script` (exec 解析 deployment) |
 | 9 | vision 报 `图片加载失败 403` | minio_setup.py 走 port-forward 失败 (socat) → bucket 未建/未传图 → proxy 取不到图 → URL 直送 vLLM → 403 | minio_setup.py 改经 minio ClusterIP 直连 (节点能达 ClusterIP): `MINIO_ENDPOINT=http://<minio-clusterIP>:9000 python3 scripts/minio_setup.py` |
 | 10 | pin 后 4 个新 pod `FailedScheduling: didn't match node affinity` | `deploy-server.sh` 用 `$(hostname)` 返回 `k8s-master02-Ceph-01` (大写 C), 但 K8S 节点名是 `k8s-master02-ceph-01` (小写, kubelet 注册时小写化) → nodeSelector 指向不存在节点 | `PIN_NODE=$(hostname \| tr 'A-Z' 'a-z')` 小写化 + apply 前 `kubectl get node` 校验存在 (pin-to-node.sh 同步改) |
+| 11 | E2E 直连 30080 全 10 项 fast-fail (`Failed to fetch` / WS 连 `:8090`) | dashboard `nginxPorts.indexOf(location.port)` — `location.port` 是字符串 `"30080"`, `nginxPorts` 是数字数组 `[8080,8090,30080]` → indexOf 严格相等永远 -1 → 走 else 默认 `:8090` (隧道时 8090 恰好映射 30080 碰巧通; 直连 30080 失败) | `nginxPorts` 改字符串数组 `["8080","8090","30080"]` → indexOf("30080") 命中 → API/WS_API=location.origin (30080) 正确。重建 proxy + rollout。 |
 
 ## deploy-server.sh 一键可复现 ✅ (已验证)
 
