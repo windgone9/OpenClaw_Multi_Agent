@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>星脑AI服务使用指南</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --page: #ffffff;
+      --text: #24292f;
+      --muted: #57606a;
+      --border: #d0d7de;
+      --code-bg: #f6f8fa;
+      --accent: #0969da;
+      --danger-bg: #fff1f1;
+      --danger-border: #cf222e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 32px 16px;
+      color: var(--text);
+      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 48px;
+      background: var(--page);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(140, 149, 159, 0.18);
+    }
+
+    h1, h2, h3 {
+      line-height: 1.3;
+    }
+
+    h1 {
+      margin-top: 0;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 32px;
+    }
+
+    h2 {
+      margin-top: 36px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 24px;
+    }
+
+    h3 {
+      margin-top: 28px;
+      font-size: 19px;
+    }
+
+    p {
+      margin: 12px 0;
+    }
+
+    .confidential {
+      margin: 16px 0 20px;
+      padding: 14px 16px;
+      border-left: 5px solid var(--danger-border);
+      background: var(--danger-bg);
+      border-radius: 8px;
+    }
+
+    .confidential strong {
+      color: var(--danger-border);
+    }
+
+    .meta {
+      margin: 16px 0 24px;
+      padding: 14px 16px;
+      color: var(--muted);
+      background: #f6f8fa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      margin: 16px 0;
+      border-collapse: collapse;
+      display: block;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    th, td {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f6f8fa;
+      font-weight: 600;
+    }
+
+    code {
+      padding: 0.2em 0.4em;
+      border-radius: 6px;
+      background: var(--code-bg);
+      font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 16px 0;
+      padding: 16px;
+      overflow-x: auto;
+      background: #0d1117;
+      border-radius: 8px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      padding: 0;
+      color: #e6edf3;
+      background: transparent;
+      font-size: 14px;
+      white-space: pre;
+    }
+
+    blockquote,
+    .note {
+      margin: 16px 0;
+      padding: 12px 16px;
+      color: var(--muted);
+      background: #f6f8fa;
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+    }
+
+    ul {
+      padding-left: 24px;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: #fff;
+      }
+
+      main {
+        max-width: none;
+        padding: 0;
+        border: 0;
+        box-shadow: none;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>星脑AI服务使用指南</h1>
+
+    <div class="confidential">
+      <strong>Confidential / 内部保密</strong><br>
+      本文档仅供内部研发团队使用，未经授权不得外传、转发或公开发布。
+    </div>
+
+    <div class="meta">
+      状态：可用<br>
+      版本：v1.0<br>
+      更新时间：2026-06-30<br>
+      维护方：Starbrain AI Platform Team<br>
+      适用对象：内部研发团队
+    </div>
+
+    <h2>1. 概述</h2>
+    <p>本文档说明内部研发团队如何使用本地部署的模型服务。当前服务部署在 4 张 H100 上，已上线两个模型，后续会继续补充音频流式服务和更多模型。</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>服务</th>
+          <th>模型</th>
+          <th>能力</th>
+          <th>状态</th>
+          <th>GPU 资源</th>
+          <th>适用场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>图文理解服务</td>
+          <td><code>qwen3-vl-32b-instruct</code></td>
+          <td>文本 + 图片</td>
+          <td>可用</td>
+          <td>2×H100</td>
+          <td>图片理解、视觉问答、多模态分析</td>
+        </tr>
+        <tr>
+          <td>文本推理服务</td>
+          <td><code>deepseek-r1-distill-qwen-32b</code></td>
+          <td>文本</td>
+          <td>可用</td>
+          <td>2×H100</td>
+          <td>推理、代码、复杂问答</td>
+        </tr>
+        <tr>
+          <td>音频流式服务</td>
+          <td>研发中</td>
+          <td>音频</td>
+          <td>研发中</td>
+          <td>待定</td>
+          <td>语音/音频流式处理</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>2. 接入信息</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>项目</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>服务地址</td>
+          <td><code>http://192.168.0.151/v1</code></td>
+        </tr>
+        <tr>
+          <td>认证方式</td>
+          <td>API Key，使用 <code>Authorization: Bearer &lt;apikey&gt;</code>；如需申请或更新 apikey，请联系星脑AI算力平台管理员</td>
+        </tr>
+        <tr>
+          <td>API 格式</td>
+          <td>兼容 OpenAI API</td>
+        </tr>
+        <tr>
+          <td>网络范围</td>
+          <td>内网访问</td>
+        </tr>
+        <tr>
+          <td>支持方式</td>
+          <td>普通请求和流式请求</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note">所有调用请求都需要在请求头中携带 <code>Authorization: Bearer &lt;apikey&gt;</code>。</div>
+
+    <h2>3. 快速开始</h2>
+
+    <h3>3.1 文本模型调用示例</h3>
+    <pre><code class="language-bash">curl http://192.168.0.151/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;apikey&gt;" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [
+      {"role": "user", "content": "请用三句话解释 Kubernetes 调度。"}
+    ],
+    "max_tokens": 512
+  }'</code></pre>
+
+    <h3>3.2 Python 示例</h3>
+    <pre><code class="language-python">import requests
+
+url = "http://192.168.0.151/v1/chat/completions"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer &lt;apikey&gt;",
+}
+payload = {
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [
+        {"role": "user", "content": "请用三句话解释 Kubernetes 调度。"}
+    ],
+    "max_tokens": 512,
+}
+
+resp = requests.post(url, headers=headers, json=payload, timeout=120)
+resp.raise_for_status()
+print(resp.json())</code></pre>
+
+    <h3>3.3 返回示例</h3>
+    <pre><code class="language-json">{
+  "id": "&lt;request-id&gt;",
+  "model": "deepseek-r1-distill-qwen-32b",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "..."
+      }
+    }
+  ]
+}</code></pre>
+
+    <div class="note">说明：以上返回格式以 OpenAI-compatible API 为例。实际字段以服务实现为准。</div>
+
+    <h2>4. 通用接口说明</h2>
+    <p>如果服务采用 OpenAI-compatible API，建议统一使用 <code>/v1/chat/completions</code>。</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>字段</th>
+          <th>类型</th>
+          <th>必填</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>model</code></td>
+          <td>string</td>
+          <td>是</td>
+          <td>模型名称</td>
+        </tr>
+        <tr>
+          <td><code>messages</code></td>
+          <td>array</td>
+          <td>是</td>
+          <td>对话消息</td>
+        </tr>
+        <tr>
+          <td><code>temperature</code></td>
+          <td>number</td>
+          <td>否</td>
+          <td>采样温度</td>
+        </tr>
+        <tr>
+          <td><code>max_tokens</code></td>
+          <td>integer</td>
+          <td>否</td>
+          <td>最大生成长度</td>
+        </tr>
+        <tr>
+          <td><code>stream</code></td>
+          <td>boolean</td>
+          <td>否</td>
+          <td>是否流式返回</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>常见 <code>messages</code> 格式：</p>
+    <pre><code class="language-json">[
+  {"role": "system", "content": "你是一个有帮助的助手。"},
+  {"role": "user", "content": "请解释 GPU 调度。"}
+]</code></pre>
+
+    <h2>5. 模型使用说明</h2>
+
+    <h3>5.1 <code>qwen3-vl-32b-instruct</code></h3>
+    <table>
+      <thead>
+        <tr>
+          <th>项目</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>能力</td>
+          <td>文本 + 图片理解</td>
+        </tr>
+        <tr>
+          <td>适用场景</td>
+          <td>图片问答、截图分析、视觉内容总结、多模态推理</td>
+        </tr>
+        <tr>
+          <td>不建议场景</td>
+          <td>高并发批量图片处理、大文件长期占用、未压测的低延迟场景</td>
+        </tr>
+        <tr>
+          <td>GPU 资源</td>
+          <td>2×H100</td>
+        </tr>
+        <tr>
+          <td>限制</td>
+          <td>图片大小、上下文长度、并发限制待补充</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>图文请求示例：</p>
+    <pre><code class="language-bash">curl http://192.168.0.151/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;apikey&gt;" \
+  -d '{
+    "model": "qwen3-vl-32b-instruct",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "请描述这张图片的主要内容。"},
+          {"type": "image_url", "image_url": {"url": "http://&lt;image-url&gt;"}}
+        ]
+      }
+    ],
+    "max_tokens": 512
+  }'</code></pre>
+
+    <div class="note">图片输入格式以实际服务实现为准。如使用 base64、本地文件上传或对象存储地址，请在此处补充。</div>
+
+    <h3>5.2 <code>deepseek-r1-distill-qwen-32b</code></h3>
+    <table>
+      <thead>
+        <tr>
+          <th>项目</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>能力</td>
+          <td>文本推理</td>
+        </tr>
+        <tr>
+          <td>适用场景</td>
+          <td>代码分析、复杂问题拆解、长文本问答、方案推理</td>
+        </tr>
+        <tr>
+          <td>不建议场景</td>
+          <td>未压测的强实时低延迟场景</td>
+        </tr>
+        <tr>
+          <td>GPU 资源</td>
+          <td>2×H100</td>
+        </tr>
+        <tr>
+          <td>限制</td>
+          <td>上下文长度、并发限制待补充</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>文本推理示例：</p>
+    <pre><code class="language-bash">curl http://192.168.0.151/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer &lt;apikey&gt;" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请分析以下代码可能存在的问题，并给出修改建议：..."
+      }
+    ],
+    "max_tokens": 1024
+  }'</code></pre>
+
+    <h2>6. 支持与反馈</h2>
+    <p>使用中遇到问题，或有新模型、新能力、配额提升、压测支持等需求，可联系星脑团队反馈和提需求。</p>
+
+    <p>反馈问题时请尽量提供以下信息：</p>
+    <ul>
+      <li>模型名称</li>
+      <li>请求时间</li>
+      <li>请求 ID（如果有）</li>
+      <li>输入规模，例如 token 数、图片大小</li>
+      <li>错误信息或异常现象</li>
+      <li>是否使用流式返回</li>
+      <li>复现方式或最小请求示例</li>
+    </ul>
+  </main>
+</body>
+</html>
