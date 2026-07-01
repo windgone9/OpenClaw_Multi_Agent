@@ -31,10 +31,10 @@ def run_full_e2e():
             () => {
                 var checks = document.querySelectorAll('.e2e-check');
                 checks.forEach(function(cb) { cb.checked = true; });
-                $('e2e-model').value = 'qwen2.5';
+                $('e2e-model').value = 'deepseek-r1-distill-qwen-32b';
             }
         """)
-        print(f"✓ Selected all test types, model=qwen2.5")
+        print(f"✓ Selected all test types, model=deepseek-r1-distill-qwen-32b")
 
         # Click the run button
         page.click("#e2e-go", timeout=10000)

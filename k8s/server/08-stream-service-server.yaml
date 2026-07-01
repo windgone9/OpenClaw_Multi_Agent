@@ -48,7 +48,7 @@ spec:
             - name: STREAM_PORT
               value: "8084"
             - name: DEFAULT_CHAT_MODEL
-              value: "qwen2.5"                   # LiteLLM 别名 → deepseek-r1-distill-qwen-32b
+              value: "deepseek-r1-distill-qwen-32b"  # 真实文本模型 (litellm → GPUStack)
           resources:
             requests:
               memory: "256Mi"

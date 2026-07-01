@@ -194,11 +194,11 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
   <div class="grid2">
     <div>
       <div class="card" id="pg-chat"><div class="card-title">💬 Chat 对话</div>
-        <select id="pg-chat-model" style="width:100%;margin-bottom:8px"><option value="qwen2.5">qwen2.5 (→文本模型)</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
+        <select id="pg-chat-model" style="width:100%;margin-bottom:8px"><option value="deepseek-r1-distill-qwen-32b">deepseek-r1-distill-qwen-32b</option><option value="qwen2.5">qwen2.5 (别名)</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="deepseek-chat">deepseek-chat</option></select>
         <textarea id="pg-chat-input" rows="3" style="width:100%">你好，请介绍一下你自己</textarea>
         <div style="display:flex;gap:6px;margin-top:8px"><button class="btn btn-primary" onclick="pgChat()">发送</button><button class="btn btn-ghost" onclick="pgClear()">清空</button></div></div>
       <div class="card" id="pg-vision" style="display:none"><div class="card-title">👁 Vision</div>
-        <select id="pg-vision-model" style="width:100%;margin-bottom:8px"><option value="auto">auto (llava→视觉模型)</option><option value="llava">llava (→视觉模型)</option></select>
+        <select id="pg-vision-model" style="width:100%;margin-bottom:8px"><option value="qwen3-vl-32b-instruct">qwen3-vl-32b-instruct</option><option value="auto">auto</option><option value="llava">llava (别名)</option></select>
         <input type="file" id="pg-vision-file" accept="image/*" onchange="previewImg(this,'pg-vision-prev')" style="font-size:11px;margin-bottom:6px">
         <div id="pg-vision-prev" style="margin-bottom:6px"></div>
         <textarea id="pg-vision-input" rows="2" style="width:100%">请描述这张图片</textarea>
@@ -207,13 +207,13 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
         <input type="file" id="pg-asr-file" accept="audio/*" style="font-size:11px;margin-bottom:8px">
         <button class="btn btn-primary" onclick="pgAsr()">识别</button></div>
       <div class="card" id="pg-mm" style="display:none"><div class="card-title">🔀 Multimodal</div>
-        <select id="pg-mm-model" style="width:100%;margin-bottom:8px"><option value="auto">auto</option><option value="llava">llava</option></select>
+        <select id="pg-mm-model" style="width:100%;margin-bottom:8px"><option value="qwen3-vl-32b-instruct">qwen3-vl-32b-instruct</option><option value="auto">auto</option><option value="llava">llava (别名)</option></select>
         <input type="file" id="pg-mm-file" accept="image/*" onchange="previewImg(this,'pg-mm-prev')" style="font-size:11px;margin-bottom:6px">
         <div id="pg-mm-prev" style="margin-bottom:6px"></div>
         <textarea id="pg-mm-input" rows="2" style="width:100%">描述图片并回答问题</textarea>
         <button class="btn btn-primary" onclick="pgMM()" style="margin-top:8px">发送</button></div>
       <div class="card" id="pg-wschat" style="display:none"><div class="card-title">⚡ WebSocket Chat</div>
-        <select id="pg-wschat-model" style="width:100%;margin-bottom:8px"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option></select>
+        <select id="pg-wschat-model" style="width:100%;margin-bottom:8px"><option value="deepseek-r1-distill-qwen-32b">deepseek-r1-distill-qwen-32b</option><option value="qwen2.5">qwen2.5 (别名)</option><option value="qwen2.5:3b">qwen2.5:3b</option></select>
         <textarea id="pg-wschat-input" rows="2" style="width:100%">你好，请用流式方式回复</textarea>
         <button class="btn btn-primary" onclick="pgWSChat()" style="margin-top:8px">发送 (WebSocket)</button></div>
       <div class="card" id="pg-wsasr" style="display:none"><div class="card-title">📡 WebSocket ASR</div>
@@ -253,7 +253,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:end">
       <div><label style="font-size:11px;color:var(--text3)">请求类型</label><select id="stress-type"><option value="chat">Chat</option><option value="vision">Vision</option><option value="asr">ASR</option><option value="multimodal">Multimodal</option></select></div>
       <div><label style="font-size:11px;color:var(--text3)">并发数</label><input id="stress-conc" type="number" value="5" min="1" max="50" style="width:70px"></div>
-      <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="stress-model"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava</option></select></div>
+      <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="stress-model"><option value="deepseek-r1-distill-qwen-32b">deepseek-r1-distill-qwen-32b</option><option value="qwen2.5">qwen2.5 (别名)</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava</option></select></div>
       <button class="btn btn-primary" id="stress-go" onclick="runStressTest()">🚀 开始测试</button>
       <button class="btn btn-ghost" onclick="state.records=[];updateOverview()">🗑 清空记录</button>
     </div>
@@ -304,7 +304,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
           <label style="font-size:11px;display:flex;align-items:center;gap:3px;background:var(--bg);padding:3px 8px;border-radius:4px;border:1px solid var(--border2)"><input type="checkbox" class="e2e-check" value="ws_asr" checked> WS ASR</label>
         </div>
       </div>
-      <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="e2e-model"><option value="qwen2.5">qwen2.5</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava</option></select></div>
+      <div><label style="font-size:11px;color:var(--text3)">模型</label><select id="e2e-model"><option value="deepseek-r1-distill-qwen-32b">deepseek-r1-distill-qwen-32b</option><option value="qwen3-vl-32b-instruct">qwen3-vl-32b-instruct</option><option value="qwen2.5">qwen2.5 (别名)</option><option value="qwen2.5:3b">qwen2.5:3b</option><option value="llava">llava (别名)</option></select></div>
       <button class="btn btn-primary" id="e2e-go" onclick="runE2ETests()">🧪 运行全部测试</button>
       <button class="btn btn-ghost" onclick="clearE2EResults()">🗑 清空结果</button>
     </div>

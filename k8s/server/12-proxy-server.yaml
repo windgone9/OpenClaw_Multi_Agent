@@ -49,9 +49,9 @@ spec:
                   key: doubao-asr-key
                   optional: true
             - name: DEFAULT_CHAT_MODEL
-              value: "qwen2.5"                   # LiteLLM 别名 -> deepseek-r1-distill-qwen-32b
+              value: "deepseek-r1-distill-qwen-32b"  # 真实文本模型 (litellm → GPUStack)
             - name: DEFAULT_VISION_MODEL
-              value: "llava"                     # LiteLLM 别名 -> qwen3-vl-32b-instruct
+              value: "qwen3-vl-32b-instruct"        # 真实视觉模型 (litellm → GPUStack)
             - name: STRIP_REASONING_TAGS
               value: "true"                      # 去除 r1 推理模型内联 think 块
             - name: MINIO_ENDPOINT
