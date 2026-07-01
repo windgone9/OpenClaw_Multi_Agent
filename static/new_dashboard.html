@@ -331,7 +331,7 @@ select:focus,input:focus,textarea:focus{outline:none;border-color:var(--blue)}te
 /* ===== 全局状态 ===== */
 /* REST API URL: 自动检测（支持 Docker Compose 8080、K8s 8090、静态服务器 9090） */
 var API = (function() {
-  var nginxPorts = [8080, 8090, 30080];
+  var nginxPorts = ["8080", "8090", "30080"];
   if (nginxPorts.indexOf(location.port) !== -1 || location.port === '') {
     return location.origin;
   }
@@ -340,7 +340,7 @@ var API = (function() {
 /* WebSocket URL: 自动检测 WS 端口（支持 Docker Compose 8080、K8s 8090、静态服务器 9090） */
 var WS_API = (function() {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var nginxPorts = [8080, 8090, 30080];
+  var nginxPorts = ["8080", "8090", "30080"];
   if (nginxPorts.indexOf(location.port) !== -1 || location.port === '') {
     return proto + '//' + location.host;
   }
