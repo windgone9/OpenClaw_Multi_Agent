@@ -30,7 +30,7 @@ import urllib.request
 import urllib.error
 
 KIND_BASE = os.environ.get("KIND_BASE", "http://localhost:8090")
-DIRECT_BASE = "http://192.168.0.151/v1"
+DIRECT_BASE = "http://192.168.0.151"
 TEXT_MODEL = "deepseek-r1-distill-qwen-32b"
 VISION_MODEL = "qwen3-vl-32b-instruct"
 # 经 Kind 时用别名 (litellm 路由), 直连时用真实模型名
