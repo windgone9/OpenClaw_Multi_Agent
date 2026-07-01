@@ -31,5 +31,19 @@ PF=$!
 sleep 4
 trap 'kill $PF 2>/dev/null || true' EXIT
 
+# 等 litellm /health/readiness 就绪 (STORE_MODEL_IN_DB 首启要做 DB 迁移, 较慢)
+echo "      等 litellm health 就绪 (最长 90s)..."
+ready=0
+for i in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health/readiness 2>/dev/null || echo 000)
+  if [[ "$code" == "200" ]]; then ready=1; break; fi
+  sleep 3
+done
+if [[ $ready -ne 1 ]]; then
+  echo "⚠ litellm health 未就绪 (最后 code=$code), 仍尝试注册 (可能失败)..."
+else
+  echo "      litellm 就绪 ✓"
+fi
+
 echo "[3/3] 经 API 注册模型到现有 litellm DB (幂等)..."
 python3 scripts/litellm_configure.py --base http://localhost:4000
