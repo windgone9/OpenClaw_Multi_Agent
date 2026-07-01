@@ -225,29 +225,29 @@ fi
 
 cat <<EOF
 
-${G}下一步:${R}
-${G}1.${R} 等 pod Ready: kubectl get pods -n $NAMESPACE -w
+下一步:
+1. 等 pod Ready: kubectl get pods -n $NAMESPACE -w
    (不应有 ollama pod; vLLM 在 K8S 外经 GPUStack 提供$([[ $REUSE -eq 1 ]] && echo "; litellm 复用 default ns 现有"))
 
-${G}2.${R} LiteLLM UI: http://<节点IP>:30080/ui/   (nginx 注入 master key, 可直接访问)
+2. LiteLLM UI: http://<节点IP>:30080/ui/   (nginx 注入 master key, 可直接访问)
    或直连现有 litellm: kubectl -n $EXISTING_LITELLM_NS port-forward svc/$EXISTING_LITELLM_SVC 4000:4000 → http://localhost:4000/ui/
 
-${G}3.${R} 验证文本模型 (经 nginx → proxy → litellm → GPUStack):
+3. 验证文本模型 (经 nginx → proxy → litellm → GPUStack):
    curl http://<节点IP>:30080/v1/chat/completions -H 'Content-Type: application/json' \\
      -d '{"model":"qwen2.5","messages":[{"role":"user","content":"你好"}]}'
 
-${G}4.${R} 验证视觉模型 (proxy 自动下载 minio 图片 → base64 → qwen3-vl):
+4. 验证视觉模型 (proxy 自动下载 minio 图片 → base64 → qwen3-vl):
    curl http://<节点IP>:30080/v1/chat/completions -H 'Content-Type: application/json' \\
      -d '{"model":"qwen2.5","messages":[{"role":"user","content":[{"type":"text","text":"图里有什么"},{"type":"image_url","image_url":{"url":"http://minio:9000/openclaw-test/test_image.png"}}]}]}'
 
-${G}5.${R} Dashboard: http://<节点IP>:30080/new_dashboard.html
+5. Dashboard: http://<节点IP>:30080/new_dashboard.html
 
-${G}6.${R} Playwright E2E (本机跑, 指向服务器 — DASHBOARD_URL 支持 env 覆盖):
+6. Playwright E2E (本机跑, 指向服务器 — DASHBOARD_URL 支持 env 覆盖):
    kubectl port-forward svc/nginx -n $NAMESPACE 30080:80
    DASHBOARD_URL=http://localhost:30080/new_dashboard.html \\
      ~/MyWork/Multi-Agent/venv/bin/python tests/e2e_full_playwright.py
 
-${G}7.${R} 性能/容量基准 (本机跑, 指向服务器):
+7. 性能/容量基准 (本机跑, 指向服务器):
    改 scripts/vllm_perf.py 的 KIND_BASE 为 http://localhost:30080 后:
    python3 scripts/vllm_perf.py --ramp        # 并发阶梯
    python3 scripts/vllm_perf.py --longctx     # 长上下文
