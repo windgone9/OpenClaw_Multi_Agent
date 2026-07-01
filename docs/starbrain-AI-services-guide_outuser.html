@@ -80,10 +80,10 @@
     <table>
       <thead><tr><th>项目</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td>服务地址</td><td><code>http://&lt;服务地址&gt;:30080</code>（联系管理员获取实际地址）</td></tr>
+        <tr><td>服务地址</td><td><code>http://192.168.0.151:30080</code></td></tr>
         <tr><td>对话/补全接口</td><td><code>POST /v1/chat/completions</code>（OpenAI 兼容）</td></tr>
         <tr><td>ASR 接口</td><td><code>POST /v1/audio/transcriptions</code></td></tr>
-        <tr><td>流式 WebSocket</td><td><code>ws://&lt;服务地址&gt;:30080/v1/stream/ws</code>（对话）、<code>ws://&lt;服务地址&gt;:30080/v1/stream/asr</code>（实时语音）</td></tr>
+        <tr><td>流式 WebSocket</td><td><code>ws://192.168.0.151:30080/v1/stream/ws</code>（对话）、<code>ws://192.168.0.151:30080/v1/stream/asr</code>（实时语音）</td></tr>
         <tr><td>认证方式</td><td>内网调用<strong>无需认证</strong>；如需鉴权请联系管理员</td></tr>
         <tr><td>API 格式</td><td>兼容 OpenAI API</td></tr>
         <tr><td>网络范围</td><td>内网访问</td></tr>
@@ -97,7 +97,7 @@
     <p>文本对话使用 <code>deepseek-r1-distill-qwen-32b</code>（推理模型，输出可能含推理过程）。</p>
 
     <h3>3.1 非流式（curl）</h3>
-    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
@@ -112,7 +112,7 @@
     <pre><code class="language-python">from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://&lt;服务地址&gt;:30080/v1",
+    base_url="http://192.168.0.151:30080/v1",
     api_key="not-needed",  # 内网无需 key, SDK 字段必填, 任意值即可
 )
 
@@ -140,7 +140,7 @@ print(resp.choices[0].message.content)</code></pre>
     <p>图片理解使用 <code>qwen3-vl-32b-instruct</code>。两种方式：① 直接指定视觉模型；② 发文本模型 + 图片，服务自动检测图片切到视觉模型（推荐，调用方无需关心）。</p>
 
     <h3>4.1 直接指定视觉模型</h3>
-    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3-vl-32b-instruct",
@@ -156,7 +156,7 @@ print(resp.choices[0].message.content)</code></pre>
 
     <h3>4.2 自动切视觉模型（推荐）</h3>
     <p>发文本模型 <code>deepseek-r1-distill-qwen-32b</code> + 图片，服务检测到 <code>image_url</code> 自动切到 <code>qwen3-vl-32b-instruct</code>。</p>
-    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
@@ -176,13 +176,13 @@ print(resp.choices[0].message.content)</code></pre>
     <p>语音转文字使用 FunASR（<code>sensevoice</code> 模型）。支持音频文件/URL 转写，以及"语音→LLM 级联回答"。</p>
 
     <h3>5.1 音频转文字</h3>
-    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/audio/transcriptions \
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/audio/transcriptions \
   -F 'file=http://&lt;audio-url&gt;'</code></pre>
     <pre><code class="language-json">{"text": "你好这是一个语音识别的端到端测试请确认你能听懂我说的话"}</code></pre>
 
     <h3>5.2 语音→LLM 级联（音频附件）</h3>
     <p>用 <code>/v1/chat/completions</code> 的 <code>attachments</code> 字段传音频 URL，服务先 ASR 转写，再把转写文本拼入 prompt 送 LLM 回答。</p>
-    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
@@ -195,7 +195,7 @@ print(resp.choices[0].message.content)</code></pre>
 
     <h3>6.1 SSE 流式对话（HTTP）</h3>
     <p><code>/v1/chat/completions</code> 设 <code>"stream": true</code>，返回 <code>text/event-stream</code>，逐 token 输出。</p>
-    <pre><code class="language-bash">curl -N http://&lt;服务地址&gt;:30080/v1/chat/completions \
+    <pre><code class="language-bash">curl -N http://192.168.0.151:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
@@ -207,7 +207,7 @@ print(resp.choices[0].message.content)</code></pre>
 
     <h3>6.2 WebSocket 流式对话（<code>/v1/stream/ws</code>）</h3>
     <p>双向 WebSocket，适合交互式对话。连接后发 JSON 文本消息，后端流式回 LLM 文字。</p>
-    <pre><code>ws://&lt;服务地址&gt;:30080/v1/stream/ws?model=deepseek-r1-distill-qwen-32b</code></pre>
+    <pre><code>ws://192.168.0.151:30080/v1/stream/ws?model=deepseek-r1-distill-qwen-32b</code></pre>
     <pre><code class="language-json">// 客户端 → 服务端
 {"type": "text", "content": "你好,请简短回复"}
 
@@ -218,7 +218,7 @@ print(resp.choices[0].message.content)</code></pre>
 
     <h3>6.3 WebSocket 实时语音流（<code>/v1/stream/asr</code>）</h3>
     <p>实时语音流式 ASR + LLM。前端推 16kHz/16bit/mono PCM 裸数据，后端实时转写并可选自动 LLM 回答。</p>
-    <pre><code>ws://&lt;服务地址&gt;:30080/v1/stream/asr</code></pre>
+    <pre><code>ws://192.168.0.151:30080/v1/stream/asr</code></pre>
     <pre><code class="language-json">// 1. 客户端连上后发配置
 {"type": "config", "auto_llm": true, "model": "deepseek-r1-distill-qwen-32b"}
 // 2. 收到 {"type":"config_ack"} 后, 持续发送二进制 PCM (3200 字节/块 ≈ 0.1s)
@@ -241,7 +241,7 @@ print(resp.choices[0].message.content)</code></pre>
         <tr><td><code>image</code></td><td>转视觉模型处理</td></tr>
       </tbody>
     </table>
-    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+    <pre><code class="language-bash">curl http://192.168.0.151:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "deepseek-r1-distill-qwen-32b",
