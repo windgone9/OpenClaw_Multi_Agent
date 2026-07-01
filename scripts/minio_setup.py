@@ -46,6 +46,8 @@ FIXTURES = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 FILES = [
     ("test_image.png", "image/png"),
     ("speech_test.wav", "audio/wav"),
+    ("test_document.pdf", "application/pdf"),
+    ("test_document.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
 ]
 
 PUBLIC_READ_POLICY = {
