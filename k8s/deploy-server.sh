@@ -8,7 +8,7 @@
 #
 # ★ 复用现有 LiteLLM: 若 default ns 已有 litellm Service (REUSE_EXISTING_LITELLM=auto
 #   自动检测, 或 =true 强制), 则跳过我们的 05-litellm-db + 06-litellm, 改用 14-litellm-bridge
-#   (ExternalName → litellm.default) 桥接, 并经 litellm API 把模型注册到现有 litellm。
+#   (ExternalName → lite-helm-litellm.default) 桥接, 并经 litellm API 把模型注册到现有 litellm。
 #   需额外提供 LITELLM_MASTER_KEY (现有 litellm 的 master key, UI 鉴权用)。
 #
 # 前置:
@@ -36,11 +36,11 @@ SERVER_DIR="$SCRIPT_DIR/server"
 NAMESPACE="${NAMESPACE:-openclaw}"
 REGISTRY="${REGISTRY:-}"
 PYTHON="${PYTHON:-python3}"
-# 复用现有 litellm: auto(检测 default ns litellm) / true(强制) / false(自己装)
+# 复用现有 litellm: auto(检测 default ns lite-helm-litellm) / true(强制) / false(自己装)
 REUSE_LITELLM="${REUSE_EXISTING_LITELLM:-auto}"
 # 现有 litellm 所在 namespace + Service 名 (用于桥接 externalName, 仅 REUSE 时生效)
 EXISTING_LITELLM_NS="${EXISTING_LITELLM_NS:-default}"
-EXISTING_LITELLM_SVC="${EXISTING_LITELLM_SVC:-litellm}"
+EXISTING_LITELLM_SVC="${EXISTING_LITELLM_SVC:-lite-helm-litellm}"
 
 # 颜色
 G() { printf '\033[32m%s\033[0m\n' "$1"; }
