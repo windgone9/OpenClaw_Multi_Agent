@@ -176,9 +176,16 @@ done
 # (+ control-plane toleration, 若本节点是 master)。设了 REGISTRY (推 registry) 则跳过。
 if [[ -z "$REGISTRY" ]]; then
   B "==== [4/7] 钉 openclaw deployment 到本节点 (镜像在本节点 docker store) ===="
-  PIN_NODE="${PIN_NODE:-$(hostname)}"
-  Y "钉 hermes/proxy/stream-service/funasr -> ${PIN_NODE}"
-  bash "$SERVER_DIR/pin-to-node.sh" "$PIN_NODE" 2>&1 | sed 's/^/    /' || R "pin-to-node 失败 (可手动: bash $SERVER_DIR/pin-to-node.sh $PIN_NODE)"
+  # $(hostname) 可能大小写与 K8S 节点名不符 (kubelet 注册时小写化) → 小写化
+  PIN_NODE="${PIN_NODE:-$(hostname | tr 'A-Z' 'a-z')}"
+  # 校验节点存在
+  if ! kubectl get node "$PIN_NODE" >/dev/null 2>&1; then
+    R "节点 '${PIN_NODE}' 在集群中不存在 (hostname=$(hostname))。跳过钉节点。"
+    R "手动指定: PIN_NODE=<节点名> $0  (kubectl get nodes 看真名)"
+  else
+    Y "钉 hermes/proxy/stream-service/funasr -> ${PIN_NODE}"
+    bash "$SERVER_DIR/pin-to-node.sh" "$PIN_NODE" 2>&1 | sed 's/^/    /' || R "pin-to-node 失败 (可手动: bash $SERVER_DIR/pin-to-node.sh $PIN_NODE)"
+  fi
 else
   Y "==== [4/7] 跳过钉节点 (REGISTRY 已设, 镜像推 registry, 各节点可拉) ===="
 fi

@@ -11,8 +11,15 @@
 #   bash k8s/server/pin-to-node.sh                     # 默认 k8s-master02-ceph-01
 # ============================================
 set -e
-NODE="${1:-k8s-master02-ceph-01}"
+# 默认本机 hostname 小写化 (kubelet 注册节点名时小写化, 避免大小写不匹配)
+NODE="${1:-$(hostname | tr 'A-Z' 'a-z')}"
 NS="${NAMESPACE:-openclaw}"
+
+# 校验节点存在
+if ! kubectl get node "$NODE" >/dev/null 2>&1; then
+  echo "错误: 节点 '${NODE}' 不存在 (hostname=$(hostname))。用法: $0 <节点名>  (kubectl get nodes 看真名)" >&2
+  exit 1
+fi
 
 # patch 文件 (heredoc 在脚本文件内, EOF 在行首, 不受终端粘贴影响)
 cat > /tmp/pin-node.yaml <<EOF
