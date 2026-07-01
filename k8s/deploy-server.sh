@@ -122,10 +122,11 @@ if [[ -z "$REGISTRY" ]]; then
   Y "提示: REGISTRY 未设 — 镜像须已存在于各节点 (单节点 build 即可; 多节点请设 REGISTRY 推 registry)"
 fi
 
-# ---------- 2. 先 apply secret + 注入 VLLM_API_KEY + LITELLM_MASTER_KEY (不落 git) ----------
-B "==== [2/5] apply secret + 注入 VLLM_API_KEY / LITELLM_MASTER_KEY (不落 git) ===="
-# 先建 secret (01-secrets.yaml, 默认 EMPTY/sk-litellm-local), 再 patch 真实 key,
+# ---------- 2. 先 apply namespace + secret + 注入 VLLM_API_KEY + LITELLM_MASTER_KEY (不落 git) ----------
+B "==== [2/5] apply namespace + secret + 注入 VLLM_API_KEY / LITELLM_MASTER_KEY (不落 git) ===="
+# 必须先建 namespace (00), 再建 secret (01, 引用 namespace openclaw), 再 patch 真实 key,
 # 保证后续 litellm (自己装) / nginx (envsubst) 启动时 key 已就位。
+kubectl apply -f "$SCRIPT_DIR/00-namespace.yaml" 2>&1 | sed 's/^/    /'
 kubectl apply -f "$SCRIPT_DIR/01-secrets.yaml" 2>&1 | sed 's/^/    /'
 kubectl patch secret openclaw-secrets -n "$NAMESPACE" \
   -p "{\"stringData\":{\"vllm-api-key\":\"$VLLM_API_KEY\",\"litellm-master-key\":\"$LITELLM_MASTER_KEY\"}}" >/dev/null 2>&1 \
@@ -134,12 +135,11 @@ kubectl patch secret openclaw-secrets -n "$NAMESPACE" \
 
 # ---------- 3. apply 其余清单 (跳过 04-ollama; 用 server 版替换 06/07/08/09/12) ----------
 B "==== [3/5] apply K8S 清单 (server, vLLM 直连 GPUStack, 无 Ollama) ===="
-# 顺序: namespace -> base configmaps(含 nginx) -> storage
+# 顺序: [namespace+secret 已在 step 2] -> base configmaps(含 nginx) -> storage
 #       -> [05-litellm-db 仅自装模式] -> server litellm-config/hermes/stream/funasr/proxy
 #       -> nginx -> 占位 ollama Service (nginx 启动兼容)
-# 注: 01-secrets 已在 step 2 apply; 不 apply base 04-ollama / 06 / 07 / 08 / 09 / 12 (用 server 版替代)
+# 注: 00-namespace + 01-secrets 已在 step 2 apply; 不 apply base 04-ollama / 06 / 07 / 08 / 09 / 12 (用 server 版替代)
 BASE_AGG=(
-  "$SCRIPT_DIR/00-namespace.yaml"
   "$SCRIPT_DIR/02-configmaps.yaml"
   "$SCRIPT_DIR/03-storage.yaml"
 )
