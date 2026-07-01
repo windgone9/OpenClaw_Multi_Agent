@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>星脑AI服务使用指南</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --page: #ffffff;
+      --text: #24292f;
+      --muted: #57606a;
+      --border: #d0d7de;
+      --code-bg: #f6f8fa;
+      --accent: #0969da;
+      --danger-bg: #fff1f1;
+      --danger-border: #cf222e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 32px 16px;
+      color: var(--text); background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+    main {
+      max-width: 980px; margin: 0 auto; padding: 40px 48px;
+      background: var(--page); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: 0 8px 24px rgba(140,149,159,0.18);
+    }
+    h1,h2,h3 { line-height: 1.3; }
+    h1 { margin-top: 0; padding-bottom: 16px; border-bottom: 1px solid var(--border); font-size: 32px; }
+    h2 { margin-top: 36px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 24px; }
+    h3 { margin-top: 28px; font-size: 19px; }
+    p { margin: 12px 0; }
+    .meta { margin: 16px 0 24px; padding: 14px 16px; color: var(--muted); background: #f6f8fa; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; margin: 16px 0; border-collapse: collapse; display: block; overflow-x: auto; white-space: nowrap; }
+    th,td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { background: #f6f8fa; font-weight: 600; }
+    code { padding: 0.2em 0.4em; border-radius: 6px; background: var(--code-bg); font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Consolas, "Liberation Mono", monospace; font-size: 0.92em; }
+    pre { margin: 16px 0; padding: 16px; overflow-x: auto; background: #0d1117; border-radius: 8px; line-height: 1.5; }
+    pre code { padding: 0; color: #e6edf3; background: transparent; font-size: 14px; white-space: pre; }
+    blockquote, .note { margin: 16px 0; padding: 12px 16px; color: var(--muted); background: #f6f8fa; border-left: 4px solid var(--accent); border-radius: 8px; }
+    ul { padding-left: 24px; }
+    @media print {
+      body { padding: 0; background: #fff; }
+      main { max-width: none; padding: 0; border: 0; box-shadow: none; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>星脑AI服务使用指南</h1>
+
+    <div class="meta">
+      状态：可用<br>
+      版本：v1.1（对外版）<br>
+      更新时间：2026-07-01<br>
+      维护方：Starbrain AI Platform Team<br>
+      适用对象：内部研发团队
+    </div>
+
+    <h2>1. 概述</h2>
+    <p>星脑AI服务提供大语言模型推理能力，兼容 OpenAI API 格式，支持文本对话、图片理解、语音识别、流式输出及文档附件处理。服务运行在 4 张 H100 GPU 上，已上线两个模型，可满足推理、代码、多模态分析等多种场景。</p>
+
+    <table>
+      <thead>
+        <tr><th>服务</th><th>模型</th><th>能力</th><th>状态</th><th>适用场景</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>文本推理</td><td><code>deepseek-r1-distill-qwen-32b</code></td><td>文本</td><td>可用</td><td>推理、代码、复杂问答、附件总结</td></tr>
+        <tr><td>多模态/视觉</td><td><code>qwen3-vl-32b-instruct</code></td><td>文本 + 图片</td><td>可用</td><td>图片理解、视觉问答、多模态分析</td></tr>
+        <tr><td>语音识别 (ASR)</td><td><code>funasr</code> (sensevoice)</td><td>音频转文字</td><td>可用</td><td>语音转写、语音→LLM 级联回答</td></tr>
+        <tr><td>流式对话</td><td>同文本/视觉</td><td>SSE + WebSocket</td><td>可用</td><td>实时逐字输出、实时语音流</td></tr>
+      </tbody>
+    </table>
+
+    <h2>2. 接入信息</h2>
+    <table>
+      <thead><tr><th>项目</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>服务地址</td><td><code>http://&lt;服务地址&gt;:30080</code>（联系管理员获取实际地址）</td></tr>
+        <tr><td>对话/补全接口</td><td><code>POST /v1/chat/completions</code>（OpenAI 兼容）</td></tr>
+        <tr><td>ASR 接口</td><td><code>POST /v1/audio/transcriptions</code></td></tr>
+        <tr><td>流式 WebSocket</td><td><code>ws://&lt;服务地址&gt;:30080/v1/stream/ws</code>（对话）、<code>ws://&lt;服务地址&gt;:30080/v1/stream/asr</code>（实时语音）</td></tr>
+        <tr><td>认证方式</td><td>内网调用<strong>无需认证</strong>；如需鉴权请联系管理员</td></tr>
+        <tr><td>API 格式</td><td>兼容 OpenAI API</td></tr>
+        <tr><td>网络范围</td><td>内网访问</td></tr>
+        <tr><td>支持方式</td><td>普通请求和流式请求</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">所有调用请求使用 OpenAI 兼容格式，<code>model</code> 字段填模型名称即可。内网调用无需 API Key。</div>
+
+    <h2>3. 文本场景</h2>
+    <p>文本对话使用 <code>deepseek-r1-distill-qwen-32b</code>（推理模型，输出可能含推理过程）。</p>
+
+    <h3>3.1 非流式（curl）</h3>
+    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [
+      {"role": "user", "content": "请用三句话解释 Kubernetes 调度。"}
+    ],
+    "max_tokens": 512,
+    "stream": false
+  }'</code></pre>
+
+    <h3>3.2 Python（openai SDK）</h3>
+    <pre><code class="language-python">from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://&lt;服务地址&gt;:30080/v1",
+    api_key="not-needed",  # 内网无需 key, SDK 字段必填, 任意值即可
+)
+
+resp = client.chat.completions.create(
+    model="deepseek-r1-distill-qwen-32b",
+    messages=[{"role": "user", "content": "请用三句话解释 Kubernetes 调度。"}],
+    max_tokens=512,
+)
+print(resp.choices[0].message.content)</code></pre>
+
+    <h3>3.3 返回示例</h3>
+    <pre><code class="language-json">{
+  "id": "chatcmpl-...",
+  "model": "deepseek-r1-distill-qwen-32b",
+  "choices": [
+    {"finish_reason": "stop", "index": 0,
+     "message": {"role": "assistant", "content": "..."}}
+  ],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 64, "total_tokens": 74}
+}</code></pre>
+
+    <div class="note"><code>deepseek-r1-distill-qwen-32b</code> 是推理模型，输出可能包含思维链推理过程，属正常行为。</div>
+
+    <h2>4. 多模态 / 视觉场景</h2>
+    <p>图片理解使用 <code>qwen3-vl-32b-instruct</code>。两种方式：① 直接指定视觉模型；② 发文本模型 + 图片，服务自动检测图片切到视觉模型（推荐，调用方无需关心）。</p>
+
+    <h3>4.1 直接指定视觉模型</h3>
+    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3-vl-32b-instruct",
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "请描述这张图片的主要内容。"},
+        {"type": "image_url", "image_url": {"url": "http://&lt;image-url&gt;"}}
+      ]
+    }],
+    "max_tokens": 256
+  }'</code></pre>
+
+    <h3>4.2 自动切视觉模型（推荐）</h3>
+    <p>发文本模型 <code>deepseek-r1-distill-qwen-32b</code> + 图片，服务检测到 <code>image_url</code> 自动切到 <code>qwen3-vl-32b-instruct</code>。</p>
+    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "图里有什么?"},
+        {"type": "image_url", "image_url": {"url": "http://&lt;image-url&gt;"}}
+      ]
+    }],
+    "max_tokens": 128
+  }'</code></pre>
+
+    <div class="note"><code>image_url.url</code> 可用：① 公网/内网可达的图片 URL；② <code>data:image/png;base64,&lt;BASE64&gt;</code> data URI。</div>
+
+    <h2>5. 语音场景（ASR）</h2>
+    <p>语音转文字使用 FunASR（<code>sensevoice</code> 模型）。支持音频文件/URL 转写，以及"语音→LLM 级联回答"。</p>
+
+    <h3>5.1 音频转文字</h3>
+    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/audio/transcriptions \
+  -F 'file=http://&lt;audio-url&gt;'</code></pre>
+    <pre><code class="language-json">{"text": "你好这是一个语音识别的端到端测试请确认你能听懂我说的话"}</code></pre>
+
+    <h3>5.2 语音→LLM 级联（音频附件）</h3>
+    <p>用 <code>/v1/chat/completions</code> 的 <code>attachments</code> 字段传音频 URL，服务先 ASR 转写，再把转写文本拼入 prompt 送 LLM 回答。</p>
+    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{"role": "user", "content": "请根据以下语音内容回答问题"}],
+    "attachments": [{"type": "audio", "url": "http://&lt;audio-url&gt;"}],
+    "max_tokens": 256
+  }'</code></pre>
+
+    <h2>6. 流式场景</h2>
+
+    <h3>6.1 SSE 流式对话（HTTP）</h3>
+    <p><code>/v1/chat/completions</code> 设 <code>"stream": true</code>，返回 <code>text/event-stream</code>，逐 token 输出。</p>
+    <pre><code class="language-bash">curl -N http://&lt;服务地址&gt;:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{"role": "user", "content": "讲个短故事"}],
+    "stream": true,
+    "max_tokens": 256
+  }'</code></pre>
+    <p>每个 chunk：<code>data: {"choices":[{"delta":{"content":"..."}}]}</code>，结束：<code>data: [DONE]</code></p>
+
+    <h3>6.2 WebSocket 流式对话（<code>/v1/stream/ws</code>）</h3>
+    <p>双向 WebSocket，适合交互式对话。连接后发 JSON 文本消息，后端流式回 LLM 文字。</p>
+    <pre><code>ws://&lt;服务地址&gt;:30080/v1/stream/ws?model=deepseek-r1-distill-qwen-32b</code></pre>
+    <pre><code class="language-json">// 客户端 → 服务端
+{"type": "text", "content": "你好,请简短回复"}
+
+// 服务端 → 客户端 (流式)
+{"type": "llm_chunk", "content": "你"}
+{"type": "llm_chunk", "content": "好"}
+{"type": "llm_done",  "content": "你好!..."}</code></pre>
+
+    <h3>6.3 WebSocket 实时语音流（<code>/v1/stream/asr</code>）</h3>
+    <p>实时语音流式 ASR + LLM。前端推 16kHz/16bit/mono PCM 裸数据，后端实时转写并可选自动 LLM 回答。</p>
+    <pre><code>ws://&lt;服务地址&gt;:30080/v1/stream/asr</code></pre>
+    <pre><code class="language-json">// 1. 客户端连上后发配置
+{"type": "config", "auto_llm": true, "model": "deepseek-r1-distill-qwen-32b"}
+// 2. 收到 {"type":"config_ack"} 后, 持续发送二进制 PCM (3200 字节/块 ≈ 0.1s)
+// 3. 服务端流式返回:
+{"type": "asr_partial", "content": "部分识别"}
+{"type": "asr_final",   "content": "最终识别"}
+{"type": "llm_chunk",   "content": "回复片段"}
+{"type": "llm_done",    "content": "完整回复"}
+// 4. 客户端发 {"type":"stop"} 结束当前会话</code></pre>
+    <div class="note">PCM 推流：WAV 文件需去掉 44 字节头发裸 PCM；麦克风实时输入用 Web Audio API 采 16kHz/16bit/mono。</div>
+
+    <h2>7. 附件场景（PDF / Word / 音频）</h2>
+    <p><code>/v1/chat/completions</code> 扩展 <code>attachments</code> 字段，服务自动预处理：PDF/Word 提取文本、音频转写，拼入 prompt 送 LLM。</p>
+    <table>
+      <thead><tr><th>attachment.type</th><th>处理</th></tr></thead>
+      <tbody>
+        <tr><td><code>pdf</code></td><td>提取文本</td></tr>
+        <tr><td><code>word</code></td><td>提取文本</td></tr>
+        <tr><td><code>audio</code></td><td>语音转写→文本</td></tr>
+        <tr><td><code>image</code></td><td>转视觉模型处理</td></tr>
+      </tbody>
+    </table>
+    <pre><code class="language-bash">curl http://&lt;服务地址&gt;:30080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-r1-distill-qwen-32b",
+    "messages": [{"role": "user", "content": "请简要总结以下PDF文档的内容"}],
+    "attachments": [{"type": "pdf", "url": "http://&lt;pdf-url&gt;"}],
+    "stream": true,
+    "max_tokens": 256
+  }'</code></pre>
+
+    <h2>8. 通用接口说明</h2>
+    <p>服务采用 OpenAI-compatible API，统一使用 <code>/v1/chat/completions</code>。</p>
+    <table>
+      <thead>
+        <tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>model</code></td><td>string</td><td>是</td><td>模型名称</td></tr>
+        <tr><td><code>messages</code></td><td>array</td><td>是</td><td>对话消息</td></tr>
+        <tr><td><code>temperature</code></td><td>number</td><td>否</td><td>采样温度</td></tr>
+        <tr><td><code>max_tokens</code></td><td>integer</td><td>否</td><td>最大生成长度</td></tr>
+        <tr><td><code>stream</code></td><td>boolean</td><td>否</td><td>是否流式返回</td></tr>
+        <tr><td><code>attachments</code></td><td>array</td><td>否</td><td>附件（PDF/Word/audio/image）</td></tr>
+      </tbody>
+    </table>
+
+    <p>常见 <code>messages</code> 格式：</p>
+    <pre><code class="language-json">[
+  {"role": "system", "content": "你是一个有帮助的助手。"},
+  {"role": "user", "content": "请解释 GPU 调度。"}
+]</code></pre>
+
+    <h2>9. 模型使用说明</h2>
+
+    <h3>9.1 <code>qwen3-vl-32b-instruct</code></h3>
+    <table>
+      <thead><tr><th>项目</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>能力</td><td>文本 + 图片理解</td></tr>
+        <tr><td>适用场景</td><td>图片问答、截图分析、视觉内容总结、多模态推理</td></tr>
+        <tr><td>不建议场景</td><td>高并发批量图片处理、大文件长期占用、未压测的低延迟场景</td></tr>
+        <tr><td>限制</td><td>图片不宜过小（建议 ≥64×64）；图片大小/并发受服务约束</td></tr>
+      </tbody>
+    </table>
+
+    <h3>9.2 <code>deepseek-r1-distill-qwen-32b</code></h3>
+    <table>
+      <thead><tr><th>项目</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>能力</td><td>文本推理（推理模型，含思维链）</td></tr>
+        <tr><td>适用场景</td><td>代码分析、复杂问题拆解、长文本问答、方案推理、附件内容总结</td></tr>
+        <tr><td>不建议场景</td><td>未压测的强实时低延迟场景</td></tr>
+        <tr><td>限制</td><td>上下文长度上限 32k tokens；输入超限报 400</td></tr>
+      </tbody>
+    </table>
+
+    <h2>10. 支持与反馈</h2>
+    <p>使用中遇到问题，或有新模型、新能力、配额提升、压测支持等需求，可联系星脑AI平台团队反馈和提需求。</p>
+
+    <p>反馈问题时请尽量提供以下信息：</p>
+    <ul>
+      <li>模型名称与调用场景（文本/视觉/ASR/流式/附件）</li>
+      <li>请求时间</li>
+      <li>请求 ID（如果有）</li>
+      <li>输入规模，例如 token 数、图片大小、音频时长</li>
+      <li>错误信息或异常现象</li>
+      <li>是否使用流式返回</li>
+      <li>复现方式或最小请求示例</li>
+    </ul>
+  </main>
+</body>
+</html>
