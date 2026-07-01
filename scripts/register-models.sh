@@ -25,8 +25,8 @@ echo "[1/3] 开启 STORE_MODEL_IN_DB=True + 重启 ${DEPLOY}..."
 kubectl -n "${NS}" set env deploy/"${DEPLOY}" STORE_MODEL_IN_DB=True
 kubectl -n "${NS}" rollout status deploy/"${DEPLOY}" --timeout=180s
 
-echo "[2/3] port-forward ${SVC}:4000 -> localhost:4000 ..."
-kubectl -n "${NS}" port-forward svc/"${SVC}" 4000:4000 > /tmp/lpf.log 2>&1 &
+echo "[2/3] port-forward ${SVC}:4000 -> localhost:${LOCAL_PORT:-14000} ..."
+kubectl -n "${NS}" port-forward svc/"${SVC}" ${LOCAL_PORT:-14000}:4000 > /tmp/lpf.log 2>&1 &
 PF=$!
 sleep 4
 trap 'kill $PF 2>/dev/null || true' EXIT
@@ -35,7 +35,7 @@ trap 'kill $PF 2>/dev/null || true' EXIT
 echo "      等 litellm health 就绪 (最长 90s)..."
 ready=0
 for i in $(seq 1 30); do
-  code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:4000/health/readiness 2>/dev/null || echo 000)
+  code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${LOCAL_PORT:-14000}/health/readiness 2>/dev/null || echo 000)
   if [[ "$code" == "200" ]]; then ready=1; break; fi
   sleep 3
 done
@@ -46,4 +46,4 @@ else
 fi
 
 echo "[3/3] 经 API 注册模型到现有 litellm DB (幂等)..."
-python3 scripts/litellm_configure.py --base http://localhost:4000
+python3 scripts/litellm_configure.py --base http://localhost:${LOCAL_PORT:-14000}
