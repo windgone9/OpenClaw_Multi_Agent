@@ -41,6 +41,7 @@ REUSE_LITELLM="${REUSE_EXISTING_LITELLM:-auto}"
 # 现有 litellm 所在 namespace + Service 名 (用于桥接 externalName, 仅 REUSE 时生效)
 EXISTING_LITELLM_NS="${EXISTING_LITELLM_NS:-default}"
 EXISTING_LITELLM_SVC="${EXISTING_LITELLM_SVC:-lite-helm-litellm}"
+EXISTING_LITELLM_DEPLOY="${EXISTING_LITELLM_DEPLOY:-lite-helm-litellm}"
 
 # 颜色
 G() { printf '\033[32m%s\033[0m\n' "$1"; }
@@ -95,7 +96,7 @@ IMAGES=(
   "openclaw-funasr:Dockerfile.funasr:.."
 )
 if [[ $SKIP_BUILD -eq 0 ]]; then
-  B "==== [1/5] 构建镜像 ===="
+  B "==== [1/7] 构建镜像 ===="
   cd "$PROJECT_DIR/docker"
   for entry in "${IMAGES[@]}"; do
     IFS=':' read -r name df ctx <<< "$entry"
@@ -115,7 +116,7 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
   done
   cd "$PROJECT_DIR"
 else
-  Y "==== [1/5] 跳过 build (--skip-build) ===="
+  Y "==== [1/7] 跳过 build (--skip-build) ===="
 fi
 
 if [[ -z "$REGISTRY" ]]; then
@@ -123,7 +124,7 @@ if [[ -z "$REGISTRY" ]]; then
 fi
 
 # ---------- 2. 先 apply namespace + secret + 注入 VLLM_API_KEY + LITELLM_MASTER_KEY (不落 git) ----------
-B "==== [2/5] apply namespace + secret + 注入 VLLM_API_KEY / LITELLM_MASTER_KEY (不落 git) ===="
+B "==== [2/7] apply namespace + secret + 注入 VLLM_API_KEY / LITELLM_MASTER_KEY (不落 git) ===="
 # 必须先建 namespace (00), 再建 secret (01, 引用 namespace openclaw), 再 patch 真实 key,
 # 保证后续 litellm (自己装) / nginx (envsubst) 启动时 key 已就位。
 kubectl apply -f "$SCRIPT_DIR/00-namespace.yaml" 2>&1 | sed 's/^/    /'
@@ -134,7 +135,7 @@ kubectl patch secret openclaw-secrets -n "$NAMESPACE" \
   || { R "patch secret 失败"; exit 1; }
 
 # ---------- 3. apply 其余清单 (跳过 04-ollama; 用 server 版替换 06/07/08/09/12) ----------
-B "==== [3/5] apply K8S 清单 (server, vLLM 直连 GPUStack, 无 Ollama) ===="
+B "==== [3/7] apply K8S 清单 (server, vLLM 直连 GPUStack, 无 Ollama) ===="
 # 顺序: [namespace+secret 已在 step 2] -> base configmaps(含 nginx) -> storage
 #       -> [05-litellm-db 仅自装模式] -> server litellm-config/hermes/stream/funasr/proxy
 #       -> nginx -> 占位 ollama Service (nginx 启动兼容)
@@ -169,48 +170,55 @@ for f in "${BASE_AGG[@]}" "${SERVER_AGG[@]}"; do
   kubectl apply -f "$f" 2>&1 | sed 's/^/    /'
 done
 
-# ---------- 3.5 复用模式: 配置现有 litellm 的模型路由 (API 注册到 DB) ----------
-if [[ $REUSE -eq 1 ]]; then
-  B "==== [3.5/5] 经 API 把模型注册到现有 litellm (qwen2.5/llava → 192.168.0.151) ===="
-  Y "端口转发现有 litellm (${EXISTING_LITELLM_NS}/${EXISTING_LITELLM_SVC}:4000) -> localhost:4000 ..."
-  kubectl -n "$EXISTING_LITELLM_NS" port-forward svc/"$EXISTING_LITELLM_SVC" 4000:4000 >/tmp/litellm-pf-server.log 2>&1 &
-  LL_PF=$!
-  sleep 4
-  if curl -s -o /dev/null http://localhost:4000/health/readiness 2>/dev/null \
-     || curl -s -o /dev/null http://localhost:4000/health/liveliness 2>/dev/null; then
-    G "现有 litellm 可达, 注册模型 (幂等)..."
-    LITELLM_MASTER_KEY="$LITELLM_MASTER_KEY" VLLM_API_KEY="$VLLM_API_KEY" \
-      "$PYTHON" "$PROJECT_DIR/scripts/litellm_configure.py" --base http://localhost:4000 2>&1 | sed 's/^/    /' \
-      || Y "litellm_configure.py 部分失败 (模型可能已存在或需在 UI 手动加, 见日志)"
-  else
-    R "现有 litellm 端口转发失败/未就绪 → 跳过模型注册。后续手动:"
-    R "  kubectl -n $EXISTING_LITELLM_NS port-forward svc/$EXISTING_LITELLM_SVC 4000:4000"
-    R "  LITELLM_MASTER_KEY=... VLLM_API_KEY=... $PYTHON scripts/litellm_configure.py"
-  fi
-  kill "$LL_PF" 2>/dev/null || true
-fi
-
-# ---------- 4. 等 minio Ready, 灌测试数据 ----------
-B "==== [4/5] 等待 MinIO Ready 并灌入测试数据 ===="
-Y "等待 minio pod Ready (最长 180s)..."
-kubectl wait --for=condition=Ready pod -l app=minio -n "$NAMESPACE" --timeout=180s 2>&1 | sed 's/^/    /' || R "minio 未就绪, 跳过灌数据 (可后续手动跑 scripts/minio_setup.py)"
-
-# 端口转发 minio 到本地 9000, 跑 minio_setup.py
-Y "端口转发 minio:9000 -> localhost:9000 ..."
-kubectl port-forward svc/minio -n "$NAMESPACE" 9000:9000 >/tmp/minio-pf-server.log 2>&1 &
-PF_PID=$!
-sleep 4
-if curl -s -o /dev/null http://localhost:9000/minio/health/live 2>/dev/null; then
-  G "灌入测试数据 (bucket + public-read + test_image.png + speech_test.wav)..."
-  MINIO_ENDPOINT=http://localhost:9000 MINIO_BUCKET=openclaw-test \
-    "$PYTHON" "$PROJECT_DIR/scripts/minio_setup.py" 2>&1 | sed 's/^/    /' || R "minio_setup.py 失败"
+# ---------- 4. 钉节点 (单节点镜像分发: 镜像只在 build 节点 docker store) ----------
+# 多节点集群 + runtime=docker + 未设 REGISTRY → docker build 的镜像只在本节点,
+# pod 调度到别的节点会 ImagePullBackOff。把 4 个 openclaw deployment 钉到本节点
+# (+ control-plane toleration, 若本节点是 master)。设了 REGISTRY (推 registry) 则跳过。
+if [[ -z "$REGISTRY" ]]; then
+  B "==== [4/7] 钉 openclaw deployment 到本节点 (镜像在本节点 docker store) ===="
+  PIN_NODE="${PIN_NODE:-$(hostname)}"
+  Y "钉 hermes/proxy/stream-service/funasr -> ${PIN_NODE}"
+  bash "$SERVER_DIR/pin-to-node.sh" "$PIN_NODE" 2>&1 | sed 's/^/    /' || R "pin-to-node 失败 (可手动: bash $SERVER_DIR/pin-to-node.sh $PIN_NODE)"
 else
-  R "minio 端口转发失败, 跳过灌数据. 请手动: kubectl port-forward svc/minio -n $NAMESPACE 9000:9000 && $PYTHON scripts/minio_setup.py"
+  Y "==== [4/7] 跳过钉节点 (REGISTRY 已设, 镜像推 registry, 各节点可拉) ===="
 fi
-kill "$PF_PID" 2>/dev/null || true
 
-# ---------- 5. 完成 + 下一步 ----------
-B "==== [5/5] 部署完成 ===="
+# ---------- 5. 复用模式: 注册模型到现有 litellm (incluster, 绕 port-forward/socat) ----------
+if [[ $REUSE -eq 1 ]]; then
+  B "==== [5/7] 注册模型到现有 litellm (经 proxy pod incluster, 绕 port-forward) ===="
+  # 5.1 确保 STORE_MODEL_IN_DB=True + 重启 (litellm 须开此才能 /model/new)
+  Y "确保 litellm STORE_MODEL_IN_DB=True + 重启..."
+  kubectl -n "$EXISTING_LITELLM_NS" set env deploy/"$EXISTING_LITELLM_DEPLOY" STORE_MODEL_IN_DB=True >/dev/null 2>&1
+  kubectl -n "$EXISTING_LITELLM_NS" rollout status deploy/"$EXISTING_LITELLM_DEPLOY" --timeout=180s 2>&1 | sed 's/^/    /'
+  # 5.2 等 proxy pod Ready (kubectl exec 目标)
+  Y "等 proxy pod Ready..."
+  kubectl -n "$NAMESPACE" rollout status deploy/proxy --timeout=180s 2>&1 | sed 's/^/    /'
+  # 5.3 kubectl exec 进 proxy pod, stdin 管道传脚本, 经 litellm:4000 (14-bridge) 注册
+  #     (不依赖 socat/port-forward; proxy pod 的 LITELLM_MASTER_KEY 来自 secret, 此处仍内联双 key 保险)
+  G "经 proxy pod 注册模型 (qwen2.5/llava/funasr → 192.168.0.151)..."
+  kubectl -n "$NAMESPACE" exec -i deploy/proxy -- sh -c "VLLM_API_KEY=${VLLM_API_KEY} LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY} python3 - --base http://litellm:4000" < "$PROJECT_DIR/scripts/litellm_configure.py" 2>&1 | sed 's/^/    /' \
+    || Y "模型注册部分失败 (可能已存在或需 UI 手动加, 见日志)"
+fi
+
+# ---------- 6. 等 minio Ready, 灌测试数据 (经 ClusterIP, 绕 port-forward/socat) ----------
+B "==== [6/7] 等 MinIO Ready 并灌入测试数据 (经 ClusterIP) ===="
+Y "等 minio pod Ready (最长 180s)..."
+kubectl wait --for=condition=Ready pod -l app=minio -n "$NAMESPACE" --timeout=180s 2>&1 | sed 's/^/    /' || R "minio 未就绪, 跳过灌数据"
+MI=$(kubectl -n "$NAMESPACE" get svc minio -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+if [[ -n "$MI" ]]; then
+  # 确保 boto3 (minio_setup.py 依赖); 节点能达 ClusterIP (kube-proxy)
+  if ! "$PYTHON" -c "import boto3" 2>/dev/null; then
+    Y "安装 boto3 (minio_setup.py 依赖)..."
+    "$PYTHON" -m pip install --user boto3 2>&1 | tail -1 || R "boto3 安装失败, 可手动: pip3 install boto3 或 sudo apt install python3-boto3"
+  fi
+  G "灌入测试数据 (bucket + public-read + test_image.png + speech_test.wav) 经 minio ClusterIP ${MI}:9000..."
+  MINIO_ENDPOINT="http://${MI}:9000" "$PYTHON" "$PROJECT_DIR/scripts/minio_setup.py" 2>&1 | sed 's/^/    /' || R "minio_setup.py 失败 (可手动: MINIO_ENDPOINT=http://${MI}:9000 $PYTHON scripts/minio_setup.py)"
+else
+  R "未取到 minio ClusterIP, 跳过灌数据. 手动: MI=\$(kubectl -n $NAMESPACE get svc minio -o jsonpath='{.spec.clusterIP}') && MINIO_ENDPOINT=http://\$MI:9000 $PYTHON scripts/minio_setup.py"
+fi
+
+# ---------- 7. 完成 + 下一步 ----------
+B "==== [7/7] 部署完成 ===="
 if [[ $REUSE -eq 1 ]]; then
   G "复用现有 LiteLLM (${EXISTING_LITELLM_NS}/${EXISTING_LITELLM_SVC}:4000, 经 14-bridge 桥接)。OpenClaw pod:"
 else
@@ -225,32 +233,29 @@ fi
 
 cat <<EOF
 
-下一步:
+部署已完成 (build + apply + 钉节点 + 注册模型 + minio 灌数据 全自动)。下一步验证:
+
 1. 等 pod Ready: kubectl get pods -n $NAMESPACE -w
    (不应有 ollama pod; vLLM 在 K8S 外经 GPUStack 提供$([[ $REUSE -eq 1 ]] && echo "; litellm 复用 default ns 现有"))
 
 2. LiteLLM UI: http://<节点IP>:30080/ui/   (nginx 注入 master key, 可直接访问)
-   或直连现有 litellm: kubectl -n $EXISTING_LITELLM_NS port-forward svc/$EXISTING_LITELLM_SVC 4000:4000 → http://localhost:4000/ui/
 
-3. 验证文本模型 (经 nginx → proxy → litellm → GPUStack):
-   curl http://<节点IP>:30080/v1/chat/completions -H 'Content-Type: application/json' \\
-     -d '{"model":"qwen2.5","messages":[{"role":"user","content":"你好"}]}'
+3. 端到端测试 (在服务器上):
+   bash scripts/test-chat.sh        # 文本: qwen2.5 → deepseek-r1
+   bash scripts/test-vision.sh      # 视觉: qwen2.5+图 → qwen3-vl
 
-4. 验证视觉模型 (proxy 自动下载 minio 图片 → base64 → qwen3-vl):
-   curl http://<节点IP>:30080/v1/chat/completions -H 'Content-Type: application/json' \\
-     -d '{"model":"qwen2.5","messages":[{"role":"user","content":[{"type":"text","text":"图里有什么"},{"type":"image_url","image_url":{"url":"http://minio:9000/openclaw-test/test_image.png"}}]}]}'
+4. Dashboard: http://<节点IP>:30080/new_dashboard.html
 
-5. Dashboard: http://<节点IP>:30080/new_dashboard.html
-
-6. Playwright E2E (本机跑, 指向服务器 — DASHBOARD_URL 支持 env 覆盖):
-   kubectl port-forward svc/nginx -n $NAMESPACE 30080:80
-   DASHBOARD_URL=http://localhost:30080/new_dashboard.html \\
+5. Playwright E2E 10/10 (本机 Mac, 指向服务器):
+   dashboard 只认 8080/8090, 服务器 NodePort 30080 → 用 SSH 隧道映射:
+   ssh -N -L 8090:localhost:30080 ubuntu@<节点IP> &   # 后台隧道
+   DASHBOARD_URL=http://localhost:8090/new_dashboard.html \\
      ~/MyWork/Multi-Agent/venv/bin/python tests/e2e_full_playwright.py
 
-7. 性能/容量基准 (本机跑, 指向服务器):
-   改 scripts/vllm_perf.py 的 KIND_BASE 为 http://localhost:30080 后:
+6. 性能/容量基准 (本机, 指向服务器):
+   改 scripts/vllm_perf.py 的 KIND_BASE 为 http://<节点IP>:30080 后:
    python3 scripts/vllm_perf.py --ramp        # 并发阶梯
    python3 scripts/vllm_perf.py --longctx     # 长上下文
 
-详见 docs/SERVER_DEPLOY.md
+详见 docs/SERVER_DEPLOY_HANDOFF.md / docs/SERVER_DEPLOY.md
 EOF
