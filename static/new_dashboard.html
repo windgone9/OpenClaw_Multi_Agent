@@ -663,9 +663,16 @@ async function checkOllama() {
     }).join('');
     addLog('ok', '[Ollama] 健康 ' + ms + 'ms, ' + models.length + ' 模型');
   } catch (e) {
-    setSvc('ollama', 'err', '-', null);
-    $('svc-ollama-tb').innerHTML = '<tr><td colspan="3"><span class="badge badge-err">离线</span></td></tr>';
-    addLog('err', '[Ollama] 不可达: ' + e.message);
+    var msg = e.message || '';
+    if (msg.indexOf('Unexpected token') !== -1 || msg.indexOf('<') !== -1) {
+      setSvc('ollama', 'idle', '-', null);
+      $('svc-ollama-tb').innerHTML = '<tr><td colspan="3"><span class="badge badge-idle">未部署</span></td></tr>';
+      addLog('warn', '[Ollama] 未部署 (占位 Service, 跳过)');
+    } else {
+      setSvc('ollama', 'err', '-', null);
+      $('svc-ollama-tb').innerHTML = '<tr><td colspan="3"><span class="badge badge-err">离线</span></td></tr>';
+      addLog('err', '[Ollama] 不可达: ' + msg);
+    }
   }
 }
 
